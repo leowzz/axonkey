@@ -1296,6 +1296,10 @@ bool axonkey_macos_post_key(
     if (source == NULL) {
         return false;
     }
+    CGEventFlags physical_flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)
+        & (kCGEventFlagMaskShift | kCGEventFlagMaskControl
+           | kCGEventFlagMaskAlternate | kCGEventFlagMaskCommand
+           | kCGEventFlagMaskAlphaShift);
     CGEventRef event = modifier
         ? CGEventCreate(source)
         : CGEventCreateKeyboardEvent(source, code, down);
@@ -1314,7 +1318,7 @@ bool axonkey_macos_post_key(
     );
     CGEventFlags intrinsic_flags = CGEventGetFlags(event)
         & (kCGEventFlagMaskNumericPad | kCGEventFlagMaskSecondaryFn);
-    CGEventSetFlags(event, intrinsic_flags | (CGEventFlags)flags);
+    CGEventSetFlags(event, physical_flags | intrinsic_flags | (CGEventFlags)flags);
     if (autorepeat) {
         CGEventSetIntegerValueField(event, kCGKeyboardEventAutorepeat, 1);
     }

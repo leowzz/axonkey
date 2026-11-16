@@ -8,8 +8,26 @@ struct Key {
     long: bool,
     second: bool,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TriggerKind {
+    Click,
+    DoubleClick,
+    LongPress,
+}
+
+impl TriggerKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Click => "单击",
+            Self::DoubleClick => "双击",
+            Self::LongPress => "长按",
+        }
+    }
+}
+
 pub(super) struct Execution {
     pub input: String,
+    pub trigger: TriggerKind,
     pub behaviors: Vec<NativeBehavior>,
     pub sources: Vec<String>,
 }
@@ -39,6 +57,7 @@ impl Gestures {
             if key.second && enabled(&mapping.double_click) {
                 out.push(Execution {
                     input: id.into(),
+                    trigger: TriggerKind::DoubleClick,
                     behaviors: mapping.double_click.clone(),
                     sources: mapping.double_click_sources.clone(),
                 });
@@ -47,6 +66,7 @@ impl Gestures {
             } else {
                 out.push(Execution {
                     input: id.into(),
+                    trigger: TriggerKind::Click,
                     behaviors: mapping.click.clone(),
                     sources: mapping.click_sources.clone(),
                 });
@@ -75,6 +95,7 @@ impl Gestures {
                 key.click = None;
                 out.push(Execution {
                     input: id.into(),
+                    trigger: TriggerKind::LongPress,
                     behaviors: mapping.long_press.clone(),
                     sources: mapping.long_press_sources.clone(),
                 });
@@ -86,6 +107,7 @@ impl Gestures {
                 key.click = None;
                 out.push(Execution {
                     input: id.into(),
+                    trigger: TriggerKind::Click,
                     behaviors: mapping.click.clone(),
                     sources: mapping.click_sources.clone(),
                 });

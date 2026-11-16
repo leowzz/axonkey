@@ -2439,7 +2439,11 @@ mod tests {
     #[test]
     fn quarbor_commands_use_declared_windows_identities() {
         for kind in super::devices::descriptor_registry::KINDS {
-            assert!(super::supports_quarbor(kind));
+            assert_eq!(
+                super::supports_quarbor(kind),
+                !super::devices::descriptor_registry::uses_vendor_usb_hid(kind),
+                "{kind}"
+            );
         }
         assert!(!super::supports_quarbor("unknown"));
     }

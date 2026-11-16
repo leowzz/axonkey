@@ -13,6 +13,7 @@ pub(crate) const KINDS: &[&str] = &[
     "hisenseRcf3b65",
     "phicommDb1R",
     "xboxBluetooth",
+    "kivoK18Lite",
 ];
 
 /// Return the bundled descriptor for a discovered device kind.
@@ -32,6 +33,7 @@ pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescripto
         "hisenseRcf3b65" => crate::devices::hisense_rcf3b65::descriptor(),
         "phicommDb1R" => crate::devices::phicomm_db1_r::descriptor(),
         "xboxBluetooth" => xbox(),
+        "kivoK18Lite" => crate::devices::kivo_k18_lite::descriptor(),
         _ => None,
     }
 }
@@ -155,6 +157,22 @@ pub(crate) fn voice_key(kind: &str) -> Option<&'static str> {
         .iter()
         .find(|input| input.id == voice.trigger_key)
         .map(input_key)
+}
+
+pub(crate) fn uses_vendor_usb_hid(kind: &str) -> bool {
+    descriptor_for_kind(kind).is_some_and(|descriptor| {
+        !descriptor.identities.is_empty()
+            && descriptor.identities.iter().all(|identity| {
+                identity
+                    .attributes
+                    .get("transport")
+                    .is_some_and(|transport| transport == "usb-hid")
+                    && identity.attributes.get("usage-page").is_some_and(|page| {
+                        identity_numbers(page).next().is_some()
+                            && identity_numbers(page).all(|value| (0xff00..=0xffff).contains(&value))
+                    })
+            })
+    })
 }
 
 pub(crate) fn requires_information(kind: &str) -> bool {
@@ -365,6 +383,24 @@ mod tests {
             Some(12),
             Some(1)
         ));
+        assert!(matches_hardware(
+            "kivoK18Lite",
+            0x2e8a,
+            0xa018,
+            Some(0xff60),
+            Some(0x01)
+        ));
+        assert!(!matches_hardware(
+            "kivoK18Lite",
+            0x2e8a,
+            0xa018,
+            Some(0x01),
+            Some(0x06)
+        ));
+        assert!(uses_vendor_usb_hid("kivoK18Lite"));
+        assert!(!uses_vendor_usb_hid("xboxBluetooth"));
+        assert!(!uses_vendor_usb_hid("rc003"));
+        assert!(!uses_vendor_usb_hid("unknown"));
     }
 
     #[test]
