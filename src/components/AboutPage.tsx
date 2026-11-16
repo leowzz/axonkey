@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
@@ -123,9 +124,35 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
   )
 }
 
-function AgentConfigurationCard() {
+export function buildAgentCliPrompt(cliPath?: string | null): string {
+  const resolved = typeof cliPath === 'string' ? cliPath.trim() : ''
+  return resolved
+    ? `请先了解 axonkey-cli（${resolved}），再按我的需求查看和调整设备按键设置。`
+    : '请先了解 axonkey-cli，再按我的需求查看和调整设备按键设置。'
+}
+
+export function AgentConfigurationCard() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
-  const text = '请先了解 axonkey-cli，再按我的需求查看和调整设备按键设置。'
+  const [cliPath, setCliPath] = useState<string | null>(null)
+  const pendingPathRef = useRef<Promise<string | null> | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let cancelled = false
+    const request = invoke<string>('cli_executable_path').then(
+      path => (typeof path === 'string' && path.trim() ? path.trim() : null),
+      () => null,
+    )
+    pendingPathRef.current = request
+    void request.then(resolved => {
+      if (!cancelled && resolved) setCliPath(resolved)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const text = buildAgentCliPrompt(cliPath)
 
   return (
     <section className="about-cli" aria-labelledby="about-cli-title">
@@ -137,9 +164,11 @@ function AgentConfigurationCard() {
           type="button"
           aria-label="复制提示词"
           onClick={() => {
-            void writeClipboardText(text)
-              .then(() => setCopyState('copied'))
-              .catch(() => setCopyState('error'))
+            void (async () => {
+              const resolved = cliPath ?? (await pendingPathRef.current)
+              await writeClipboardText(buildAgentCliPrompt(resolved))
+              setCopyState('copied')
+            })().catch(() => setCopyState('error'))
           }}
         >
           {copyState === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}

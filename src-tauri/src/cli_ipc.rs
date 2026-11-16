@@ -161,6 +161,33 @@ pub fn cli_write_response(app: AppHandle, response: CliResponse) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn cli_executable_path() -> Result<String, String> {
+    let executable =
+        std::env::current_exe().map_err(|error| format!("Cannot locate Axonkey: {error}"))?;
+    let cli = cli_executable_for(&executable)
+        .ok_or_else(|| format!("Cannot resolve CLI path from {}", executable.display()))?;
+    Ok(cli.to_string_lossy().into_owned())
+}
+
+fn cli_executable_for(app_executable: &Path) -> Option<PathBuf> {
+    let binary = format!("axonkey-cli{}", std::env::consts::EXE_SUFFIX);
+    let candidate = app_executable.parent()?.join(binary);
+    match candidate.to_str() {
+        Some(text) => Some(PathBuf::from(strip_windows_verbatim_prefix(text))),
+        None => Some(candidate),
+    }
+}
+
+fn strip_windows_verbatim_prefix(path: &str) -> &str {
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        if !rest.starts_with(r"UNC\") && rest.as_bytes().get(1) == Some(&b':') {
+            return rest;
+        }
+    }
+    path
+}
+
+#[tauri::command]
 pub fn cli_cancel_request(app: AppHandle, id: String) -> Result<(), String> {
     if !valid_id(&id) {
         return Err("Invalid CLI request ID".into());
@@ -172,7 +199,8 @@ pub fn cli_cancel_request(app: AppHandle, id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_id;
+    use super::{cli_executable_for, strip_windows_verbatim_prefix, valid_id};
+    use std::path::Path;
 
     #[test]
     fn request_ids_are_safe_filenames() {
@@ -180,5 +208,23 @@ mod tests {
         assert!(!valid_id("../request"));
         assert!(!valid_id("request/child"));
         assert!(!valid_id(""));
+    }
+
+    #[test]
+    fn resolves_sibling_cli_executable_and_strips_verbatim_drive_prefix() {
+        let app_dir = std::env::temp_dir().join("axonkey-cli-path-test");
+        let app_exe = app_dir.join(format!("axonkey{}", std::env::consts::EXE_SUFFIX));
+        let expected = app_dir.join(format!("axonkey-cli{}", std::env::consts::EXE_SUFFIX));
+        assert_eq!(cli_executable_for(&app_exe), Some(expected));
+        assert_eq!(cli_executable_for(Path::new("")), None);
+
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\E:\Tools\Axonkey\axonkey-cli.exe"),
+            r"E:\Tools\Axonkey\axonkey-cli.exe"
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\UNC\server\share\axonkey-cli.exe"),
+            r"\\?\UNC\server\share\axonkey-cli.exe"
+        );
     }
 }
