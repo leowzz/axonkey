@@ -66,12 +66,69 @@ fn uses_vendor_usb_hid(kind: &str) -> bool {
     crate::devices::descriptor_registry::uses_vendor_usb_hid(kind)
 }
 
+const fn default_display_brightness() -> u8 {
+    100
+}
+
+const fn default_display_sleep_timeout_sec() -> u32 {
+    180
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileDisplayMode {
+    #[default]
+    Auto,
+    Custom,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileDisplayConfig {
+    #[serde(default)]
+    pub mode: ProfileDisplayMode,
+    #[serde(default)]
+    pub line1: String,
+    #[serde(default)]
+    pub line2: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceDisplaySettings {
+    #[serde(default = "default_display_brightness")]
+    pub brightness: u8,
+    #[serde(default = "default_display_sleep_timeout_sec")]
+    pub sleep_timeout_sec: u32,
+    #[serde(default = "default_true")]
+    pub show_key_toast: bool,
+    #[serde(default = "default_true")]
+    pub show_profile_toast: bool,
+}
+
+impl Default for DeviceDisplaySettings {
+    fn default() -> Self {
+        Self {
+            brightness: default_display_brightness(),
+            sleep_timeout_sec: default_display_sleep_timeout_sec(),
+            show_key_toast: true,
+            show_profile_toast: true,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub id: String,
     pub name: String,
     pub behaviors: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<ProfileDisplayConfig>,
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +158,8 @@ pub struct Instance {
     pub app_profile_switching: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub application_profiles: Vec<ApplicationProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<DeviceDisplaySettings>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -438,6 +497,14 @@ fn validate(store: &Store) -> Result<(), String> {
         {
             return Err("设备配置文件无效".into());
         }
+        if let Some(display) = &instance.display {
+            if display.brightness > 100 {
+                return Err("屏幕亮度超出有效范围".into());
+            }
+            if display.sleep_timeout_sec != 0 && !(15..=3600).contains(&display.sleep_timeout_sec) {
+                return Err("自动息屏时间超出有效范围".into());
+            }
+        }
         let mut profiles = HashSet::new();
         app_profiles::validate(instance)?;
         for profile in &instance.profiles {
@@ -446,6 +513,11 @@ fn validate(store: &Store) -> Result<(), String> {
                 || profile.name.trim().is_empty()
             {
                 return Err("配置文件名称或 ID 无效".into());
+            }
+            if let Some(cfg) = &profile.display {
+                if cfg.line1.chars().count() > 64 || cfg.line2.chars().count() > 64 {
+                    return Err("屏幕自定义文本过长".into());
+                }
             }
             let maps: HashMap<String, TriggerBehaviors> =
                 serde_json::from_value(profile.behaviors.clone())
@@ -905,15 +977,20 @@ fn oled_idle_lines(
     effective: &Instance,
     app_id: Option<&str>,
 ) -> (String, String) {
+    let active_profile = effective
+        .profiles
+        .iter()
+        .find(|p| p.id == effective.active_profile_id);
+    if let Some(cfg) = active_profile
+        .and_then(|p| p.display.as_ref())
+        .filter(|cfg| cfg.mode == ProfileDisplayMode::Custom)
+    {
+        return (cfg.line1.clone(), cfg.line2.clone());
+    }
     let top = application_binding(raw, app_id)
         .map(|index| raw.application_profiles[index].application.name.clone())
         .unwrap_or_else(|| effective.name.clone());
-    let bottom = effective
-        .profiles
-        .iter()
-        .find(|p| p.id == effective.active_profile_id)
-        .map(|p| p.name.clone())
-        .unwrap_or_default();
+    let bottom = active_profile.map(|p| p.name.clone()).unwrap_or_default();
     (top, bottom)
 }
 
@@ -937,8 +1014,11 @@ impl Reader {
         instance: &Instance,
         idle_lines: Option<&(String, String)>,
     ) -> bool {
-        if let (Some(oled), Some((top, bottom))) = (&self.oled, idle_lines) {
-            oled.set_idle(top.clone(), bottom.clone());
+        if let Some(oled) = &self.oled {
+            oled.set_settings(instance.display.clone().unwrap_or_default());
+            if let Some((top, bottom)) = idle_lines {
+                oled.set_idle(top.clone(), bottom.clone());
+            }
         }
         if &self.config.instance == instance {
             return true;
@@ -970,6 +1050,14 @@ impl Reader {
                     self.maps = settings.behaviors;
                 }
             }
+            #[cfg(test)]
+            InputReader::Test => {
+                if self.maps != settings.behaviors || profile_changed {
+                    self.gestures = Gestures::default();
+                    self.holds.release_instance(&instance.id);
+                    self.maps = settings.behaviors;
+                }
+            }
         }
         if profile_changed {
             if let Some(oled) = &self.oled {
@@ -978,7 +1066,7 @@ impl Reader {
                     .iter()
                     .find(|p| p.id == instance.active_profile_id)
                 {
-                    oled.show_toast("切换配置".into(), profile.name.clone());
+                    oled.show_profile_toast("切换配置".into(), profile.name.clone());
                 }
             }
         }
@@ -1045,6 +1133,8 @@ enum InputReader {
     Hid(HidDevice),
     #[cfg(target_os = "macos")]
     Remote(remote::RemoteReader),
+    #[cfg(test)]
+    Test,
 }
 impl InputReader {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
@@ -1054,6 +1144,8 @@ impl InputReader {
             Self::Hid(device) => device.read(buffer).map_err(|e| e.to_string()),
             #[cfg(target_os = "macos")]
             Self::Remote(device) => device.read(buffer),
+            #[cfg(test)]
+            Self::Test => Ok(0),
         }
     }
 }
@@ -1831,7 +1923,10 @@ fn run(shared: Arc<Shared>) {
                                         .cloned()
                                         .unwrap_or_else(|| oled_idle_lines(instance, instance, None));
                                     crate::devices::kivo_k18_lite::DisplayController::open(
-                                        hid, top, bottom,
+                                        hid,
+                                        top,
+                                        bottom,
+                                        instance.display.clone().unwrap_or_default(),
                                     )
                                 }
                                 _ => None,
@@ -1882,9 +1977,13 @@ fn run(shared: Arc<Shared>) {
                             if accept_direct_pointer_report(&instance.kind, &buffer[..len]) {
                                 continue;
                             }
-                            for (id, down) in
-                                reader.engine.accept(reader.descriptor, &buffer[..len])
-                            {
+                            let edges = reader.engine.accept(reader.descriptor, &buffer[..len]);
+                            if !edges.is_empty() {
+                                if let Some(oled) = &reader.oled {
+                                    oled.record_activity();
+                                }
+                            }
+                            for (id, down) in edges {
                                 if reader.descriptor.voices.iter().any(|voice| {
                                     voice.engine == "tcl-rc902v-atvv" && voice.trigger_key == id
                                 }) {
@@ -1912,7 +2011,7 @@ fn run(shared: Arc<Shared>) {
                                                     reader.descriptor,
                                                     key,
                                                 );
-                                            oled.show_toast(format!("{label} 按住"), summary);
+                                            oled.show_key_toast(format!("{label} 按住"), summary);
                                         }
                                     }
                                     hold::HoldOutcome::PassToGestures => {
@@ -1946,7 +2045,7 @@ fn run(shared: Arc<Shared>) {
                                     reader.descriptor,
                                     &exec.input,
                                 );
-                                oled.show_toast(
+                                oled.show_key_toast(
                                     format!("{} {}", label, exec.trigger.label()),
                                     summary,
                                 );
@@ -2386,10 +2485,12 @@ mod tests {
                 id: "default".into(),
                 name: "默认".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             }],
             active_profile_id: "default".into(),
             app_profile_switching: false,
             application_profiles: vec![],
+            display: None,
         }
     }
 
@@ -3587,6 +3688,7 @@ mod tests {
             id: "game".into(),
             name: "游戏".into(),
             behaviors: serde_json::json!({}),
+            display: None,
         });
         let manager = offline_manager(vec![device]);
         let shared = &manager.shared;
@@ -3635,11 +3737,13 @@ mod tests {
                 id: "browser".into(),
                 name: "浏览器".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             },
             Profile {
                 id: "editor".into(),
                 name: "编辑器".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             },
         ]);
         first.app_profile_switching = true;
@@ -3916,6 +4020,7 @@ mod tests {
             id: "term".into(),
             name: "悬浮终端".into(),
             behaviors: serde_json::json!({}),
+            display: None,
         });
         left.app_profile_switching = true;
         left.application_profiles.push(ApplicationProfile {
@@ -3949,6 +4054,303 @@ mod tests {
             ("Ghostty".into(), "悬浮终端".into())
         );
 
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn display_config_round_trips_backwards_compatibly_validates_bounds_and_switches_with_app_profiles()
+    {
+        let path = std::env::temp_dir().join(format!("axonkey-k18-display-{}.json", unique_id()));
+
+        // 1) Legacy store without `Instance.display` or `Profile.display` loads cleanly and omits both on save.
+        let mut legacy = instance("k18", "physical-k18");
+        legacy.kind = "kivoK18Lite".into();
+        legacy.name = "Kivo K18 Lite".into();
+        let legacy_store = Store {
+            revision: 1,
+            instances: vec![legacy],
+            ..Store::default()
+        };
+        save(&path, &legacy_store).unwrap();
+        let raw_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(raw_json["instances"][0].get("display").is_none());
+        assert!(raw_json["instances"][0]["profiles"][0]
+            .get("display")
+            .is_none());
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.instances[0].display, None);
+        assert_eq!(loaded.instances[0].profiles[0].display, None);
+
+        // Partial JSON objects fill exact contract defaults (`camelCase`).
+        let partial_settings: DeviceDisplaySettings = serde_json::from_value(serde_json::json!({}))
+            .expect("empty DeviceDisplaySettings uses defaults");
+        assert_eq!(
+            partial_settings,
+            DeviceDisplaySettings {
+                brightness: 100,
+                sleep_timeout_sec: 180,
+                show_key_toast: true,
+                show_profile_toast: true,
+            }
+        );
+        let partial_profile_display: ProfileDisplayConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(
+            partial_profile_display,
+            ProfileDisplayConfig {
+                mode: ProfileDisplayMode::Auto,
+                line1: String::new(),
+                line2: String::new(),
+            }
+        );
+
+        // 2) Validation bounds on `Profile.display` and `Instance.display`.
+        let mut store = loaded;
+        let cjk_64 = "屏".repeat(64);
+        let cjk_65 = "屏".repeat(65);
+        store.instances[0].profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Custom,
+            line1: cjk_64.clone(),
+            line2: cjk_64,
+        });
+        assert!(validate(&store).is_ok());
+
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line1 = cjk_65.clone();
+        assert_eq!(validate(&store).unwrap_err(), "屏幕自定义文本过长");
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line1 = "OK".into();
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line2 = cjk_65;
+        assert_eq!(validate(&store).unwrap_err(), "屏幕自定义文本过长");
+        store.instances[0].profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Auto,
+            line1: "Ignored Top".into(),
+            line2: "Ignored Bottom".into(),
+        });
+
+        for valid_timeout in [0, 15, 180, 3600] {
+            store.instances[0].display = Some(DeviceDisplaySettings {
+                brightness: 100,
+                sleep_timeout_sec: valid_timeout,
+                show_key_toast: true,
+                show_profile_toast: false,
+            });
+            assert!(validate(&store).is_ok(), "timeout {valid_timeout}");
+        }
+        store.instances[0].display = Some(DeviceDisplaySettings {
+            brightness: 101,
+            ..DeviceDisplaySettings::default()
+        });
+        assert!(validate(&store).is_err());
+        for invalid_timeout in [1, 14, 3601] {
+            store.instances[0].display = Some(DeviceDisplaySettings {
+                brightness: 80,
+                sleep_timeout_sec: invalid_timeout,
+                show_key_toast: true,
+                show_profile_toast: true,
+            });
+            assert!(
+                validate(&store).is_err(),
+                "invalid timeout {invalid_timeout}"
+            );
+        }
+
+        // 3) `ProfileDisplayMode::Auto` vs `Custom` across `ApplicationProfile` switching + round-trip save/load.
+        let dev = &mut store.instances[0];
+        dev.display = Some(DeviceDisplaySettings {
+            brightness: 75,
+            sleep_timeout_sec: 300,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        dev.profiles.push(Profile {
+            id: "code".into(),
+            name: "编程配置".into(),
+            behaviors: serde_json::json!({}),
+            display: Some(ProfileDisplayConfig {
+                mode: ProfileDisplayMode::Custom,
+                line1: "BUILD MODE".into(),
+                line2: "Rust / Tauri".into(),
+            }),
+        });
+        dev.app_profile_switching = true;
+        dev.application_profiles.push(ApplicationProfile {
+            application: crate::foreground::Application {
+                id: "com.microsoft.VSCode".into(),
+                name: "VS Code".into(),
+                path: "/Applications/Visual Studio Code.app".into(),
+            },
+            profile_id: "code".into(),
+        });
+        save(&path, &store).unwrap();
+        let reloaded = load(&path).unwrap();
+        assert!(reloaded.instances[0] == store.instances[0]);
+
+        let raw = &reloaded.instances[0];
+        // Global profile `"default"` has `mode: Auto` -> returns (instance name, profile name) even if line1/line2 are non-empty.
+        let eff_global = effective_instance(raw, Some("com.apple.Safari"));
+        assert_eq!(
+            oled_idle_lines(raw, &eff_global, Some("com.apple.Safari")),
+            ("Kivo K18 Lite".into(), "默认".into())
+        );
+        // Switching foreground app to VS Code activates `"code"` (`mode: Custom`) -> returns custom lines.
+        let eff_vscode = effective_instance(raw, Some("com.microsoft.VSCode"));
+        assert_eq!(
+            oled_idle_lines(raw, &eff_vscode, Some("com.microsoft.VSCode")),
+            ("BUILD MODE".into(), "Rust / Tauri".into())
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn reader_update_config_updates_oled_settings_without_resetting_gestures_or_holds() {
+        let _hold_guard = hold::test_platform_hold_lock();
+        #[cfg(target_os = "macos")]
+        super::super::macos::clear_managed_held_keys_for_test();
+
+        let mut dev = instance("k18-live", "physical-k18");
+        dev.kind = "kivoK18Lite".into();
+        dev.name = "Kivo K18 Lite".into();
+        dev.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k01": {"click": [{"type": "key", "key": "Ctrl"}]},
+            "kivo.k18Lite.k02": {
+                "click": [{"type": "key", "key": "A"}],
+                "doubleClick": [{"type": "paste", "text": "double"}]
+            }
+        });
+        dev.profiles.push(Profile {
+            id: "alt".into(),
+            name: "备用".into(),
+            behaviors: serde_json::json!({}),
+            display: None,
+        });
+
+        let manager = offline_manager(vec![dev.clone()]);
+        let oled = crate::devices::kivo_k18_lite::DisplayController::start_worker(
+            "Kivo K18 Lite".into(),
+            "默认".into(),
+            DeviceDisplaySettings::default(),
+            Duration::from_millis(80),
+            Duration::from_secs(1),
+        );
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("kivoK18Lite")
+            .expect("kivoK18Lite descriptor");
+        let (actions, _rx) = sync_channel(4);
+        let maps = active_mappings(&dev);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(&dev)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: Some(oled),
+            path: CString::new("test-k18").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps,
+            actions,
+            reports: 0,
+        };
+
+        // Drain initial lease + idle chunks.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut drained = 0usize;
+        while drained < 11 {
+            drained += reader
+                .oled
+                .as_ref()
+                .unwrap()
+                .drain_queued_packets_for_test()
+                .len();
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        // Hold K01 (Ctrl) and start the first tap of a double-click on K02.
+        let k01_map = reader.maps.get("kivo.k18Lite.k01").unwrap().clone();
+        let k02_map = reader.maps.get("kivo.k18Lite.k02").unwrap().clone();
+        assert!(matches!(
+            reader
+                .holds
+                .try_edge(&dev.id, "kivo.k18Lite.k01", true, &k01_map),
+            hold::HoldOutcome::Handled { .. }
+        ));
+        assert!(reader.holds.has_leases_for_test(&dev.id));
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", true, 10, &k02_map)
+            .is_empty());
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", false, 30, &k02_map)
+            .is_empty());
+
+        // Changing `Instance.display` + `Profile.display` updates OLED brightness & custom lines WITHOUT resetting holds or gestures!
+        let mut display_updated = dev.clone();
+        display_updated.display = Some(DeviceDisplaySettings {
+            brightness: 42,
+            sleep_timeout_sec: 60,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        display_updated.profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Custom,
+            line1: "CUSTOM TOP".into(),
+            line2: "CUSTOM SUB".into(),
+        });
+        let next_idle = oled_idle_lines(&display_updated, &display_updated, None);
+        assert!(reader.update_config(&manager.shared, &display_updated, Some(&next_idle)));
+
+        assert!(
+            reader.holds.has_leases_for_test(&dev.id),
+            "updating display settings must keep active hold leases"
+        );
+        // Second tap completes the in-progress double-click rather than restarting as a first tap!
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", true, 90, &k02_map)
+            .is_empty());
+        let completed = reader.gestures.edge("kivo.k18Lite.k02", false, 110, &k02_map);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].trigger, gesture::TriggerKind::DoubleClick);
+
+        // Verify OLED received brightness=42 control lease.
+        let mut packets = Vec::new();
+        while packets.len() < 11 {
+            packets.extend(
+                reader
+                    .oled
+                    .as_ref()
+                    .unwrap()
+                    .drain_queued_packets_for_test(),
+            );
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(&packets[0][..6], &[0x02, 0x01, 1, 5, 42, 0]);
+
+        // Switching `active_profile_id` DOES release holds and reset gestures.
+        let mut switched = display_updated.clone();
+        switched.active_profile_id = "alt".into();
+        let alt_idle = oled_idle_lines(&switched, &switched, None);
+        assert!(reader.update_config(&manager.shared, &switched, Some(&alt_idle)));
+        assert!(!reader.holds.has_leases_for_test(&dev.id));
+
+        #[cfg(target_os = "macos")]
+        super::super::macos::clear_managed_held_keys_for_test();
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

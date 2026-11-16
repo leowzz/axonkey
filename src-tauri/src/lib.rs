@@ -1913,6 +1913,11 @@ fn remove_device_instance(
 }
 
 #[tauri::command]
+fn render_kivo_oled_preview(line1: String, line2: String) -> Vec<u8> {
+    devices::kivo_k18_lite::font::render_two_lines_128x32(&line1, &line2).to_vec()
+}
+
+#[tauri::command]
 fn reorder_device_instances(
     revision: u64,
     ids: Vec<String>,
@@ -2263,6 +2268,7 @@ pub fn run() {
             put_device_instance,
             remove_device_instance,
             reorder_device_instances,
+            render_kivo_oled_preview,
             write_mapping_file,
             backup_files::open_backup_location,
             cli_ipc::cli_executable_path,
@@ -2488,5 +2494,24 @@ mod tests {
         assert!(super::is_isolated_windows_desktop(
             "exebox-CRC73DZUUINT6EMROH7UDNSSIH"
         ));
+    }
+
+    #[test]
+    fn render_kivo_oled_preview_returns_exact_512_byte_1bpp_framebuffer() {
+        let blank = super::render_kivo_oled_preview(String::new(), String::new());
+        assert_eq!(blank.len(), super::devices::kivo_k18_lite::FRAME_BYTES);
+        assert!(blank.iter().all(|&b| b == 0));
+
+        let rendered =
+            super::render_kivo_oled_preview("Kivo K18 Lite".into(), "悬浮终端".into());
+        assert_eq!(rendered.len(), 512);
+        assert_eq!(
+            rendered.as_slice(),
+            super::devices::kivo_k18_lite::font::render_two_lines_128x32(
+                "Kivo K18 Lite",
+                "悬浮终端"
+            )
+            .as_slice()
+        );
     }
 }
