@@ -2263,6 +2263,7 @@ pub fn run() {
             reorder_device_instances,
             write_mapping_file,
             backup_files::open_backup_location,
+            cli_ipc::cli_executable_path,
             cli_ipc::cli_poll_requests,
             cli_ipc::cli_write_response,
             cli_ipc::cli_cancel_request,
