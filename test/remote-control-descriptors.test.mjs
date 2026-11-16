@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all eleven protocol SVGs', () => {
+test('the committed device index is generated from all twelve protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 11)
+  assert.equal(Object.keys(deviceDescriptors).length, 12)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -74,11 +74,44 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
   assert.equal(deviceDescriptors.xbox.voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].voice, null)
   assert.equal(deviceDescriptors['phicomm-db1-r'].voice, null)
+  assert.equal(deviceDescriptors['kivo-k18-lite'].voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].inputs.length, 18)
   assert.equal(deviceDescriptors['phicomm-db1-r'].inputs.length, 12)
+  assert.equal(deviceDescriptors['kivo-k18-lite'].inputs.length, 18)
+  assert.deepEqual(deviceDescriptors['kivo-k18-lite'].identities, [
+    {
+      vendorIds: [0x2e8a],
+      productIds: [0xa018],
+      softwareContains: '',
+      softwareFallback: false,
+      windowsPrefix: '',
+      informationRequired: false,
+      modelContains: '',
+      manufacturerContains: '',
+    },
+  ])
+  assert.deepEqual(
+    deviceDescriptors['kivo-k18-lite'].inputs.map(input => ({
+      id: input.id,
+      stableId: input.stableId,
+      label: input.label,
+      short: input.short,
+    })),
+    Array.from({ length: 18 }, (_, index) => {
+      const code = String(index + 1).padStart(2, '0')
+      return {
+        id: `kivo.k18Lite.k${code}`,
+        stableId: `kivo.k18Lite.k${code}`,
+        label: `K${code}`,
+        short: `K${code}`,
+      }
+    }),
+  )
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.ok(descriptor.identities.length >= 1, `${descriptor.id} must declare runtime identity`)
-    assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
+    if (descriptor.id !== 'kivo.k18Lite') {
+      assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
+    }
   }
   assert.deepEqual(
     deviceDescriptors.xbox.inputs
@@ -131,4 +164,30 @@ test('hidden protocol inputs are retained in metadata without changing visible m
     '<ak:input id="xiaomi.rc003.hidden" label="Hidden input" kind="button" report="keyboard" page="0x07" usage="0x65" />'
   const descriptor = parseDescriptorSvg(source.replace('</ak:inputs>', `${hidden}</ak:inputs>`), '/test.svg')
   assert.deepEqual(descriptor.inputs, deviceDescriptors.rc003.inputs)
+})
+
+test('Kivo K18 Lite SVG has a flat top enclosure edge and exact keycap-to-region alignment', () => {
+  const source = readFileSync(new URL('../public/device-descriptors/kivo-k18-lite.svg', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /usbc|kivo-k18-usbc-port/i)
+  assert.deepEqual(deviceDescriptors['kivo-k18-lite'].viewBox, { width: 600, height: 496 })
+  const regionsTag = source.match(/<g\b[^>]*\bdata-ak-regions=["']true["'][^>]*>/)?.[0] ?? ''
+  assert.ok(regionsTag)
+  assert.doesNotMatch(regionsTag, /\btransform=/)
+
+  const shellRect = source.match(/<g id="kivo-k18-shell"[\s\S]*?<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/)
+  assert.ok(shellRect)
+  const [, shellX, shellY, shellW, shellH] = shellRect.map(Number)
+  assert.deepEqual([shellX, shellY, shellW, shellH], [8, 8, 584, 480])
+
+  for (const input of deviceDescriptors['kivo-k18-lite'].inputs) {
+    const suffix = input.id.split('.').pop()
+    const keyGroup = source.match(new RegExp(`<g id="key-${suffix}"[\\s\\S]*?<\\/g>`))?.[0] ?? ''
+    const hit = keyGroup.match(/<rect class="hit" x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)" rx="(\d+)"/)
+    assert.ok(hit, `missing hit rect for ${input.id}`)
+    const [, x, y, w, h, rx] = hit.map(Number)
+    assert.equal(y > shellY, true)
+    assert.deepEqual(input.anchor, { x: x + w / 2, y: y + h / 2 })
+    const expectedPath = `M ${x + rx} ${y} H ${x + w - rx} A ${rx} ${rx} 0 0 1 ${x + w} ${y + rx} V ${y + h - rx} A ${rx} ${rx} 0 0 1 ${x + w - rx} ${y + h} H ${x + rx} A ${rx} ${rx} 0 0 1 ${x} ${y + h - rx} V ${y + rx} A ${rx} ${rx} 0 0 1 ${x + rx} ${y} Z`
+    assert.equal(input.path, expectedPath)
+  }
 })

@@ -652,6 +652,322 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "kivo-k18-lite": {
+    "id": "kivo.k18Lite",
+    "ariaLabel": "Kivo K18 Lite",
+    "artworkUrl": "/device-descriptors/kivo-k18-lite.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          11914
+        ],
+        "productIds": [
+          40984
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 600,
+      "height": 496
+    },
+    "inputs": [
+      {
+        "id": "kivo.k18Lite.k01",
+        "stableId": "kivo.k18Lite.k01",
+        "label": "K01",
+        "short": "K01",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 263 37 H 337 A 12 12 0 0 1 349 49 V 123 A 12 12 0 0 1 337 135 H 263 A 12 12 0 0 1 251 123 V 49 A 12 12 0 0 1 263 37 Z",
+        "anchor": {
+          "x": 300,
+          "y": 86
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k02",
+        "stableId": "kivo.k18Lite.k02",
+        "label": "K02",
+        "short": "K02",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 371 37 H 445 A 12 12 0 0 1 457 49 V 123 A 12 12 0 0 1 445 135 H 371 A 12 12 0 0 1 359 123 V 49 A 12 12 0 0 1 371 37 Z",
+        "anchor": {
+          "x": 408,
+          "y": 86
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k03",
+        "stableId": "kivo.k18Lite.k03",
+        "label": "K03",
+        "short": "K03",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 479 37 H 553 A 12 12 0 0 1 565 49 V 123 A 12 12 0 0 1 553 135 H 479 A 12 12 0 0 1 467 123 V 49 A 12 12 0 0 1 479 37 Z",
+        "anchor": {
+          "x": 516,
+          "y": 86
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k04",
+        "stableId": "kivo.k18Lite.k04",
+        "label": "K04",
+        "short": "K04",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 47 145 H 121 A 12 12 0 0 1 133 157 V 231 A 12 12 0 0 1 121 243 H 47 A 12 12 0 0 1 35 231 V 157 A 12 12 0 0 1 47 145 Z",
+        "anchor": {
+          "x": 84,
+          "y": 194
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k05",
+        "stableId": "kivo.k18Lite.k05",
+        "label": "K05",
+        "short": "K05",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 155 145 H 229 A 12 12 0 0 1 241 157 V 231 A 12 12 0 0 1 229 243 H 155 A 12 12 0 0 1 143 231 V 157 A 12 12 0 0 1 155 145 Z",
+        "anchor": {
+          "x": 192,
+          "y": 194
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k06",
+        "stableId": "kivo.k18Lite.k06",
+        "label": "K06",
+        "short": "K06",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 263 145 H 337 A 12 12 0 0 1 349 157 V 231 A 12 12 0 0 1 337 243 H 263 A 12 12 0 0 1 251 231 V 157 A 12 12 0 0 1 263 145 Z",
+        "anchor": {
+          "x": 300,
+          "y": 194
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k07",
+        "stableId": "kivo.k18Lite.k07",
+        "label": "K07",
+        "short": "K07",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 371 145 H 445 A 12 12 0 0 1 457 157 V 231 A 12 12 0 0 1 445 243 H 371 A 12 12 0 0 1 359 231 V 157 A 12 12 0 0 1 371 145 Z",
+        "anchor": {
+          "x": 408,
+          "y": 194
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k08",
+        "stableId": "kivo.k18Lite.k08",
+        "label": "K08",
+        "short": "K08",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 479 145 H 553 A 12 12 0 0 1 565 157 V 231 A 12 12 0 0 1 553 243 H 479 A 12 12 0 0 1 467 231 V 157 A 12 12 0 0 1 479 145 Z",
+        "anchor": {
+          "x": 516,
+          "y": 194
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k09",
+        "stableId": "kivo.k18Lite.k09",
+        "label": "K09",
+        "short": "K09",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 47 253 H 121 A 12 12 0 0 1 133 265 V 339 A 12 12 0 0 1 121 351 H 47 A 12 12 0 0 1 35 339 V 265 A 12 12 0 0 1 47 253 Z",
+        "anchor": {
+          "x": 84,
+          "y": 302
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k10",
+        "stableId": "kivo.k18Lite.k10",
+        "label": "K10",
+        "short": "K10",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 155 253 H 229 A 12 12 0 0 1 241 265 V 339 A 12 12 0 0 1 229 351 H 155 A 12 12 0 0 1 143 339 V 265 A 12 12 0 0 1 155 253 Z",
+        "anchor": {
+          "x": 192,
+          "y": 302
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k11",
+        "stableId": "kivo.k18Lite.k11",
+        "label": "K11",
+        "short": "K11",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 263 253 H 337 A 12 12 0 0 1 349 265 V 339 A 12 12 0 0 1 337 351 H 263 A 12 12 0 0 1 251 339 V 265 A 12 12 0 0 1 263 253 Z",
+        "anchor": {
+          "x": 300,
+          "y": 302
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k12",
+        "stableId": "kivo.k18Lite.k12",
+        "label": "K12",
+        "short": "K12",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 371 253 H 445 A 12 12 0 0 1 457 265 V 339 A 12 12 0 0 1 445 351 H 371 A 12 12 0 0 1 359 339 V 265 A 12 12 0 0 1 371 253 Z",
+        "anchor": {
+          "x": 408,
+          "y": 302
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k13",
+        "stableId": "kivo.k18Lite.k13",
+        "label": "K13",
+        "short": "K13",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 479 253 H 553 A 12 12 0 0 1 565 265 V 339 A 12 12 0 0 1 553 351 H 479 A 12 12 0 0 1 467 339 V 265 A 12 12 0 0 1 479 253 Z",
+        "anchor": {
+          "x": 516,
+          "y": 302
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k14",
+        "stableId": "kivo.k18Lite.k14",
+        "label": "K14",
+        "short": "K14",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 47 361 H 121 A 12 12 0 0 1 133 373 V 447 A 12 12 0 0 1 121 459 H 47 A 12 12 0 0 1 35 447 V 373 A 12 12 0 0 1 47 361 Z",
+        "anchor": {
+          "x": 84,
+          "y": 410
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k15",
+        "stableId": "kivo.k18Lite.k15",
+        "label": "K15",
+        "short": "K15",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 155 361 H 229 A 12 12 0 0 1 241 373 V 447 A 12 12 0 0 1 229 459 H 155 A 12 12 0 0 1 143 447 V 373 A 12 12 0 0 1 155 361 Z",
+        "anchor": {
+          "x": 192,
+          "y": 410
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k16",
+        "stableId": "kivo.k18Lite.k16",
+        "label": "K16",
+        "short": "K16",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 263 361 H 337 A 12 12 0 0 1 349 373 V 447 A 12 12 0 0 1 337 459 H 263 A 12 12 0 0 1 251 447 V 373 A 12 12 0 0 1 263 361 Z",
+        "anchor": {
+          "x": 300,
+          "y": 410
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k17",
+        "stableId": "kivo.k18Lite.k17",
+        "label": "K17",
+        "short": "K17",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 371 361 H 445 A 12 12 0 0 1 457 373 V 447 A 12 12 0 0 1 445 459 H 371 A 12 12 0 0 1 359 447 V 373 A 12 12 0 0 1 371 361 Z",
+        "anchor": {
+          "x": 408,
+          "y": 410
+        }
+      },
+      {
+        "id": "kivo.k18Lite.k18",
+        "stableId": "kivo.k18Lite.k18",
+        "label": "K18",
+        "short": "K18",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 479 361 H 553 A 12 12 0 0 1 565 373 V 447 A 12 12 0 0 1 553 459 H 479 A 12 12 0 0 1 467 447 V 373 A 12 12 0 0 1 479 361 Z",
+        "anchor": {
+          "x": 516,
+          "y": 410
+        }
+      }
+    ]
+  },
   "obe-rcu-r5": {
     "id": "obe.rcu-r5",
     "ariaLabel": "OBE RCU R5 投影仪遥控器",

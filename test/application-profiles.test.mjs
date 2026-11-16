@@ -261,6 +261,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
+    '../kivo-k18-lite/KivoScreenEditor': { KivoScreenEditor: nullComponent },
     './IntegrationControls': { DeviceBindingPicker: nullComponent },
     './model': require('../src/devices/integration/model.ts'),
   })

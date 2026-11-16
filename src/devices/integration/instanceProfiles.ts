@@ -180,7 +180,12 @@ export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean,
     activeProfileId: id,
     profiles: [
       ...instance.profiles,
-      { id, name: duplicate ? `${active.name} 副本` : `配置 ${instance.profiles.length + 1}`, behaviors },
+      {
+        id,
+        name: duplicate ? `${active.name} 副本` : `配置 ${instance.profiles.length + 1}`,
+        behaviors,
+        ...(duplicate && active.display ? { display: structuredClone(active.display) } : {}),
+      },
     ],
   }
   return applicationProfile

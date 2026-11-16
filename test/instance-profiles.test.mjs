@@ -94,3 +94,30 @@ test('instance behavior history supports undo, redo, canonical sync and profile 
   assert.equal(switchedProfile.future.length, 0)
   assert.strictEqual(instanceBehaviorHistoryReducer(switchedProfile, { type: 'undo' }), switchedProfile)
 })
+
+test('duplicating a profile clones custom OLED display content while new blank profiles reset to auto', () => {
+  const source = {
+    ...initial(),
+    kind: 'kivoK18Lite',
+    profiles: [
+      {
+        id: 'work',
+        name: '剪辑',
+        behaviors: {},
+        display: { mode: 'custom', line1: '剪辑工作流', line2: 'Final Cut' },
+      },
+    ],
+    activeProfileId: 'work',
+  }
+  const duplicated = addInstanceProfile(source, true)
+  assert.deepEqual(duplicated.profiles.at(-1).display, {
+    mode: 'custom',
+    line1: '剪辑工作流',
+    line2: 'Final Cut',
+  })
+  duplicated.profiles.at(-1).display.line1 = '已修改'
+  assert.equal(source.profiles[0].display.line1, '剪辑工作流')
+
+  const blank = addInstanceProfile(source, false)
+  assert.equal(blank.profiles.at(-1).display, undefined)
+})
