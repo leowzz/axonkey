@@ -98,12 +98,12 @@ function buildCustomRemoteSvg({
 </svg>`
 }
 
-test('bundledModelCatalog.json contains all 12 curated console models with platform tags and Markdown descriptions', () => {
+test('bundledModelCatalog.json contains all 13 curated console models with platform tags and Markdown descriptions', () => {
   const bundled = getBundledDeviceModelCatalog()
-  assert.equal(bundled.length, 12)
+  assert.equal(bundled.length, 13)
   const byCode = new Map(bundled.map(item => [item.code, item]))
 
-  const expectedWinMac = ['rc003', 'phicommDb1R', 'xboxBluetooth', 'mouse']
+  const expectedWinMac = ['rc003', 'phicommDb1R', 'xboxBluetooth', 'kivoK18Lite', 'mouse']
   const expectedWinOnly = [
     'cmiotA15',
     'hisenseRcf3b65',
@@ -122,6 +122,8 @@ test('bundledModelCatalog.json contains all 12 curated console models with platf
     assert.ok(item.tags.includes('Win / macOS'), `${code} must carry Win / macOS tag`)
     assert.ok(item.description.length > 40, `${code} must carry curated Markdown description`)
   }
+  assert.equal(byCode.get('kivoK18Lite')?.brand_name, 'Kivo')
+  assert.ok(byCode.get('kivoK18Lite')?.tags.includes('OLED 屏幕'))
   for (const code of expectedWinOnly) {
     const item = byCode.get(code)
     assert.ok(item, `missing curated model ${code}`)
@@ -354,8 +356,9 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
     offline = true
     const offlineBundled = await loadDeviceModelCatalog(client, storage, t0 + 3_600_001)
     assert.equal(networkCalls, 2)
-    assert.equal(offlineBundled.length, 12, 'falls back to all 12 curated bundled models')
+    assert.equal(offlineBundled.length, 13, 'falls back to all 13 curated bundled models')
     assert.equal(offlineBundled.find(i => i.code === 'rc003')?.brand_name, '小米')
+    assert.equal(offlineBundled.find(i => i.code === 'kivoK18Lite')?.brand_name, 'Kivo')
     assert.equal(
       supportPackages.some(p => p.kind === 'customSaved1'),
       false,
@@ -368,7 +371,7 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
       retainedKinds: ['customSaved1'],
     })
     assert.equal(networkCalls, 3)
-    assert.equal(offlineWithSavedCloud.length, 13)
+    assert.equal(offlineWithSavedCloud.length, 14)
     assert.equal(packageFor('customSaved1').name, '云端专属遥控器')
     assert.equal(packageFor('customSaved1').inputs.length, 2)
     assert.equal(packageFor('rc003').artwork, '/device-descriptors/rc003.svg')
@@ -392,8 +395,9 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
     assert.equal(readCachedDeviceModelCatalog(storage, t0), null)
     offline = true
     const coldOffline = await loadDeviceModelCatalog(client, storage, t0 + 5_000_000)
-    assert.equal(coldOffline.length, 12)
+    assert.equal(coldOffline.length, 13)
     assert.ok(coldOffline.find(i => i.code === 'xboxBluetooth')?.tags.includes('Win / macOS'))
+    assert.ok(coldOffline.find(i => i.code === 'kivoK18Lite')?.tags.includes('Win / macOS'))
 
     // 8. QuotaExceededError on localStorage still serves fresh cache from memory without throwing
     const fullStorage = createStorage({ failWrites: true })
