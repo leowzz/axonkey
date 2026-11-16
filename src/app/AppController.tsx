@@ -21,6 +21,7 @@ import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/clo
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
+import { useDeviceModelCatalog } from '../cloud/useDeviceModelCatalog'
 import { recordLibraryAdditions, useLibraryUsage } from '../cloud/libraryUsage'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
@@ -196,6 +197,10 @@ class CliOperationError extends Error {
 }
 
 async function loadCliKeymapSvg(url: string) {
+  const dataPrefix = 'data:image/svg+xml;charset=utf-8,'
+  if (url.startsWith(dataPrefix)) {
+    return decodeURIComponent(url.slice(dataPrefix.length))
+  }
   const response = await fetch(new URL(url, window.location.href))
   if (!response.ok) throw new Error(`无法读取键位图 SVG（HTTP ${response.status}）`)
   return response.text()
@@ -1614,6 +1619,15 @@ function AppController({
     },
   })
 
+  const retainedCatalogKinds = useMemo(
+    () => deviceInstances.snapshot.store.instances.map(item => item.kind),
+    [deviceInstances.snapshot.store.instances],
+  )
+  useDeviceModelCatalog(cloud.client, cloud.accountReady, {
+    native: nativeRuntime,
+    retainedKinds: retainedCatalogKinds,
+    onNativeDescriptorsSynced: () => void deviceInstances.refresh(),
+  })
   useLibraryUsage(cloud.client, platform, nativeRuntime && platformReady)
 
   const openMappingImport = () => {

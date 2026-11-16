@@ -41,7 +41,7 @@ export type RemoteButtonId =
   | PhicommDb1RRemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind =
+export type BuiltinDeviceKind =
   | 'xboxBluetooth'
   | 'rc003'
   | 'cmiotA15'
@@ -53,6 +53,8 @@ export type DeviceKind =
   | 'tclRc902v'
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
+
+export type DeviceKind = BuiltinDeviceKind | (string & {})
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

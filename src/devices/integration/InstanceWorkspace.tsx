@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
@@ -29,9 +29,11 @@ import {
   defaultRecordingMode,
   deviceMatchesKind,
   emptyTriggers,
+  getSupportPackages,
   instanceState,
   packageFor,
   stateLabel,
+  subscribeSupportPackages,
   supportsWindowsDriver,
   supportsDeviceInformation,
   usesHidVoice,
@@ -89,6 +91,7 @@ export function InstanceWorkspace({
   deviceOptions,
   onSelectDevice,
 }: Props) {
+  useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const pkg = packageFor(instance.kind)
   const voice = pkg.remoteView?.voice
   const voiceModes = voice?.triggerModes ?? []
@@ -100,6 +103,16 @@ export function InstanceWorkspace({
       pkg.inputs.map(input => input.id),
     ),
   )
+  useEffect(() => {
+    if (pkg.inputs.length > 0 && !pkg.inputs.some(input => input.id === selected)) {
+      setSelected(
+        getStoredDeviceInput(
+          instance.id,
+          pkg.inputs.map(input => input.id),
+        ),
+      )
+    }
+  }, [instance.id, pkg.inputs, selected])
   const selectInput = (inputId: string) => {
     setSelected(inputId)
     storeDeviceInput(instance.id, inputId)
@@ -138,7 +151,13 @@ export function InstanceWorkspace({
     binding => binding.application.id === editingApplicationId,
   )
   const profile = instance.profiles.find(p => p.id === (applicationProfile?.profileId ?? instance.activeProfileId))!
-  const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
+  const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ??
+    pkg.inputs[0] ?? {
+      id: selected || 'pending',
+      label: pkg.name,
+      short: '—',
+      icon: 'center',
+    }
   const status = controller.snapshot.runtime[instance.id]
   const boundDevice = instance.binding
     ? controller.snapshot.discovered.find(device => device.id === instance.binding)

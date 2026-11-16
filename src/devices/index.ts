@@ -1,4 +1,5 @@
 export type {
+  BuiltinDeviceKind,
   DeviceId,
   DeviceDefinition,
   DeviceKind,

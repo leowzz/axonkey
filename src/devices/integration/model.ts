@@ -1,6 +1,6 @@
 import type { TriggerBehaviors } from '../../behaviorModel'
 import type { ApplicationProfile } from '../../applications'
-import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
+import type { BuiltinDeviceKind, DeviceKind, DeviceSupportPackage } from '../types.ts'
 import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
 import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
 import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
@@ -13,7 +13,7 @@ import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
 import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
 import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
 
-export type { DeviceKind } from '../types.ts'
+export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
 export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
 export type DeviceInstance = {
   id: string
@@ -79,7 +79,8 @@ export type DeviceSnapshot = {
   scanError: string | null
   scanning: boolean
 }
-export const supportPackages: readonly DeviceSupportPackage[] = [
+
+export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.freeze([
   xiaomiRemoteSupportPackage,
   cmiotA15SupportPackage,
   xmBt29SupportPackage,
@@ -91,29 +92,94 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   hisenseRcf3b65SupportPackage,
   phicommDb1RSupportPackage,
   xboxSupportPackage,
-]
-const mobileRemotePackages = supportPackages.filter(pkg =>
-  pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
-)
-export const mobileRemoteKinds = mobileRemotePackages.map(pkg => pkg.kind)
-export const mobileRemoteFallbackKind = mobileRemotePackages.find(pkg =>
-  pkg.remoteView?.identities.some(identity => identity.softwareFallback),
-)!.kind
+])
+
+const builtinKindSet = new Set<string>(bundledSupportPackages.map(pkg => pkg.kind))
+
+export function isBuiltinDeviceKind(kind: string): kind is BuiltinDeviceKind {
+  return builtinKindSet.has(kind)
+}
+
+const mutableSupportPackages: DeviceSupportPackage[] = [...bundledSupportPackages]
+export const supportPackages: readonly DeviceSupportPackage[] = mutableSupportPackages
+let supportPackagesSnapshot: readonly DeviceSupportPackage[] = Object.freeze([...bundledSupportPackages])
+const supportPackageListeners = new Set<() => void>()
+
+export function getSupportPackages(): readonly DeviceSupportPackage[] {
+  return supportPackagesSnapshot
+}
+
+export function subscribeSupportPackages(listener: () => void): () => void {
+  supportPackageListeners.add(listener)
+  return () => {
+    supportPackageListeners.delete(listener)
+  }
+}
+
+function getMobileRemotePackages(list: readonly DeviceSupportPackage[] = mutableSupportPackages) {
+  return list.filter(pkg =>
+    pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
+  )
+}
+
+const mutableMobileRemoteKinds: DeviceKind[] = getMobileRemotePackages().map(pkg => pkg.kind)
+export const mobileRemoteKinds: readonly DeviceKind[] = mutableMobileRemoteKinds
+export const mobileRemoteFallbackKind: DeviceKind =
+  getMobileRemotePackages().find(pkg => pkg.remoteView?.identities.some(identity => identity.softwareFallback))?.kind ??
+  'rc313'
+
+export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+  const overlayByKind = new Map<string, DeviceSupportPackage>()
+  for (const pkg of overlays) {
+    const kind = pkg?.kind?.trim()
+    if (!kind || kind === 'mouse') continue
+    overlayByKind.set(kind, pkg)
+  }
+  const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => overlayByKind.get(pkg.kind) ?? pkg)
+  for (const [kind, pkg] of overlayByKind) {
+    if (!builtinKindSet.has(kind)) next.push(pkg)
+  }
+  const unchanged =
+    next.length === supportPackagesSnapshot.length &&
+    next.every((pkg, index) => {
+      const prev = supportPackagesSnapshot[index]
+      return (
+        prev.kind === pkg.kind &&
+        prev.name === pkg.name &&
+        prev.model === pkg.model &&
+        prev.artwork === pkg.artwork &&
+        prev.inputs.length === pkg.inputs.length
+      )
+    })
+  if (unchanged) return false
+
+  mutableSupportPackages.splice(0, mutableSupportPackages.length, ...next)
+  const nextMobileKinds = getMobileRemotePackages(next).map(pkg => pkg.kind)
+  mutableMobileRemoteKinds.splice(0, mutableMobileRemoteKinds.length, ...nextMobileKinds)
+  supportPackagesSnapshot = Object.freeze([...next])
+  for (const listener of supportPackageListeners) listener()
+  return true
+}
+
+export function resetRuntimeSupportPackages(): boolean {
+  return setRuntimeSupportPackages([])
+}
+
 export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
-  return mobileRemotePackages.some(pkg =>
-    pkg.remoteView!.identities.some(
+  return getMobileRemotePackages().some(pkg =>
+    pkg.remoteView?.identities.some(
       identity => identity.vendorIds.includes(device.vendorId) && identity.productIds.includes(device.productId),
     ),
   )
 }
-export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is (typeof mobileRemoteKinds)[number] {
-  return kind !== undefined && mobileRemoteKinds.includes(kind as (typeof mobileRemoteKinds)[number])
+export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is DeviceKind {
+  return kind !== undefined && mutableMobileRemoteKinds.includes(kind)
 }
 export function mobileRemoteKindForSoftware(software: string | null | undefined): DeviceKind | null {
   if (!software) return null
   return (
-    mobileRemotePackages.find(pkg =>
-      pkg.remoteView!.identities.some(
+    getMobileRemotePackages().find(pkg =>
+      pkg.remoteView?.identities.some(
         identity =>
           identity.softwareContains && identity.softwareContains.split('|').some(marker => software.includes(marker)),
       ),
@@ -128,7 +194,41 @@ export const emptySnapshot = (): DeviceSnapshot => ({
   scanError: null,
   scanning: false,
 })
-export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
+
+const placeholderArtworkUrl =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="520" viewBox="0 0 240 520" fill="none"><rect x="36" y="20" width="168" height="480" rx="44" fill="#EEF2F6" stroke="#CBD5E1" stroke-width="4"/></svg>',
+  )
+const placeholderCache = new Map<string, DeviceSupportPackage>()
+
+function placeholderPackageFor(kind: DeviceKind): DeviceSupportPackage {
+  let cached = placeholderCache.get(kind)
+  if (!cached) {
+    cached = {
+      kind,
+      name: kind,
+      model: kind,
+      artwork: placeholderArtworkUrl,
+      inputs: [],
+      remoteView: {
+        buttons: [],
+        identities: [],
+        voice: null,
+        viewBox: { width: 240, height: 520 },
+        keyRegions: {},
+        artworkUrl: placeholderArtworkUrl,
+        ariaLabel: kind,
+      },
+    }
+    placeholderCache.set(kind, cached)
+  }
+  return cached
+}
+
+export const packageFor = (kind: DeviceKind): DeviceSupportPackage =>
+  mutableSupportPackages.find(p => p.kind === kind) ?? placeholderPackageFor(kind)
+
 export function usesHidVoice(kind: DeviceKind | undefined) {
   const engine = kind && packageFor(kind).remoteView?.voice?.engine
   return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc' || engine === 'tcl-rc802a.ico'
@@ -148,7 +248,7 @@ export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
   )
 }
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
-  return kind !== undefined && packageFor(kind).remoteView!.identities.some(identity => identity.windowsPrefix)
+  return Boolean(kind !== undefined && packageFor(kind).remoteView?.identities.some(identity => identity.windowsPrefix))
 }
 export function supportsDeviceInformation(kind: DeviceKind) {
   const view = packageFor(kind).remoteView

@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import type { CloudState } from '../cloud/cloudSync'
 import type { RestoreSelection } from '../cloud/cloudData'
 import type { DeviceInstance } from '../devices/integration/model'
-import { supportPackages } from '../devices/integration/model'
+import { getSupportPackages, subscribeSupportPackages } from '../devices/integration/model'
 
 const platformName = (value?: string) => (value === 'windows' ? 'Windows' : value === 'macos' ? 'macOS' : '来源未知')
 type Profile = { id: string; name: string; app_version?: string | null; behaviors: Record<string, unknown> }
@@ -21,6 +21,7 @@ export function CloudRestorePicker({
   onConfirm: (selection: RestoreSelection) => void
   onCancel: () => void
 }) {
+  const packages = useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [targets, setTargets] = useState<Record<string, string>>({})
   const [newTargets] = useState(() =>
@@ -62,7 +63,7 @@ export function CloudRestorePicker({
           .filter(doc => filter === 'all' || (doc.source_platform ?? 'unknown') === filter)
           .map(doc => {
             const kind = state.models.find(model => model.id === doc.model_id)?.code
-            const support = supportPackages.find(item => item.kind === kind)
+            const support = packages.find(item => item.kind === kind)
             const supported = !!support || kind === 'mouse'
             const localDevices = instances.filter(instance => instance.kind === kind)
             const target = targetFor(doc.id)

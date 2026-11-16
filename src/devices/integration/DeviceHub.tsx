@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
@@ -37,6 +38,7 @@ import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
   buildWorkspaceDeviceOptions,
   getStoredDeviceCardOrder,
+  getSupportPackages,
   instanceStatusLabel,
   deviceMatchesKind,
   instanceState,
@@ -49,7 +51,7 @@ import {
   packageFor,
   batteryForDevice,
   saveDeviceCardOrder,
-  supportPackages,
+  subscribeSupportPackages,
   supportsWindowsDriver,
   supportsDeviceInformation,
   systemMouseCardId,
@@ -104,6 +106,7 @@ function getDiscoveredDevicesExpanded() {
   }
 }
 export function DeviceHub(props: Props) {
+  useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const { controller, native } = props
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
@@ -402,6 +405,7 @@ export type DeviceDiscoveryProps = IntegrationProps &
   }
 
 export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
+  const packages = useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const { controller, native, guide = false } = props
   const { snapshot, error, busy } = controller
   const [integration, setIntegration] = useState<Integration | null>(null)
@@ -426,7 +430,7 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
         <section className="user-guide-supported" aria-labelledby="user-guide-supported-title">
           <h3 id="user-guide-supported-title">支持的设备</h3>
           <ul className="managed-package-grid">
-            {supportPackages.map(pkg => {
+            {packages.map(pkg => {
               const subtitle = packageSubtitle(pkg)
               return (
                 <li key={pkg.kind} className="managed-package" data-kind={pkg.kind}>
@@ -827,15 +831,25 @@ function IntegrationDialog({
   onOpenCapture?: () => void
   onComplete: (id: string) => void
 }) {
+  const packages = useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const manualAdd = !initial.kind && !initial.instance
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
   const libraryContext = useContext(BehaviorLibraryContext)
+  const retainedKinds = useMemo(
+    () => controller.snapshot.store.instances.map(item => item.kind),
+    [controller.snapshot.store.instances],
+  )
   const { modelsByCode, loading: catalogLoading } = useDeviceModelCatalog(
     libraryContext?.client,
     libraryContext?.accountReady ?? true,
+    {
+      native,
+      retainedKinds,
+      onNativeDescriptorsSynced: () => void controller.refresh(),
+    },
   )
   const [kind, setKind] = useState<DeviceKind | undefined>(() =>
-    mobileModelSelection ? mobileRemoteFallbackKind : (initial.kind ?? supportPackages[0]?.kind),
+    mobileModelSelection ? mobileRemoteFallbackKind : (initial.kind ?? packages[0]?.kind),
   )
   const [step, setStep] = useState<IntegrationStep>(() => (initial.kind ? 'details' : 'kind'))
   const [name, setName] = useState(
@@ -871,7 +885,7 @@ function IntegrationDialog({
   const availableBrands = useMemo(() => {
     const seen = new Set<string>()
     const list: string[] = []
-    for (const pkg of supportPackages) {
+    for (const pkg of packages) {
       const brand = modelsByCode.get(pkg.kind)?.brand_name
       if (brand && !seen.has(brand)) {
         seen.add(brand)
@@ -879,11 +893,11 @@ function IntegrationDialog({
       }
     }
     return list
-  }, [modelsByCode])
+  }, [modelsByCode, packages])
   const effectiveBrand = selectedBrand !== 'all' && availableBrands.includes(selectedBrand) ? selectedBrand : 'all'
   const filteredPackages = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
-    return supportPackages.filter(pkg => {
+    return packages.filter(pkg => {
       const catalog = modelsByCode.get(pkg.kind)
       if (effectiveBrand !== 'all' && catalog?.brand_name !== effectiveBrand) return false
       if (!normalizedQuery) return true
@@ -897,7 +911,7 @@ function IntegrationDialog({
         ...(catalog?.tags ?? []),
       ].some(field => field?.toLowerCase().includes(normalizedQuery))
     })
-  }, [effectiveBrand, modelsByCode, searchQuery])
+  }, [effectiveBrand, modelsByCode, packages, searchQuery])
   const effectivePackage =
     (kind ? filteredPackages.find(p => p.kind === kind) : undefined) ?? filteredPackages[0] ?? null
   const activeCatalogModel = effectivePackage ? modelsByCode.get(effectivePackage.kind) : undefined
@@ -919,7 +933,7 @@ function IntegrationDialog({
     )
   const recognitionError =
     '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。如果依然识别失败，请看遥控器背面或者说明书确认型号，并手动选择。'
-  function proceedWithPackage(pkg: (typeof supportPackages)[number]) {
+  function proceedWithPackage(pkg: (typeof packages)[number]) {
     const changed = pkg.kind !== kind || !name.trim()
     setKind(pkg.kind)
     if (changed || !nameCustomized) {
