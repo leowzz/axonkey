@@ -1074,6 +1074,61 @@ impl Reader {
         self.config = config;
         true
     }
+
+    fn handle_local_edge(
+        &mut self,
+        key: &str,
+        down: bool,
+        now: u64,
+        sequence: &mut Vec<gesture::Execution>,
+    ) {
+        let empty_mapping = TriggerBehaviors::default();
+        let mapping = self.maps.get(key).unwrap_or(&empty_mapping);
+        match self
+            .holds
+            .try_edge(&self.config.instance.id, key, down, mapping)
+        {
+            hold::HoldOutcome::Handled { triggered_summary } => {
+                if let (Some(oled), Some(summary)) = (&self.oled, triggered_summary) {
+                    let label =
+                        crate::devices::kivo_k18_lite::input_short_label(self.descriptor, key);
+                    oled.show_key_toast(format!("{label} 按住"), summary);
+                }
+            }
+            hold::HoldOutcome::PassToGestures => {
+                if has_gesture_or_actionable_click(mapping) {
+                    sequence.extend(self.gestures.edge(key, down, now, mapping));
+                } else if down {
+                    if let Some(oled) = &self.oled {
+                        let label =
+                            crate::devices::kivo_k18_lite::input_short_label(self.descriptor, key);
+                        let summary =
+                            crate::devices::kivo_k18_lite::summarize_trigger_behaviors(&mapping.click);
+                        oled.show_key_toast(format!("{label} 按下"), summary);
+                    }
+                }
+            }
+        }
+    }
+
+    fn flush_oled_toasts(&self, sequence: &[gesture::Execution]) {
+        let Some(oled) = &self.oled else {
+            return;
+        };
+        for exec in sequence {
+            let label =
+                crate::devices::kivo_k18_lite::input_short_label(self.descriptor, &exec.input);
+            let summary =
+                crate::devices::kivo_k18_lite::summarize_trigger_behaviors(&exec.behaviors);
+            oled.show_key_toast(format!("{} {}", label, exec.trigger.label()), summary);
+        }
+    }
+}
+
+fn has_gesture_or_actionable_click(mapping: &TriggerBehaviors) -> bool {
+    mapping.double_click.iter().any(NativeBehavior::enabled)
+        || mapping.long_press.iter().any(NativeBehavior::enabled)
+        || crate::devices::kivo_k18_lite::summarize_behaviors(&mapping.click).is_some()
 }
 impl Drop for Reader {
     fn drop(&mut self) {
@@ -1999,25 +2054,7 @@ fn run(shared: Arc<Shared>) {
                                 if !execute_locally {
                                     continue;
                                 }
-                                let empty_mapping = TriggerBehaviors::default();
-                                let mapping = reader.maps.get(key).unwrap_or(&empty_mapping);
-                                match reader.holds.try_edge(&instance.id, key, down, mapping) {
-                                    hold::HoldOutcome::Handled { triggered_summary } => {
-                                        if let (Some(oled), Some(summary)) =
-                                            (&reader.oled, triggered_summary)
-                                        {
-                                            let label =
-                                                crate::devices::kivo_k18_lite::input_short_label(
-                                                    reader.descriptor,
-                                                    key,
-                                                );
-                                            oled.show_key_toast(format!("{label} 按住"), summary);
-                                        }
-                                    }
-                                    hold::HoldOutcome::PassToGestures => {
-                                        sequence.extend(reader.gestures.edge(key, down, now, mapping));
-                                    }
-                                }
+                                reader.handle_local_edge(key, down, now, &mut sequence);
                             }
                         }
                         Err(error) => {
@@ -2036,21 +2073,8 @@ fn run(shared: Arc<Shared>) {
                 }
                 status.reports = reader.reports;
                 if !failed {
+                    reader.flush_oled_toasts(&sequence);
                     if let Some(oled) = &reader.oled {
-                        for exec in &sequence {
-                            if let Some(summary) =
-                                crate::devices::kivo_k18_lite::summarize_behaviors(&exec.behaviors)
-                            {
-                                let label = crate::devices::kivo_k18_lite::input_short_label(
-                                    reader.descriptor,
-                                    &exec.input,
-                                );
-                                oled.show_key_toast(
-                                    format!("{} {}", label, exec.trigger.label()),
-                                    summary,
-                                );
-                            }
-                        }
                         if let InputReader::Hid(hid) = &reader.device {
                             oled.drain_to(hid);
                         }
@@ -4351,6 +4375,123 @@ mod tests {
 
         #[cfg(target_os = "macos")]
         super::super::macos::clear_managed_held_keys_for_test();
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn unconfigured_and_disabled_k18_keys_still_trigger_oled_toasts() {
+        let mut dev = instance("k18-toast", "physical-k18-toast");
+        dev.kind = "kivoK18Lite".into();
+        dev.name = "Kivo K18 Lite".into();
+        dev.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k06": {"click": [{"type": "disabled"}]},
+            "kivo.k18Lite.k07": {"doubleClick": [{"type": "key", "key": "B"}]}
+        });
+
+        let manager = offline_manager(vec![dev.clone()]);
+        let oled = crate::devices::kivo_k18_lite::DisplayController::start_worker(
+            "Kivo K18 Lite".into(),
+            "默认".into(),
+            DeviceDisplaySettings::default(),
+            Duration::from_secs(5),
+            Duration::from_secs(1),
+        );
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("kivoK18Lite")
+            .expect("kivoK18Lite descriptor");
+        let (actions, _rx) = sync_channel(4);
+        let maps = active_mappings(&dev);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(&dev)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: Some(oled),
+            path: CString::new("test-k18-toast").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps,
+            actions,
+            reports: 0,
+        };
+
+        let drain_frame = |reader: &Reader, skip_initial_lease: bool| -> [u8; 512] {
+            let need = if skip_initial_lease { 11 } else { 10 };
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut packets = Vec::new();
+            while packets.len() < need {
+                packets.extend(
+                    reader
+                        .oled
+                        .as_ref()
+                        .unwrap()
+                        .drain_queued_packets_for_test(),
+                );
+                assert!(Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(5));
+            }
+            let chunks = if skip_initial_lease {
+                &packets[1..11]
+            } else {
+                &packets[..10]
+            };
+            let mut fb = [0u8; 512];
+            for pkt in chunks {
+                let off = u16::from_le_bytes([pkt[4], pkt[5]]) as usize;
+                let len = pkt[6] as usize;
+                fb[off..off + len].copy_from_slice(&pkt[7..7 + len]);
+            }
+            fb
+        };
+
+        // Drain initial lease + idle frame.
+        let _ = drain_frame(&reader, true);
+
+        // 1) Completely unconfigured key K05 shows immediate press toast without queuing empty gestures.
+        let mut sequence = Vec::new();
+        reader.handle_local_edge("kivo.k18Lite.k05", true, 10, &mut sequence);
+        reader.flush_oled_toasts(&sequence);
+        assert!(sequence.is_empty());
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K05 按下", "未配置行为")
+        );
+        reader.handle_local_edge("kivo.k18Lite.k05", false, 30, &mut sequence);
+        assert!(sequence.is_empty());
+
+        // 2) Explicitly disabled key K06 shows disabled toast on press.
+        reader.handle_local_edge("kivo.k18Lite.k06", true, 40, &mut sequence);
+        reader.flush_oled_toasts(&sequence);
+        assert!(sequence.is_empty());
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K06 按下", "已禁用")
+        );
+        reader.handle_local_edge("kivo.k18Lite.k06", false, 60, &mut sequence);
+
+        // 3) Key K07 with doubleClick only: single-click resolves to "K07 单击 / 未配置行为",
+        //    while double-click resolves to "K07 双击 / B".
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 100, &mut sequence);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 120, &mut sequence);
+        assert!(sequence.is_empty());
+        let mut single_seq = reader.gestures.tick(450, &reader.maps);
+        reader.flush_oled_toasts(&single_seq);
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K07 单击", "未配置行为")
+        );
+        single_seq.clear();
+
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 500, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 520, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 580, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 600, &mut single_seq);
+        reader.flush_oled_toasts(&single_seq);
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K07 双击", "B")
+        );
+
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

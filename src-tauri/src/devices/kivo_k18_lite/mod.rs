@@ -285,6 +285,20 @@ pub(crate) fn summarize_behaviors(behaviors: &[NativeBehavior]) -> Option<String
     summarize_behaviors_for_platform(behaviors, cfg!(target_os = "macos"))
 }
 
+pub(crate) fn summarize_trigger_behaviors(behaviors: &[NativeBehavior]) -> String {
+    if let Some(summary) = summarize_behaviors(behaviors) {
+        return summary;
+    }
+    if behaviors
+        .iter()
+        .any(|b| b.enabled() && matches!(b, NativeBehavior::Disabled { .. }))
+    {
+        "已禁用".into()
+    } else {
+        "未配置行为".into()
+    }
+}
+
 pub(crate) fn summarize_behaviors_for_platform(
     behaviors: &[NativeBehavior],
     macos_labels: bool,
@@ -905,6 +919,18 @@ mod tests {
             summarize_behaviors_for_platform(&[NativeBehavior::Disabled { enabled: true }], true),
             None
         );
+        assert_eq!(
+            summarize_trigger_behaviors(&[NativeBehavior::Disabled { enabled: true }]),
+            "已禁用"
+        );
+        assert_eq!(summarize_trigger_behaviors(&[]), "未配置行为");
+        assert_eq!(
+            summarize_trigger_behaviors(&[NativeBehavior::Key {
+                enabled: false,
+                key: "A".into(),
+            }]),
+            "未配置行为"
+        );
     }
 
     fn reassemble_frame(chunks: &[[u8; OUTPUT_REPORT_LEN]]) -> [u8; FRAME_BYTES] {
@@ -987,7 +1013,7 @@ mod tests {
                 show_profile_toast: true,
             },
             Duration::from_millis(200),
-            Duration::from_millis(15),
+            Duration::from_millis(35),
         );
 
         let initial = wait_packets(&controller, 11);
@@ -1043,7 +1069,7 @@ mod tests {
         thread::sleep(Duration::from_millis(20));
         assert!(controller.drain_queued_packets_for_test().is_empty());
 
-        // Idle timeout (4 * 15ms = 60ms) enters sleep (`power_save = 1`).
+        // Idle timeout (4 * 35ms = 140ms) enters sleep (`power_save = 1`).
         let sleep_pkt = wait_packets(&controller, 1);
         assert_eq!(&sleep_pkt[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 1]);
 
@@ -1073,7 +1099,7 @@ mod tests {
             font::render_two_lines_128x32("Kivo K18 Lite", "默认")
         );
 
-        thread::sleep(Duration::from_millis(90));
+        thread::sleep(Duration::from_millis(160));
         assert!(
             controller.drain_queued_packets_for_test().is_empty(),
             "sleep_timeout_sec = 0 must never enter idle sleep"
