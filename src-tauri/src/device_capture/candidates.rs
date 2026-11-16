@@ -600,9 +600,10 @@ fn detect_registered_kind(
     usage: Option<u16>,
 ) -> Option<String> {
     use crate::devices::descriptor_registry::{
-        matches_hardware, matches_instance, requires_information, KINDS,
+        matches_hardware, matches_instance, registered_kinds, requires_information,
     };
-    let instance_matches: Vec<&str> = KINDS
+    let kinds = registered_kinds();
+    let instance_matches: Vec<&str> = kinds
         .iter()
         .copied()
         .filter(|kind| matches_instance(kind, instance_id))
@@ -611,7 +612,7 @@ fn detect_registered_kind(
         return Some(instance_matches[0].to_string());
     }
     if let (Some(v), Some(p)) = (vid, pid) {
-        let hw_matches: Vec<&str> = KINDS
+        let hw_matches: Vec<&str> = kinds
             .iter()
             .copied()
             .filter(|kind| {
@@ -1102,7 +1103,7 @@ mod windows_impl {
 
     fn enrich_candidates_with_gatt(candidates: &mut [CaptureCandidate]) {
         use crate::devices::descriptor_registry::{
-            matches_information, requires_information, KINDS,
+            matches_information, registered_kinds, requires_information,
         };
         let Ok(_mta) = crate::windows_runtime::initialize_mta() else {
             return;
@@ -1138,9 +1139,8 @@ mod windows_impl {
                 }
                 if candidate.registered_kind.is_none() {
                     if let (Some(vid), Some(pid)) = (candidate.vid, candidate.pid) {
-                        candidate.registered_kind = KINDS
-                            .iter()
-                            .copied()
+                        candidate.registered_kind = registered_kinds()
+                            .into_iter()
                             .find(|kind| {
                                 requires_information(kind)
                                     && matches_information(

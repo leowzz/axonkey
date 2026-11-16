@@ -106,11 +106,12 @@ fn deserialize_behaviors<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    use crate::devices::descriptor_registry::{profile_key, KINDS};
+    use crate::devices::descriptor_registry::{profile_key, registered_kinds};
     let behaviors = HashMap::<String, TriggerBehaviors>::deserialize(deserializer)?;
+    let kinds = registered_kinds();
     let mut normalized = HashMap::with_capacity(behaviors.len());
     for (key, triggers) in behaviors {
-        let canonical = KINDS
+        let canonical = kinds
             .iter()
             .find_map(|kind| profile_key(kind, &key))
             .unwrap_or(&key);

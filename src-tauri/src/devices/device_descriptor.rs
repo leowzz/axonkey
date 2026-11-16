@@ -6,6 +6,7 @@ use std::fmt;
 const SVG_NS: &str = "http://www.w3.org/2000/svg";
 const AK_NS: &str = "urn:axonkey:device:1";
 const SCHEMA: &str = "axonkey.device/1";
+const MAX_SVG_BYTES: usize = 768 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DescriptorError(pub String);
@@ -111,6 +112,9 @@ pub(crate) struct SourceDescriptor {
 }
 
 pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> {
+    if svg.len() > MAX_SVG_BYTES {
+        return Err(DescriptorError("SVG descriptor exceeds size limit".into()));
+    }
     let mut reader = Reader::from_str(svg);
     reader.config_mut().trim_text(true);
     let mut root: Option<RootMetadata> = None;
@@ -554,24 +558,49 @@ fn parse_usize_attr(
 }
 
 fn validate_element(name: &str, attrs: &BTreeMap<String, String>) -> Result<(), DescriptorError> {
-    if name.eq_ignore_ascii_case("script") {
-        return Err(DescriptorError("script elements are not allowed".into()));
+    if matches!(
+        name.to_ascii_lowercase().as_str(),
+        "script"
+            | "foreignobject"
+            | "iframe"
+            | "object"
+            | "embed"
+            | "applet"
+            | "audio"
+            | "video"
+            | "canvas"
+            | "link"
+            | "meta"
+            | "base"
+            | "animate"
+            | "animatemotion"
+            | "animatetransform"
+            | "set"
+            | "mpath"
+            | "a"
+            | "feimage"
+    ) {
+        return Err(DescriptorError(format!("{name} elements are not allowed")));
     }
-    if attrs
-        .keys()
-        .any(|key| key.to_ascii_lowercase().starts_with("on"))
-    {
+    if attrs.keys().any(|key| {
+        let lower = key.to_ascii_lowercase();
+        lower.starts_with("on")
+            || lower
+                .rsplit(':')
+                .next()
+                .is_some_and(|local| local.starts_with("on"))
+    }) {
         return Err(DescriptorError(
             "SVG event attributes are not allowed".into(),
         ));
     }
-    if matches!(name, "image" | "use") {
-        if let Some(href) = attrs.get("href").or_else(|| attrs.get("xlink:href")) {
-            if !href.starts_with('#') {
-                return Err(DescriptorError(
-                    "external SVG references are not allowed".into(),
-                ));
-            }
+    if let Some(href) = attrs.get("href").or_else(|| attrs.get("xlink:href")) {
+        let trimmed = href.trim();
+        if !trimmed.starts_with('#') || trimmed.len() <= 1 || trimmed.contains(char::is_whitespace)
+        {
+            return Err(DescriptorError(
+                "external SVG references are not allowed".into(),
+            ));
         }
     }
     Ok(())

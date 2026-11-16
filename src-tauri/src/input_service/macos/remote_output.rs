@@ -8,8 +8,8 @@ impl RemoteKey for MacKey {
     }
 
     fn original(button: &str) -> Option<Self> {
-        let (page, usage) = crate::devices::descriptor_registry::KINDS
-            .iter()
+        let (page, usage) = crate::devices::descriptor_registry::registered_kinds()
+            .into_iter()
             .find_map(|kind| crate::devices::descriptor_registry::original_usage(kind, button))?;
         mac_key_for_hid_usage(page, usage)
     }

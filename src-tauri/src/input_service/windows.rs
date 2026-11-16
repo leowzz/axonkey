@@ -529,8 +529,8 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
 }
 
 pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_actions::HidKey> {
-    crate::devices::descriptor_registry::KINDS
-        .iter()
+    crate::devices::descriptor_registry::registered_kinds()
+        .into_iter()
         .find_map(|kind| crate::devices::descriptor_registry::original_usage(kind, button))
         .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
 }

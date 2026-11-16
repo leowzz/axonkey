@@ -1900,6 +1900,30 @@ fn device_snapshot(
 }
 
 #[tauri::command]
+fn sync_cloud_device_descriptors(
+    app: tauri::AppHandle,
+    descriptors: Vec<devices::descriptor_registry::CloudDescriptorSvg>,
+) -> devices::descriptor_registry::CloudDescriptorSyncResult {
+    let (result, valid_descriptors) =
+        devices::descriptor_registry::sync_cloud_descriptors_with_valid(&descriptors);
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        devices::descriptor_registry::save_persisted_cloud_descriptors(
+            &app_data_dir,
+            &valid_descriptors,
+        );
+    }
+    if result.changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    result
+}
+
+#[tauri::command]
 fn put_device_instance(
     revision: u64,
     instance: DeviceInstance,
@@ -2049,11 +2073,9 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 }
 
 fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
-    let device_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("device-instances.json");
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    devices::descriptor_registry::load_persisted_cloud_descriptors(&app_data_dir);
+    let device_path = app_data_dir.join("device-instances.json");
     app.manage(foreground::Monitor::start(
         device_path.with_file_name("recent-applications.json"),
     )?);
@@ -2267,6 +2289,7 @@ pub fn run() {
             export_signal_monitor,
             update_input_settings,
             device_snapshot,
+            sync_cloud_device_descriptors,
             foreground::foreground_applications,
             foreground::resolve_application_path,
             foreground::application_icons,

@@ -297,6 +297,7 @@ struct Shared {
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
+    rescan_requested: AtomicBool,
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
     #[cfg(windows)]
     quarbor: Option<Arc<QuarborRegistry>>,
@@ -555,6 +556,7 @@ impl DeviceManager {
             path,
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
+            rescan_requested: AtomicBool::new(false),
             emit,
             legacy_remote,
             quarbor,
@@ -587,6 +589,7 @@ impl DeviceManager {
             path,
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
+            rescan_requested: AtomicBool::new(false),
             emit,
             #[cfg(windows)]
             quarbor: Some(Arc::new(QuarborRegistry::new_for_test())),
@@ -630,6 +633,21 @@ impl DeviceManager {
     }
     pub fn refresh_information(&self, binding: &str) -> Result<Snapshot, String> {
         device_info::request(&self.shared, binding)
+    }
+
+    pub fn refresh_descriptors(&self) -> Snapshot {
+        {
+            let mut snapshot = self.shared.snapshot.lock().unwrap();
+            if snapshot.error.is_some() {
+                if let Ok(store) = load(&self.shared.path) {
+                    snapshot.store = store;
+                    snapshot.error = None;
+                }
+            }
+            snapshot.scanning = true;
+        }
+        self.shared.rescan_requested.store(true, Ordering::Release);
+        self.snapshot()
     }
 
     pub fn toggle_recording(&self, instance_id: &str) -> Result<bool, String> {
@@ -1090,9 +1108,8 @@ fn open(api: &HidApi, path: &std::ffi::CStr) -> Result<HidDevice, String> {
     result
 }
 fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
-    crate::devices::descriptor_registry::KINDS
-        .iter()
-        .copied()
+    crate::devices::descriptor_registry::registered_kinds()
+        .into_iter()
         .filter(|kind| cfg!(target_os = "macos") || !uses_hid_voice(kind))
         .find(|kind| {
             crate::devices::descriptor_registry::matches_hardware(
@@ -1268,9 +1285,8 @@ fn merge_driver_devices(
     pairing_bindings: &HashMap<String, String>,
 ) {
     for device in devices {
-        let Some(kind) = crate::devices::descriptor_registry::KINDS
-            .iter()
-            .copied()
+        let Some(kind) = crate::devices::descriptor_registry::registered_kinds()
+            .into_iter()
             .find(|kind| device.matches_kind(kind))
         else {
             continue;
@@ -1356,6 +1372,9 @@ fn run(shared: Arc<Shared>) {
                 if pair_shared.stop.load(Ordering::Acquire) {
                     return;
                 }
+                if pair_shared.rescan_requested.load(Ordering::Acquire) {
+                    break;
+                }
                 thread::sleep(Duration::from_millis(100));
             }
         }
@@ -1374,7 +1393,8 @@ fn run(shared: Arc<Shared>) {
             }
             next_scan = Instant::now();
         }
-        let scanning = Instant::now() >= next_scan;
+        let scanning =
+            Instant::now() >= next_scan || shared.rescan_requested.swap(false, Ordering::AcqRel);
         if scanning {
             next_scan = Instant::now() + Duration::from_secs(2);
             #[cfg(all(windows, not(test)))]
@@ -1615,6 +1635,8 @@ fn run(shared: Arc<Shared>) {
                     &instance.id == id
                         && instance.enabled
                         && instance.kind == reader.config.instance.kind
+                        && crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
+                            .is_some_and(|current| std::ptr::eq(current, reader.descriptor))
                         && instance.binding == reader.config.instance.binding
                         && instance.binding.as_ref().and_then(|b| paths.get(b))
                             == Some(&reader.path)
@@ -2701,6 +2723,7 @@ mod tests {
                 path: std::env::temp_dir().join(format!("axonkey-offline-{}.json", unique_id())),
                 stop: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
+                rescan_requested: AtomicBool::new(false),
                 emit: Arc::new(|_| {}),
                 legacy_remote: Box::new(|_| true),
                 #[cfg(windows)]

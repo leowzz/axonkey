@@ -23,9 +23,8 @@ pub(super) fn address(value: &str) -> Option<String> {
 }
 
 pub(super) fn kind(vendor: u16, product: u16) -> Option<&'static str> {
-    crate::devices::descriptor_registry::KINDS
-        .iter()
-        .copied()
+    crate::devices::descriptor_registry::registered_kinds()
+        .into_iter()
         .find(|kind| {
             crate::devices::descriptor_registry::matches_hardware(kind, vendor, product, None, None)
         })
