@@ -3,7 +3,7 @@ use super::{
     CaptureSafetyTier,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RawCandidateNode {
@@ -777,7 +777,8 @@ mod windows_impl {
         resource_dir: Option<&Path>,
         log_path: Option<&Path>,
     ) -> Result<CaptureDriverActionResult, String> {
-        let fallback_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let fallback_dir =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let exe = crate::quarbor_installer::find(resource_dir.unwrap_or(&fallback_dir))?;
         let default_log = std::env::temp_dir().join(format!("axonkey-capture-{action}.log"));
         let log_target = log_path.unwrap_or(&default_log);

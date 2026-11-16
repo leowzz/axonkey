@@ -1,7 +1,10 @@
 use serde::Serialize;
 
+#[cfg(any(target_os = "windows", test))]
 const REALTEK_COMPANY_ID: &str = "005D";
+#[cfg(any(target_os = "windows", test))]
 const ERROR_NTE_BAD_KEY: u64 = 2_148_073_475; // 0x80090003
+#[cfg(any(target_os = "windows", test))]
 const ERROR_INVALID_FUNCTION: u64 = 2_147_942_401; // 0x80070001
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -101,6 +104,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn normalize_mac(value: &str) -> Option<String> {
     let compact: String = value.chars().filter(|ch| ch.is_ascii_hexdigit()).collect();
     if compact.len() != 12 {
@@ -114,6 +118,7 @@ fn normalize_mac(value: &str) -> Option<String> {
     )
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn extract_chip_signature(
     fingerprint: Option<&str>,
     manufacturer_id: Option<u32>,
@@ -143,6 +148,7 @@ fn extract_chip_signature(
     None
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn chip_vendor_label(signature: Option<&str>) -> Option<String> {
     let sig = signature?;
     let company = sig.split(';').next()?;
@@ -159,6 +165,7 @@ fn chip_vendor_label(signature: Option<&str>) -> Option<String> {
     Some(format!("{vendor} ({sig})"))
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn format_protocol_error(raw: Option<u64>) -> Option<String> {
     let code = raw?;
     if code == 0 {
@@ -172,6 +179,7 @@ fn format_protocol_error(raw: Option<u64>) -> Option<String> {
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn parse_iso_utc_ms(value: &str) -> Option<u64> {
     let trimmed = value.trim().strip_suffix('Z')?;
     let (date_part, time_part) = trimmed.split_once('T')?;
@@ -200,6 +208,7 @@ fn parse_iso_utc_ms(value: &str) -> Option<u64> {
     Some(total_seconds * 1_000 + millis)
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
@@ -386,6 +395,7 @@ fn extract_named_data(xml: &str, name: &str) -> Option<String> {
     None
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn finalize_diagnosis(
     platform: &str,
     adapters: Vec<BluetoothAdapterStatus>,
@@ -869,59 +879,68 @@ mod win_impl {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn build_macos_report(
+    scan_result: Result<Vec<crate::input_service::managed::paired::Device>, String>,
+) -> ConnectionTroubleshootReport {
+    let mut warnings = Vec::new();
+    let paired_devices = match scan_result {
+        Ok(devices) => devices
+            .into_iter()
+            .map(|device| PairedDeviceDiagnostic {
+                address: device.address,
+                name: device.name,
+                vid_hex: Some(format!("0x{:04X}", device.vendor_id)),
+                pid_hex: Some(format!("0x{:04X}", device.product_id)),
+                chip_signature: None,
+                chip_vendor_label: None,
+                last_connected_ms: None,
+                last_seen_ms: None,
+                present: false,
+                bound_to_quarbor: false,
+                recovery_active: false,
+                supported_kind: crate::devices::descriptor_registry::KINDS
+                    .iter()
+                    .copied()
+                    .find(|kind| {
+                        crate::devices::descriptor_registry::matches_hardware(
+                            kind,
+                            device.vendor_id,
+                            device.product_id,
+                            None,
+                            None,
+                        )
+                    })
+                    .map(str::to_string),
+                suspect_reason: None,
+            })
+            .collect(),
+        Err(error) => {
+            warnings.push(error);
+            Vec::new()
+        }
+    };
+    ConnectionTroubleshootReport {
+        platform: "macos".into(),
+        checked_at_ms: now_ms(),
+        summary_kind: "ok".into(),
+        headline: "macOS 设备配对与连接排查".into(),
+        detail: "请先在「系统设置 -> 蓝牙」中完成配对，并确保已为 Axonkey 开启输入监控与辅助功能权限；若按键无响应或卡在配对，可选择忽略此设备后重新进入配对模式连接。".into(),
+        bluetooth_adapters: vec![],
+        pairing_failures: vec![],
+        paired_devices,
+        warnings,
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
 
     pub(super) fn collect() -> Result<ConnectionTroubleshootReport, String> {
-        let mut warnings = Vec::new();
-        let paired_devices = match crate::input_service::managed::paired::scan() {
-            Ok(devices) => devices
-                .into_iter()
-                .map(|device| PairedDeviceDiagnostic {
-                    address: device.address,
-                    name: device.name,
-                    vid_hex: Some(format!("0x{:04X}", device.vendor_id)),
-                    pid_hex: Some(format!("0x{:04X}", device.product_id)),
-                    chip_signature: None,
-                    chip_vendor_label: None,
-                    last_connected_ms: None,
-                    last_seen_ms: None,
-                    present: false,
-                    bound_to_quarbor: false,
-                    recovery_active: false,
-                    supported_kind: crate::devices::descriptor_registry::KINDS
-                        .iter()
-                        .copied()
-                        .find(|kind| {
-                            crate::devices::descriptor_registry::matches_hardware(
-                                kind,
-                                device.vendor_id,
-                                device.product_id,
-                                None,
-                                None,
-                            )
-                        })
-                        .map(str::to_string),
-                    suspect_reason: None,
-                })
-                .collect(),
-            Err(error) => {
-                warnings.push(error);
-                Vec::new()
-            }
-        };
-        Ok(ConnectionTroubleshootReport {
-            platform: "macos".into(),
-            checked_at_ms: now_ms(),
-            summary_kind: "ok".into(),
-            headline: "macOS 设备配对与连接排查".into(),
-            detail: "请先在「系统设置 -> 蓝牙」中完成配对，并确保已为 Axonkey 开启输入监控与辅助功能权限；若按键无响应或卡在配对，可选择忽略此设备后重新进入配对模式连接。".into(),
-            bluetooth_adapters: vec![],
-            pairing_failures: vec![],
-            paired_devices,
-            warnings,
-        })
+        Ok(build_macos_report(
+            crate::input_service::managed::paired::scan(),
+        ))
     }
 }
 
@@ -1088,6 +1107,48 @@ mod tests {
         let report = finalize_diagnosis("windows", adapters, failures, paired, vec![]);
         assert_eq!(report.summary_kind, "irk_conflict");
         assert!(report.paired_devices[0].suspect_reason.is_some());
+    }
+
+    #[test]
+    fn builds_macos_report_from_paired_scan_and_preserves_warnings() {
+        let _scan_fn: fn() -> Result<Vec<crate::input_service::managed::paired::Device>, String> =
+            crate::input_service::managed::paired::scan;
+
+        let ok_report = build_macos_report(Ok(vec![
+            crate::input_service::managed::paired::Device {
+                address: "0C:E2:90:2E:27:4C".into(),
+                name: "TCL_RC902N_M1".into(),
+                vendor_id: 0x0417,
+                product_id: 0x0304,
+            },
+            crate::input_service::managed::paired::Device {
+                address: "AA:BB:CC:DD:EE:FF".into(),
+                name: "Unknown HID".into(),
+                vendor_id: 0xFFFF,
+                product_id: 0xFFFF,
+            },
+        ]));
+        assert_eq!(ok_report.platform, "macos");
+        assert_eq!(ok_report.summary_kind, "ok");
+        assert!(ok_report.warnings.is_empty());
+        assert_eq!(ok_report.paired_devices.len(), 2);
+        assert_eq!(
+            ok_report.paired_devices[0].vid_hex.as_deref(),
+            Some("0x0417")
+        );
+        assert_eq!(
+            ok_report.paired_devices[0].pid_hex.as_deref(),
+            Some("0x0304")
+        );
+        assert_eq!(
+            ok_report.paired_devices[0].supported_kind.as_deref(),
+            Some("tclRc902n")
+        );
+        assert_eq!(ok_report.paired_devices[1].supported_kind, None);
+
+        let err_report = build_macos_report(Err("读取蓝牙配对列表超时".into()));
+        assert!(err_report.paired_devices.is_empty());
+        assert_eq!(err_report.warnings, vec!["读取蓝牙配对列表超时"]);
     }
 
     #[cfg(target_os = "windows")]

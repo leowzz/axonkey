@@ -550,6 +550,9 @@ fn open_transport(
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    let _ = stop;
+
     let reader = hid_fallback::HidCaptureReader::open(instance_id)?;
     Ok((
         TransportReader::Hid(reader),
