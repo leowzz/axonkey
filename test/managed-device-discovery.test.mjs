@@ -46,11 +46,21 @@ const modelImports = {
 const model = compile('src/devices/integration/model.ts', modelImports)
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
+const behaviorLibraryContext = compile('src/cloud/BehaviorLibraryContext.tsx')
+const useDeviceModelCatalog = compile('src/cloud/useDeviceModelCatalog.ts', {
+  './deviceModelCatalog.ts': require('../src/cloud/deviceModelCatalog.ts'),
+})
+const modelMarkdown = compile('src/devices/integration/ModelMarkdown.tsx', {
+  '../../openExternalUrl': require('../src/openExternalUrl.ts'),
+})
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
+  '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
+  '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
   './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
   './IntegrationControls': controls,
+  './ModelMarkdown': modelMarkdown,
   '../../components/SettingsHelp': { SettingsHelp: () => null },
   '../../components/BatteryIndicator': battery,
   './model': model,
@@ -1388,8 +1398,11 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
   const { DeviceHub: TestHub, DeviceDiscoverySection: TestDiscovery } = compile('src/devices/integration/DeviceHub.tsx', {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
+    '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
     './IntegrationControls': controls,
+    './ModelMarkdown': modelMarkdown,
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     './model': model,

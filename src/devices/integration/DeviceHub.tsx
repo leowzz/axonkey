@@ -1,11 +1,38 @@
-import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, Radio, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Check,
+  Clock3,
+  Link2Off,
+  Pause,
+  Plus,
+  Radio,
+  RefreshCw,
+  Search,
+  TriangleAlert,
+  X,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
+import { BehaviorLibraryContext } from '../../cloud/BehaviorLibraryContext'
+import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog'
+import { useDeviceModelCatalog } from '../../cloud/useDeviceModelCatalog'
 import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
+import { ModelCatalogBody, ModelTagPills } from './ModelMarkdown'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
   buildWorkspaceDeviceOptions,
@@ -774,6 +801,16 @@ function packageSubtitle(pkg: { kind: DeviceKind; name: string; model: string },
     .join(' · ')
 }
 
+function catalogCardSubtitle(
+  pkg: { kind: DeviceKind; name: string; model: string },
+  catalogModel: CatalogDeviceModel | undefined,
+  platform?: Platform,
+) {
+  const brand = catalogModel?.brand_name
+  const showBrand = brand && !pkg.name.toLowerCase().includes(brand.toLowerCase())
+  return [showBrand ? brand : '', packageSubtitle(pkg, platform)].filter(Boolean).join(' · ')
+}
+
 function IntegrationDialog({
   initial,
   controller,
@@ -790,9 +827,15 @@ function IntegrationDialog({
   onOpenCapture?: () => void
   onComplete: (id: string) => void
 }) {
+  const manualAdd = !initial.kind && !initial.instance
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
+  const libraryContext = useContext(BehaviorLibraryContext)
+  const { modelsByCode, loading: catalogLoading } = useDeviceModelCatalog(
+    libraryContext?.client,
+    libraryContext?.accountReady ?? true,
+  )
   const [kind, setKind] = useState<DeviceKind | undefined>(() =>
-    mobileModelSelection ? mobileRemoteFallbackKind : initial.kind,
+    mobileModelSelection ? mobileRemoteFallbackKind : (initial.kind ?? supportPackages[0]?.kind),
   )
   const [step, setStep] = useState<IntegrationStep>(() => (initial.kind ? 'details' : 'kind'))
   const [name, setName] = useState(
@@ -804,6 +847,10 @@ function IntegrationDialog({
           ? packageFor(initial.kind).name
           : ''),
   )
+  const [nameCustomized, setNameCustomized] = useState(false)
+  const [selectedBrand, setSelectedBrand] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [detailsCatalogExpanded, setDetailsCatalogExpanded] = useState(false)
   // null follows discovery defaults; an empty string is the user's explicit “bind later” choice.
   const [bindingChoice, setBindingChoice] = useState<string | null>(
     initial.device?.id ?? initial.instance?.binding ?? null,
@@ -811,6 +858,7 @@ function IntegrationDialog({
   const [localError, setError] = useState('')
   const [recognizing, setRecognizing] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
+  const packageGridRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const modal = dialog.current
     const focus = document.activeElement
@@ -820,6 +868,39 @@ function IntegrationDialog({
       if (focus instanceof HTMLElement && focus.isConnected) focus.focus()
     }
   }, [])
+  const availableBrands = useMemo(() => {
+    const seen = new Set<string>()
+    const list: string[] = []
+    for (const pkg of supportPackages) {
+      const brand = modelsByCode.get(pkg.kind)?.brand_name
+      if (brand && !seen.has(brand)) {
+        seen.add(brand)
+        list.push(brand)
+      }
+    }
+    return list
+  }, [modelsByCode])
+  const effectiveBrand = selectedBrand !== 'all' && availableBrands.includes(selectedBrand) ? selectedBrand : 'all'
+  const filteredPackages = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    return supportPackages.filter(pkg => {
+      const catalog = modelsByCode.get(pkg.kind)
+      if (effectiveBrand !== 'all' && catalog?.brand_name !== effectiveBrand) return false
+      if (!normalizedQuery) return true
+      return [
+        pkg.name,
+        pkg.model,
+        pkg.kind,
+        catalog?.name,
+        catalog?.model,
+        catalog?.brand_name,
+        ...(catalog?.tags ?? []),
+      ].some(field => field?.toLowerCase().includes(normalizedQuery))
+    })
+  }, [effectiveBrand, modelsByCode, searchQuery])
+  const effectivePackage =
+    (kind ? filteredPackages.find(p => p.kind === kind) : undefined) ?? filteredPackages[0] ?? null
+  const activeCatalogModel = effectivePackage ? modelsByCode.get(effectivePackage.kind) : undefined
   const candidates = controller.snapshot.discovered.filter(
     d =>
       (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : kind && deviceMatchesKind(d, kind)) &&
@@ -829,8 +910,43 @@ function IntegrationDialog({
   const device = candidates.find(d => d.id === binding)
   const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
   const selectedPackage = kind ? packageFor(kind) : null
+  const selectedCatalog = kind ? modelsByCode.get(kind) : undefined
+  const hasSelectedCatalogDetails =
+    !needsMobileModelSelection &&
+    Boolean(
+      selectedCatalog &&
+      (selectedCatalog.description || selectedCatalog.tags.length > 0 || selectedCatalog.links.length > 0),
+    )
   const recognitionError =
     '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。如果依然识别失败，请看遥控器背面或者说明书确认型号，并手动选择。'
+  function proceedWithPackage(pkg: (typeof supportPackages)[number]) {
+    const changed = pkg.kind !== kind || !name.trim()
+    setKind(pkg.kind)
+    if (changed || !nameCustomized) {
+      setName(pkg.name)
+      setNameCustomized(false)
+    }
+    setDetailsCatalogExpanded(false)
+    setError('')
+    setStep('details')
+  }
+  function handlePackageKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!filteredPackages.length) return
+    let nextIndex = -1
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (index + 1) % filteredPackages.length
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (index - 1 + filteredPackages.length) % filteredPackages.length
+    } else if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = filteredPackages.length - 1
+    }
+    if (nextIndex < 0) return
+    event.preventDefault()
+    setKind(filteredPackages[nextIndex].kind)
+    packageGridRef.current?.querySelectorAll<HTMLButtonElement>('button.managed-package')[nextIndex]?.focus()
+  }
   async function identifyMobileRemote() {
     if (!binding || !native) return
     setRecognizing(true)
@@ -889,34 +1005,119 @@ function IntegrationDialog({
             <X size={17} />
           </button>
         </header>
-        <div className="behavior-dialog-body managed-integration-body">
+        <div className={`behavior-dialog-body managed-integration-body${step === 'kind' ? ' is-catalog-picker' : ''}`}>
           {step === 'kind' ? (
-            <div className="managed-package-grid">
-              {supportPackages.map(pkg => {
-                const subtitle = packageSubtitle(pkg, platform)
-                return (
-                  <button
-                    type="button"
-                    className="managed-package"
-                    data-kind={pkg.kind}
-                    key={pkg.kind}
-                    onClick={() => {
-                      setKind(pkg.kind)
-                      setName(pkg.name)
-                      setStep('details')
-                    }}
-                  >
-                    <span className="managed-package-artwork">
-                      <img src={pkg.artwork} alt="" />
-                    </span>
-                    <span className="managed-package-meta">
-                      <strong>{pkg.name}</strong>
-                      {subtitle && <small>{subtitle}</small>}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+            <>
+              <div className="managed-catalog-toolbar">
+                {availableBrands.length > 0 && (
+                  <div className="managed-brand-pills" role="group" aria-label="按品牌筛选">
+                    <button
+                      type="button"
+                      className="managed-brand-pill"
+                      aria-pressed={effectiveBrand === 'all'}
+                      onClick={() => setSelectedBrand('all')}
+                    >
+                      全部
+                    </button>
+                    {availableBrands.map(brand => (
+                      <button
+                        key={brand}
+                        type="button"
+                        className="managed-brand-pill"
+                        aria-pressed={effectiveBrand === brand}
+                        onClick={() => setSelectedBrand(brand)}
+                      >
+                        {brand}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="managed-catalog-search">
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    type="search"
+                    aria-label="搜索设备型号"
+                    placeholder="搜索名称或型号…"
+                    value={searchQuery}
+                    onChange={event => setSearchQuery(event.target.value)}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="managed-catalog-search-clear"
+                      aria-label="清空搜索"
+                      onClick={() => setSearchQuery('')}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="managed-catalog-picker">
+                <div className="managed-catalog-list-pane">
+                  {filteredPackages.length > 0 ? (
+                    <div ref={packageGridRef} className="managed-package-grid">
+                      {filteredPackages.map((pkg, index) => {
+                        const selected = effectivePackage?.kind === pkg.kind
+                        const subtitle = catalogCardSubtitle(pkg, modelsByCode.get(pkg.kind), platform)
+                        return (
+                          <button
+                            type="button"
+                            className="managed-package"
+                            data-kind={pkg.kind}
+                            data-selected={selected || undefined}
+                            aria-pressed={selected}
+                            key={pkg.kind}
+                            onClick={() => setKind(pkg.kind)}
+                            onDoubleClick={() => proceedWithPackage(pkg)}
+                            onKeyDown={event => handlePackageKeyDown(event, index)}
+                          >
+                            <span className="managed-package-artwork">
+                              <img src={pkg.artwork} alt="" />
+                            </span>
+                            <span className="managed-package-meta">
+                              <strong>{pkg.name}</strong>
+                              {subtitle && <small>{subtitle}</small>}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="managed-catalog-no-match">没有匹配的设备型号</p>
+                  )}
+                </div>
+                <aside className="managed-catalog-detail" aria-label="型号详情" aria-live="polite">
+                  {effectivePackage ? (
+                    <>
+                      <div className="managed-catalog-detail-head">
+                        <span className="managed-catalog-detail-artwork">
+                          <img src={effectivePackage.artwork} alt="" />
+                        </span>
+                        <div className="managed-catalog-detail-title">
+                          <h3>{effectivePackage.name}</h3>
+                          <p>
+                            {[
+                              activeCatalogModel?.brand_name,
+                              effectivePackage.model.split(' · ')[0],
+                              usesHidVoice(effectivePackage.kind) && platform !== 'windows' && platform !== 'macos'
+                                ? '仅配置'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
+                          {activeCatalogModel && <ModelTagPills tags={activeCatalogModel.tags} />}
+                        </div>
+                      </div>
+                      <ModelCatalogBody model={activeCatalogModel} loading={catalogLoading} native={native} />
+                    </>
+                  ) : (
+                    <p className="managed-model-empty">请调整品牌筛选或搜索关键词</p>
+                  )}
+                </aside>
+              </div>
+            </>
           ) : step === 'mobile-model' ? (
             <>
               <div className="managed-integration-product">
@@ -969,17 +1170,41 @@ function IntegrationDialog({
             <>
               <div className="managed-integration-product">
                 <img src={selectedPackage!.artwork} alt="" />
-                <div>
+                <div className="managed-integration-product-meta">
                   <h3>{needsMobileModelSelection ? '移动系列遥控器' : selectedPackage!.name}</h3>
-                  {!needsMobileModelSelection && packageSubtitle(selectedPackage!) && (
-                    <p>{packageSubtitle(selectedPackage!)}</p>
+                  {!needsMobileModelSelection && catalogCardSubtitle(selectedPackage!, selectedCatalog, platform) && (
+                    <p>{catalogCardSubtitle(selectedPackage!, selectedCatalog, platform)}</p>
                   )}
                 </div>
+                {hasSelectedCatalogDetails && (
+                  <button
+                    type="button"
+                    className="managed-model-info-toggle"
+                    aria-expanded={detailsCatalogExpanded}
+                    onClick={() => setDetailsCatalogExpanded(open => !open)}
+                  >
+                    <span>型号说明</span>
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                )}
               </div>
+              {hasSelectedCatalogDetails && detailsCatalogExpanded && (
+                <div className="managed-details-catalog-panel">
+                  <ModelTagPills tags={selectedCatalog!.tags} />
+                  <ModelCatalogBody model={selectedCatalog} native={native} showEmptyNote={false} />
+                </div>
+              )}
               <div className="settings-form-fields">
                 <label className="settings-form-row">
                   <span className="settings-form-label">设备名称</span>
-                  <input value={name} maxLength={60} onChange={e => setName(e.target.value)} />
+                  <input
+                    value={name}
+                    maxLength={60}
+                    onChange={e => {
+                      setName(e.target.value)
+                      setNameCustomized(true)
+                    }}
+                  />
                 </label>
                 <div className="settings-form-row">
                   <span className="settings-form-label" id="integration-binding-label">
@@ -1041,9 +1266,23 @@ function IntegrationDialog({
               没有找到型号？适配新设备
             </button>
           )}
-          <button onClick={onClose}>取消</button>
+          <button type="button" onClick={onClose}>
+            取消
+          </button>
+          {step === 'details' && manualAdd && (
+            <button
+              type="button"
+              onClick={() => {
+                setError('')
+                setStep('kind')
+              }}
+            >
+              更换型号
+            </button>
+          )}
           {step === 'mobile-model' && (
             <button
+              type="button"
               disabled={recognizing}
               onClick={() => {
                 setError('')
@@ -1053,35 +1292,49 @@ function IntegrationDialog({
               上一步
             </button>
           )}
-          {step !== 'kind' && kind && (
+          {step === 'kind' ? (
             <button
+              type="button"
               className="managed-primary"
-              disabled={
-                !name.trim() ||
-                controller.busy ||
-                recognizing ||
-                device?.identityQuality === 'ambiguous' ||
-                Boolean(binding && !device)
-              }
+              disabled={!effectivePackage}
               onClick={() => {
-                if (step === 'details' && needsMobileModelSelection) {
-                  setError('')
-                  setStep('mobile-model')
-                } else {
-                  void integrate()
-                }
+                if (effectivePackage) proceedWithPackage(effectivePackage)
               }}
             >
-              {step === 'details' && needsMobileModelSelection
-                ? '下一步'
-                : !native
-                  ? '保存预览'
-                  : initial.instance
-                    ? '保存'
-                    : binding
-                      ? '集成设备'
-                      : '添加设备'}
+              下一步
             </button>
+          ) : (
+            kind && (
+              <button
+                type="button"
+                className="managed-primary"
+                disabled={
+                  !name.trim() ||
+                  controller.busy ||
+                  recognizing ||
+                  device?.identityQuality === 'ambiguous' ||
+                  Boolean(binding && !device)
+                }
+                onClick={() => {
+                  if (step === 'details' && needsMobileModelSelection) {
+                    setError('')
+                    setStep('mobile-model')
+                  } else {
+                    void integrate()
+                  }
+                }}
+              >
+                {step === 'details' && needsMobileModelSelection
+                  ? '下一步'
+                  : !native
+                    ? '保存预览'
+                    : initial.instance
+                      ? '保存'
+                      : binding
+                        ? '集成设备'
+                        : '添加设备'}
+              </button>
+            )
           )}
         </footer>
       </section>

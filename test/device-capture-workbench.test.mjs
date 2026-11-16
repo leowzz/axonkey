@@ -844,9 +844,19 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
   })
   const controls = h.evalModule('src/devices/integration/IntegrationControls.tsx')
   const battery = h.evalModule('src/components/BatteryIndicator.tsx')
+  const behaviorLibraryContext = h.evalModule('src/cloud/BehaviorLibraryContext.tsx')
+  const useDeviceModelCatalog = h.evalModule('src/cloud/useDeviceModelCatalog.ts', {
+    './deviceModelCatalog.ts': require('../src/cloud/deviceModelCatalog.ts'),
+  })
+  const modelMarkdown = h.evalModule('src/devices/integration/ModelMarkdown.tsx', {
+    '../../openExternalUrl': require('../src/openExternalUrl.ts'),
+  })
   const { DeviceHub } = h.evalModule('src/devices/integration/DeviceHub.tsx', {
+    '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
+    '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: () => null },
     './IntegrationControls': controls,
+    './ModelMarkdown': modelMarkdown,
     '../../components/BatteryIndicator': battery,
     './model': model,
     '../capture/DeviceCaptureWorkbench': {
