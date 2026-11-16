@@ -191,6 +191,12 @@ mod tests {
             ),
             ("phicommDb1R", vec![2, 0x24, 0x02], "phicomm-db1-r.back"),
             (
+                "oneplusRc001a",
+                vec![1, 0, 0, 0x3b, 0, 0, 0, 0, 0],
+                "oneplus.oneplus",
+            ),
+            ("oneplusRc001a", vec![3, 0x21, 0x02], "oneplus.assistant"),
+            (
                 "xboxBluetooth",
                 vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
                 "xbox.a",

@@ -85,7 +85,8 @@ pub(crate) struct StateSnapshot {
 }
 
 pub(crate) fn parse_capabilities_report(bytes: &[u8]) -> Option<Capabilities> {
-    if bytes.len() < FEATURE_CAPS_REPORT_LEN || bytes[0] != FEATURE_CAPS_REPORT_ID || bytes[1] != 1 {
+    if bytes.len() < FEATURE_CAPS_REPORT_LEN || bytes[0] != FEATURE_CAPS_REPORT_ID || bytes[1] != 1
+    {
         return None;
     }
     Some(Capabilities {
@@ -121,7 +122,9 @@ pub(crate) fn probe_capabilities(device: &HidDevice) -> Capabilities {
     }
 }
 
-pub(crate) fn probe_initial_input_report(device: &HidDevice) -> Option<[u8; FEATURE_STATE_REPORT_LEN]> {
+pub(crate) fn probe_initial_input_report(
+    device: &HidDevice,
+) -> Option<[u8; FEATURE_STATE_REPORT_LEN]> {
     let mut buf = [0u8; FEATURE_STATE_REPORT_LEN];
     buf[0] = FEATURE_STATE_REPORT_ID;
     let len = device.get_feature_report(&mut buf).ok()?;
@@ -164,7 +167,10 @@ pub(crate) fn lease_release_packet() -> [u8; OUTPUT_REPORT_LEN] {
     encode_control_lease(0, 0, UNCHANGED_SETTING, UNCHANGED_SETTING)
 }
 
-pub(crate) fn encode_frame_chunks(frame_id: u8, framebuffer: &[u8]) -> Vec<[u8; OUTPUT_REPORT_LEN]> {
+pub(crate) fn encode_frame_chunks(
+    frame_id: u8,
+    framebuffer: &[u8],
+) -> Vec<[u8; OUTPUT_REPORT_LEN]> {
     if framebuffer.is_empty() {
         return Vec::new();
     }
@@ -204,10 +210,7 @@ pub(crate) fn input_short_label(descriptor: &DeviceDescriptor, key: &str) -> Str
     {
         return input.label.clone();
     }
-    key.rsplit('.')
-        .next()
-        .unwrap_or(key)
-        .to_ascii_uppercase()
+    key.rsplit('.').next().unwrap_or(key).to_ascii_uppercase()
 }
 
 pub(crate) fn format_key_token(token: &str, macos_labels: bool) -> String {
@@ -822,9 +825,7 @@ mod tests {
 
     #[test]
     fn parses_feature_capabilities_and_initial_state_reports() {
-        let caps = [
-            0x10, 1, 18, 0x01, 128, 0, 32, 0, 1, 85, 0x05, 0, 0, 0, 0, 0,
-        ];
+        let caps = [0x10, 1, 18, 0x01, 128, 0, 32, 0, 1, 85, 0x05, 0, 0, 0, 0, 0];
         assert_eq!(
             parse_capabilities_report(&caps),
             Some(Capabilities {

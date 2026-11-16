@@ -5,6 +5,7 @@ import type { XmBt29RemoteButtonId } from './xm-bt-29-remote/buttons.ts'
 import type { ObeRcuR5RemoteButtonId } from './obe-rcu-r5-remote/buttons.ts'
 import type { HisenseRcf3b65RemoteButtonId } from './hisense-rcf3b65-remote/buttons.ts'
 import type { PhicommDb1RRemoteButtonId } from './phicomm-db1-r-remote/buttons.ts'
+import type { OneplusRc001aRemoteButtonId } from './oneplus-rc-001a-remote/buttons.ts'
 import type { MouseInputId } from './system-mouse/inputs.ts'
 
 export type RemoteKeyRegion = {
@@ -39,6 +40,7 @@ export type RemoteButtonId =
   | ObeRcuR5RemoteButtonId
   | HisenseRcf3b65RemoteButtonId
   | PhicommDb1RRemoteButtonId
+  | OneplusRc001aRemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
 export type DeviceKind =
@@ -53,6 +55,7 @@ export type DeviceKind =
   | 'tclRc902v'
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
+  | 'oneplusRc001a'
   | 'kivoK18Lite'
 
 export type WorkspaceLayout = 'multi-lane' | 'single-lane'

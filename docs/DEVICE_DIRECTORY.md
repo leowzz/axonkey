@@ -138,3 +138,4 @@ RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务以 On-request (`
 | --------------- | ------------------------------------- | ---------------------------------------- | ------------------------- | ---------------------------------------------------------------------- | ------ |
 | Hisense RCF3B65 | `src/devices/hisense-rcf3b65-remote/` | `src-tauri/src/devices/hisense_rcf3b65/` | `DEV_VID&01109B_PID&3837` | 18 个正面按键已采集（`0x01` / `0x6F` 九字节）                          | 待接入 |
 | 斐讯 DB1-R      | `src/devices/phicomm-db1-r-remote/`   | `src-tauri/src/devices/phicomm_db1_r/`   | `DEV_VID&01005D_PID&0001` | 12 个正面按键已采集（`0x01` 九字节 / `0x02` 三字节，红外 TV 键已移除） | 待接入 |
+| OnePlus RC-001A | `src/devices/oneplus-rc-001a-remote/` | `src-tauri/src/devices/oneplus_rc_001a/` | `DEV_VID&012B31_PID&4858` | 13 个正侧按键已采集（`0x01` 九字节 / `0x03` 三字节）                   | 待接入 |

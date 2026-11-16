@@ -20,6 +20,7 @@ test('TCL and projector remote CLI selectors resolve each model and use its desc
     ['rc902v', 'TCL-RC902V', 'tclRc902v', 'tcl-rc902v.mute'],
     ['rcf3b65', 'Hisense-RCF3B65', 'hisenseRcf3b65', 'hisense-rcf3b65.power'],
     ['db1-r', 'PHICOMM-DB1-R', 'phicommDb1R', 'phicomm-db1-r.ottPower'],
+    ['rc-001a', 'OnePlus-RC-001A', 'oneplusRc001a', 'oneplus.oneplus'],
   ]) {
     const app = workspace([initial(model, kind)])
     assert.equal(normalizeCliDeviceSelector(model), kind.toLowerCase())

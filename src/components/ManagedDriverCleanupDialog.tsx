@@ -48,6 +48,7 @@ export function ManagedDriverCleanupDialog({
               device.kind === 'tclRc902v' ||
               device.kind === 'hisenseRcf3b65' ||
               device.kind === 'phicommDb1R' ||
+              device.kind === 'oneplusRc001a' ||
               device.kind === 'xboxBluetooth') &&
             device.binding !== null,
         ),
@@ -133,7 +134,9 @@ export function ManagedDriverCleanupDialog({
                                       ? 'Hisense RCF3B65'
                                       : device.kind === 'phicommDb1R'
                                         ? '斐讯 DB1-R'
-                                        : 'Xbox 蓝牙手柄'}{' '}
+                                        : device.kind === 'oneplusRc001a'
+                                          ? 'OnePlus RC-001A'
+                                          : 'Xbox 蓝牙手柄'}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>

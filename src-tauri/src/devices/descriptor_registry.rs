@@ -12,6 +12,7 @@ pub(crate) const KINDS: &[&str] = &[
     "tclRc902v",
     "hisenseRcf3b65",
     "phicommDb1R",
+    "oneplusRc001a",
     "xboxBluetooth",
     "kivoK18Lite",
 ];
@@ -32,6 +33,7 @@ pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescripto
         "tclRc902v" => crate::devices::tcl_rc902v::descriptor(),
         "hisenseRcf3b65" => crate::devices::hisense_rcf3b65::descriptor(),
         "phicommDb1R" => crate::devices::phicomm_db1_r::descriptor(),
+        "oneplusRc001a" => crate::devices::oneplus_rc_001a::descriptor(),
         "xboxBluetooth" => xbox(),
         "kivoK18Lite" => crate::devices::kivo_k18_lite::descriptor(),
         _ => None,
@@ -169,7 +171,8 @@ pub(crate) fn uses_vendor_usb_hid(kind: &str) -> bool {
                     .is_some_and(|transport| transport == "usb-hid")
                     && identity.attributes.get("usage-page").is_some_and(|page| {
                         identity_numbers(page).next().is_some()
-                            && identity_numbers(page).all(|value| (0xff00..=0xffff).contains(&value))
+                            && identity_numbers(page)
+                                .all(|value| (0xff00..=0xffff).contains(&value))
                     })
             })
     })
@@ -380,6 +383,21 @@ mod tests {
             "phicommDb1R",
             0x005d,
             0x0001,
+            Some(12),
+            Some(1)
+        ));
+        assert!(matches_instance(
+            "oneplusRc001a",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012B31_PID&4858\instance"
+        ));
+        assert!(!matches_instance(
+            "oneplusRc001a",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&052B31_PID&4858\instance"
+        ));
+        assert!(matches_hardware(
+            "oneplusRc001a",
+            0x2b31,
+            0x4858,
             Some(12),
             Some(1)
         ));
