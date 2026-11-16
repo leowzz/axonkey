@@ -15,7 +15,36 @@ import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 
 export type { DeviceKind } from '../types.ts'
-export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
+export const deviceScreenSelectionId = '__screen__'
+export type ProfileDisplayMode = 'auto' | 'custom'
+export type ProfileDisplayConfig = {
+  mode: ProfileDisplayMode
+  line1: string
+  line2: string
+}
+export type DeviceDisplaySettings = {
+  brightness: number
+  sleepTimeoutSec: number
+  showKeyToast: boolean
+  showProfileToast: boolean
+}
+export const defaultProfileDisplay: ProfileDisplayConfig = {
+  mode: 'auto',
+  line1: '',
+  line2: '',
+}
+export const defaultDeviceDisplaySettings: DeviceDisplaySettings = {
+  brightness: 100,
+  sleepTimeoutSec: 180,
+  showKeyToast: true,
+  showProfileToast: true,
+}
+export type InstanceProfile = {
+  id: string
+  name: string
+  behaviors: Record<string, TriggerBehaviors>
+  display?: ProfileDisplayConfig
+}
 export type DeviceInstance = {
   id: string
   kind: DeviceKind
@@ -27,6 +56,7 @@ export type DeviceInstance = {
   cmiotA15RecordingMode?: 'hold' | 'click'
   quarborTarget?: string | null
   hideDriverMissingReminder?: boolean
+  display?: DeviceDisplaySettings
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
@@ -131,6 +161,9 @@ export const emptySnapshot = (): DeviceSnapshot => ({
   scanning: false,
 })
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
+export function usesSingleLaneWorkspace(kind: DeviceKind | undefined) {
+  return kind !== undefined && packageFor(kind).workspaceLayout === 'single-lane'
+}
 export function usesHidVoice(kind: DeviceKind | undefined) {
   const engine = kind && packageFor(kind).remoteView?.voice?.engine
   return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc' || engine === 'tcl-rc802a.ico'

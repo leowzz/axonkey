@@ -18,6 +18,7 @@ import { tclRc902vRemoteView } from '../src/devices/tcl-rc902v-remote/view.ts'
 import { hisenseRcf3b65RemoteView } from '../src/devices/hisense-rcf3b65-remote/view.ts'
 import { phicommDb1RRemoteView } from '../src/devices/phicomm-db1-r-remote/view.ts'
 import { kivoK18LiteView } from '../src/devices/kivo-k18-lite/view.ts'
+import { kivoK18LiteSupportPackage } from '../src/devices/kivo-k18-lite/definition.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -149,6 +150,42 @@ test('Kivo K18 Lite highlights simultaneous multi-key presses across K01..K18', 
   }
   assert.doesNotMatch(key('kivo.k18Lite.k04').props.className, /\bpressed\b/)
   assert.match(key('kivo.k18Lite.k18').props.className, /\bmapped\b/)
+  act(() => view.unmount())
+})
+
+test('Kivo K18 Lite interactive OLED screen region selects via pointer or keyboard and switches back to keys', () => {
+  const baseProps = {
+    remoteView: kivoK18LiteView,
+    screenRegion: kivoK18LiteSupportPackage.screenRegion,
+    mappedIds: ['kivo.k18Lite.k01'],
+  }
+  const { view, key, selected } = mount({ ...baseProps, activeId: 'kivo.k18Lite.k01' })
+  assert.equal(view.root.findAllByProps({ role: 'button' }).length, 19)
+  assert.equal(key('__screen__').props['aria-label'], 'OLED 屏幕')
+  assert.equal(key('__screen__').props['aria-pressed'], false)
+  assert.equal(key('kivo.k18Lite.k01').props['aria-pressed'], true)
+
+  act(() => key('__screen__').props.onClick())
+  assert.deepEqual(selected, ['__screen__'])
+
+  act(() => view.update(React.createElement(RemoteControl, {
+    ...baseProps,
+    activeId: '__screen__',
+    pressedId: null,
+    onSelect: id => selected.push(id),
+  })))
+  assert.equal(key('__screen__').props['aria-pressed'], true)
+  assert.match(key('__screen__').props.className, /\bselected\b/)
+  assert.doesNotMatch(key('kivo.k18Lite.k01').props.className, /\bselected\b/)
+  assert.match(key('kivo.k18Lite.k01').props.className, /\bmapped\b/)
+
+  act(() => {
+    key('__screen__').props.onKeyDown(keyboardEvent(' '))
+    key('__screen__').props.onKeyUp(keyboardEvent(' '))
+    key('kivo.k18Lite.k02').props.onKeyDown(keyboardEvent('Enter'))
+    key('kivo.k18Lite.k02').props.onKeyUp(keyboardEvent('Enter'))
+  })
+  assert.deepEqual(selected, ['__screen__', '__screen__', 'kivo.k18Lite.k02'])
   act(() => view.unmount())
 })
 

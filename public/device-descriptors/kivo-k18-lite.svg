@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:ak="urn:axonkey:device:1"
-     width="640" height="520" viewBox="0 0 640 520" fill="none"
+     width="600" height="496" viewBox="0 0 600 496" fill="none"
      class="kivo-keypad"
      role="img" aria-labelledby="kivo-k18-title kivo-k18-description"
      data-ak-schema="axonkey.device/1"
@@ -15,7 +15,7 @@ svg.kivo-keypad {
   --blue-soft: #dbeafe;
   --green: #24975e;
   --green-soft: #d1fae5;
-  font-family: 'Manrope', 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 .kivo-keypad text {
   font-family: inherit;
@@ -56,12 +56,14 @@ svg.kivo-keypad {
   transition: fill 0.12s, stroke 0.12s;
 }
 .kivo-keypad .key text {
-  fill: #334155;
-  font-size: 18px;
+  fill: #0f172a;
+  font-size: 21px;
   font-weight: 700;
-  letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
   text-anchor: middle;
   dominant-baseline: central;
+  text-rendering: geometricPrecision;
   transition: fill 0.12s;
 }
 .kivo-keypad .key .mapped-dot {
@@ -152,21 +154,16 @@ svg.kivo-keypad {
     </ak:device>
   </metadata>
   <defs>
-    <linearGradient id="k18-usbc-shell" x1="294" y1="10" x2="346" y2="30" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#e2e8f0" />
-      <stop offset="0.5" stop-color="#cbd5e1" />
-      <stop offset="1" stop-color="#94a3b8" />
-    </linearGradient>
-    <linearGradient id="k18-case-fill" x1="320" y1="26" x2="320" y2="506" gradientUnits="userSpaceOnUse">
+    <linearGradient id="k18-case-fill" x1="300" y1="8" x2="300" y2="488" gradientUnits="userSpaceOnUse">
       <stop stop-color="#f8cedc" />
       <stop offset="0.52" stop-color="#f1b5ca" />
       <stop offset="1" stop-color="#e79fb8" />
     </linearGradient>
-    <linearGradient id="k18-plate-fill" x1="320" y1="44" x2="320" y2="488" gradientUnits="userSpaceOnUse">
+    <linearGradient id="k18-plate-fill" x1="300" y1="26" x2="300" y2="470" gradientUnits="userSpaceOnUse">
       <stop stop-color="#e5a3ba" />
       <stop offset="1" stop-color="#d991aa" />
     </linearGradient>
-    <linearGradient id="k18-oled-glass" x1="82" y1="72" x2="239" y2="136" gradientUnits="userSpaceOnUse">
+    <linearGradient id="k18-oled-glass" x1="62" y1="54" x2="219" y2="118" gradientUnits="userSpaceOnUse">
       <stop stop-color="#141c27" />
       <stop offset="0.55" stop-color="#0a0f16" />
       <stop offset="1" stop-color="#06090e" />
@@ -183,220 +180,214 @@ svg.kivo-keypad {
     </linearGradient>
   </defs>
 
-  <g id="kivo-k18-usbc-port" aria-hidden="true">
-    <rect x="307" y="6" width="26" height="8" rx="3" fill="#64748b" />
-    <rect x="294" y="11" width="52" height="19" rx="5" fill="url(#k18-usbc-shell)" stroke="#8596ab" stroke-width="1.2" />
-    <path d="M 301 17.5 H 339" stroke="#f8fafc" stroke-width="1.2" stroke-linecap="round" />
-  </g>
-
   <g id="kivo-k18-shell" aria-hidden="true">
-    <rect x="28" y="26" width="584" height="480" rx="24" fill="url(#k18-case-fill)" stroke="#cf849e" stroke-width="1.8" />
-    <rect x="31.5" y="29.5" width="577" height="473" rx="20.5" stroke="#fdedf3" stroke-opacity="0.78" stroke-width="1.5" />
-    <rect x="45" y="44" width="550" height="444" rx="14" fill="url(#k18-plate-fill)" stroke="#c77d97" stroke-width="1.3" />
+    <rect x="8" y="8" width="584" height="480" rx="24" fill="url(#k18-case-fill)" stroke="#cf849e" stroke-width="1.8" />
+    <rect x="11.5" y="11.5" width="577" height="473" rx="20.5" stroke="#fdedf3" stroke-opacity="0.78" stroke-width="1.5" />
+    <rect x="25" y="26" width="550" height="444" rx="14" fill="url(#k18-plate-fill)" stroke="#c77d97" stroke-width="1.3" />
   </g>
 
   <g id="kivo-k18-oled-module" aria-hidden="true">
-    <rect x="55" y="63" width="206" height="82" rx="8" fill="#241e26" stroke="#be758f" stroke-width="1.2" />
-    <rect x="60" y="69" width="196" height="70" rx="3.5" fill="#17385c" stroke="#0f253e" stroke-width="1" />
-    <rect x="64" y="73" width="12" height="62" rx="1.5" stroke="#cbd5e1" stroke-opacity="0.52" stroke-width="0.9" />
-    <circle cx="70" cy="80" r="3.7" fill="#cbd5e1" />
-    <circle cx="70" cy="80" r="1.6" fill="#0f172a" />
-    <circle cx="70" cy="96" r="3.7" fill="#cbd5e1" />
-    <circle cx="70" cy="96" r="1.6" fill="#0f172a" />
-    <circle cx="70" cy="112" r="3.7" fill="#cbd5e1" />
-    <circle cx="70" cy="112" r="1.6" fill="#0f172a" />
-    <circle cx="70" cy="128" r="3.7" fill="#cbd5e1" />
-    <circle cx="70" cy="128" r="1.6" fill="#0f172a" />
-    <rect x="238" y="81" width="16" height="46" rx="1.5" fill="#3a291d" />
-    <path d="M 240 89 H 252 M 240 99 H 252 M 240 109 H 252 M 240 119 H 252" stroke="#7c583c" stroke-width="1.2" />
-    <rect x="80" y="72" width="159" height="64" rx="3" fill="url(#k18-oled-glass)" stroke="#2b394a" stroke-width="1.1" />
-    <rect x="88" y="86" width="144" height="36" rx="1.5" fill="#05080d" stroke="#1b2636" stroke-width="0.9" />
-    <path d="M 85 75 H 178 L 154 133 H 85 Z" fill="#ffffff" fill-opacity="0.035" />
+    <rect x="35" y="45" width="206" height="82" rx="8" fill="#241e26" stroke="#be758f" stroke-width="1.2" />
+    <rect x="40" y="51" width="196" height="70" rx="3.5" fill="#17385c" stroke="#0f253e" stroke-width="1" />
+    <rect x="44" y="55" width="12" height="62" rx="1.5" stroke="#cbd5e1" stroke-opacity="0.52" stroke-width="0.9" />
+    <circle cx="50" cy="62" r="3.7" fill="#cbd5e1" />
+    <circle cx="50" cy="62" r="1.6" fill="#0f172a" />
+    <circle cx="50" cy="78" r="3.7" fill="#cbd5e1" />
+    <circle cx="50" cy="78" r="1.6" fill="#0f172a" />
+    <circle cx="50" cy="94" r="3.7" fill="#cbd5e1" />
+    <circle cx="50" cy="94" r="1.6" fill="#0f172a" />
+    <circle cx="50" cy="110" r="3.7" fill="#cbd5e1" />
+    <circle cx="50" cy="110" r="1.6" fill="#0f172a" />
+    <rect x="218" y="63" width="16" height="46" rx="1.5" fill="#3a291d" />
+    <path d="M 220 71 H 232 M 220 81 H 232 M 220 91 H 232 M 220 101 H 232" stroke="#7c583c" stroke-width="1.2" />
+    <rect x="60" y="54" width="159" height="64" rx="3" fill="url(#k18-oled-glass)" stroke="#2b394a" stroke-width="1.1" />
+    <rect x="68" y="68" width="144" height="36" rx="1.5" fill="#05080d" stroke="#1b2636" stroke-width="0.9" />
+    <path d="M 65 57 H 158 L 134 115 H 65 Z" fill="#ffffff" fill-opacity="0.035" />
   </g>
 
   <g id="kivo-k18-keys" data-ak-view="front">
     <g id="key-k01" class="key" data-ak-key="kivo.k18Lite.k01" data-ak-role="input" aria-label="K01" tabindex="0" role="button">
-      <rect class="cap-shadow" x="271" y="58" width="98" height="98" rx="12" />
-      <rect class="halo" x="269" y="53" width="102" height="102" rx="14" />
-      <rect class="hit" x="271" y="55" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 275 59 L 287 69 M 365 59 L 353 69 M 275 149 L 287 135 M 365 149 L 353 135" />
-      <rect class="cap-top" x="284" y="66" width="72" height="70" rx="9" />
-      <text x="320" y="101">K01</text>
-      <circle class="mapped-dot" cx="357" cy="67" r="5.5" />
+      <rect class="cap-shadow" x="251" y="40" width="98" height="98" rx="12" />
+      <rect class="halo" x="249" y="35" width="102" height="102" rx="14" />
+      <rect class="hit" x="251" y="37" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 255 41 L 267 51 M 345 41 L 333 51 M 255 131 L 267 117 M 345 131 L 333 117" />
+      <rect class="cap-top" x="264" y="48" width="72" height="70" rx="9" />
+      <text x="300" y="83">K01</text>
+      <circle class="mapped-dot" cx="337" cy="49" r="5.5" />
     </g>
     <g id="key-k02" class="key" data-ak-key="kivo.k18Lite.k02" data-ak-role="input" aria-label="K02" tabindex="0" role="button">
-      <rect class="cap-shadow" x="379" y="58" width="98" height="98" rx="12" />
-      <rect class="halo" x="377" y="53" width="102" height="102" rx="14" />
-      <rect class="hit" x="379" y="55" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 383 59 L 395 69 M 473 59 L 461 69 M 383 149 L 395 135 M 473 149 L 461 135" />
-      <rect class="cap-top" x="392" y="66" width="72" height="70" rx="9" />
-      <text x="428" y="101">K02</text>
-      <circle class="mapped-dot" cx="465" cy="67" r="5.5" />
+      <rect class="cap-shadow" x="359" y="40" width="98" height="98" rx="12" />
+      <rect class="halo" x="357" y="35" width="102" height="102" rx="14" />
+      <rect class="hit" x="359" y="37" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 363 41 L 375 51 M 453 41 L 441 51 M 363 131 L 375 117 M 453 131 L 441 117" />
+      <rect class="cap-top" x="372" y="48" width="72" height="70" rx="9" />
+      <text x="408" y="83">K02</text>
+      <circle class="mapped-dot" cx="445" cy="49" r="5.5" />
     </g>
     <g id="key-k03" class="key" data-ak-key="kivo.k18Lite.k03" data-ak-role="input" aria-label="K03" tabindex="0" role="button">
-      <rect class="cap-shadow" x="487" y="58" width="98" height="98" rx="12" />
-      <rect class="halo" x="485" y="53" width="102" height="102" rx="14" />
-      <rect class="hit" x="487" y="55" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 491 59 L 503 69 M 581 59 L 569 69 M 491 149 L 503 135 M 581 149 L 569 135" />
-      <rect class="cap-top" x="500" y="66" width="72" height="70" rx="9" />
-      <text x="536" y="101">K03</text>
-      <circle class="mapped-dot" cx="573" cy="67" r="5.5" />
+      <rect class="cap-shadow" x="467" y="40" width="98" height="98" rx="12" />
+      <rect class="halo" x="465" y="35" width="102" height="102" rx="14" />
+      <rect class="hit" x="467" y="37" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 471 41 L 483 51 M 561 41 L 549 51 M 471 131 L 483 117 M 561 131 L 549 117" />
+      <rect class="cap-top" x="480" y="48" width="72" height="70" rx="9" />
+      <text x="516" y="83">K03</text>
+      <circle class="mapped-dot" cx="553" cy="49" r="5.5" />
     </g>
     <g id="key-k04" class="key" data-ak-key="kivo.k18Lite.k04" data-ak-role="input" aria-label="K04" tabindex="0" role="button">
-      <rect class="cap-shadow" x="55" y="166" width="98" height="98" rx="12" />
-      <rect class="halo" x="53" y="161" width="102" height="102" rx="14" />
-      <rect class="hit" x="55" y="163" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 59 167 L 71 177 M 149 167 L 137 177 M 59 257 L 71 243 M 149 257 L 137 243" />
-      <rect class="cap-top" x="68" y="174" width="72" height="70" rx="9" />
-      <text x="104" y="209">K04</text>
-      <circle class="mapped-dot" cx="141" cy="175" r="5.5" />
+      <rect class="cap-shadow" x="35" y="148" width="98" height="98" rx="12" />
+      <rect class="halo" x="33" y="143" width="102" height="102" rx="14" />
+      <rect class="hit" x="35" y="145" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 39 149 L 51 159 M 129 149 L 117 159 M 39 239 L 51 225 M 129 239 L 117 225" />
+      <rect class="cap-top" x="48" y="156" width="72" height="70" rx="9" />
+      <text x="84" y="191">K04</text>
+      <circle class="mapped-dot" cx="121" cy="157" r="5.5" />
     </g>
     <g id="key-k05" class="key" data-ak-key="kivo.k18Lite.k05" data-ak-role="input" aria-label="K05" tabindex="0" role="button">
-      <rect class="cap-shadow" x="163" y="166" width="98" height="98" rx="12" />
-      <rect class="halo" x="161" y="161" width="102" height="102" rx="14" />
-      <rect class="hit" x="163" y="163" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 167 167 L 179 177 M 257 167 L 245 177 M 167 257 L 179 243 M 257 257 L 245 243" />
-      <rect class="cap-top" x="176" y="174" width="72" height="70" rx="9" />
-      <text x="212" y="209">K05</text>
-      <circle class="mapped-dot" cx="249" cy="175" r="5.5" />
+      <rect class="cap-shadow" x="143" y="148" width="98" height="98" rx="12" />
+      <rect class="halo" x="141" y="143" width="102" height="102" rx="14" />
+      <rect class="hit" x="143" y="145" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 147 149 L 159 159 M 237 149 L 225 159 M 147 239 L 159 225 M 237 239 L 225 225" />
+      <rect class="cap-top" x="156" y="156" width="72" height="70" rx="9" />
+      <text x="192" y="191">K05</text>
+      <circle class="mapped-dot" cx="229" cy="157" r="5.5" />
     </g>
     <g id="key-k06" class="key" data-ak-key="kivo.k18Lite.k06" data-ak-role="input" aria-label="K06" tabindex="0" role="button">
-      <rect class="cap-shadow" x="271" y="166" width="98" height="98" rx="12" />
-      <rect class="halo" x="269" y="161" width="102" height="102" rx="14" />
-      <rect class="hit" x="271" y="163" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 275 167 L 287 177 M 365 167 L 353 177 M 275 257 L 287 243 M 365 257 L 353 243" />
-      <rect class="cap-top" x="284" y="174" width="72" height="70" rx="9" />
-      <text x="320" y="209">K06</text>
-      <circle class="mapped-dot" cx="357" cy="175" r="5.5" />
+      <rect class="cap-shadow" x="251" y="148" width="98" height="98" rx="12" />
+      <rect class="halo" x="249" y="143" width="102" height="102" rx="14" />
+      <rect class="hit" x="251" y="145" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 255 149 L 267 159 M 345 149 L 333 159 M 255 239 L 267 225 M 345 239 L 333 225" />
+      <rect class="cap-top" x="264" y="156" width="72" height="70" rx="9" />
+      <text x="300" y="191">K06</text>
+      <circle class="mapped-dot" cx="337" cy="157" r="5.5" />
     </g>
     <g id="key-k07" class="key" data-ak-key="kivo.k18Lite.k07" data-ak-role="input" aria-label="K07" tabindex="0" role="button">
-      <rect class="cap-shadow" x="379" y="166" width="98" height="98" rx="12" />
-      <rect class="halo" x="377" y="161" width="102" height="102" rx="14" />
-      <rect class="hit" x="379" y="163" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 383 167 L 395 177 M 473 167 L 461 177 M 383 257 L 395 243 M 473 257 L 461 243" />
-      <rect class="cap-top" x="392" y="174" width="72" height="70" rx="9" />
-      <text x="428" y="209">K07</text>
-      <circle class="mapped-dot" cx="465" cy="175" r="5.5" />
+      <rect class="cap-shadow" x="359" y="148" width="98" height="98" rx="12" />
+      <rect class="halo" x="357" y="143" width="102" height="102" rx="14" />
+      <rect class="hit" x="359" y="145" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 363 149 L 375 159 M 453 149 L 441 159 M 363 239 L 375 225 M 453 239 L 441 225" />
+      <rect class="cap-top" x="372" y="156" width="72" height="70" rx="9" />
+      <text x="408" y="191">K07</text>
+      <circle class="mapped-dot" cx="445" cy="157" r="5.5" />
     </g>
     <g id="key-k08" class="key" data-ak-key="kivo.k18Lite.k08" data-ak-role="input" aria-label="K08" tabindex="0" role="button">
-      <rect class="cap-shadow" x="487" y="166" width="98" height="98" rx="12" />
-      <rect class="halo" x="485" y="161" width="102" height="102" rx="14" />
-      <rect class="hit" x="487" y="163" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 491 167 L 503 177 M 581 167 L 569 177 M 491 257 L 503 243 M 581 257 L 569 243" />
-      <rect class="cap-top" x="500" y="174" width="72" height="70" rx="9" />
-      <text x="536" y="209">K08</text>
-      <circle class="mapped-dot" cx="573" cy="175" r="5.5" />
+      <rect class="cap-shadow" x="467" y="148" width="98" height="98" rx="12" />
+      <rect class="halo" x="465" y="143" width="102" height="102" rx="14" />
+      <rect class="hit" x="467" y="145" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 471 149 L 483 159 M 561 149 L 549 159 M 471 239 L 483 225 M 561 239 L 549 225" />
+      <rect class="cap-top" x="480" y="156" width="72" height="70" rx="9" />
+      <text x="516" y="191">K08</text>
+      <circle class="mapped-dot" cx="553" cy="157" r="5.5" />
     </g>
     <g id="key-k09" class="key" data-ak-key="kivo.k18Lite.k09" data-ak-role="input" aria-label="K09" tabindex="0" role="button">
-      <rect class="cap-shadow" x="55" y="274" width="98" height="98" rx="12" />
-      <rect class="halo" x="53" y="269" width="102" height="102" rx="14" />
-      <rect class="hit" x="55" y="271" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 59 275 L 71 285 M 149 275 L 137 285 M 59 365 L 71 351 M 149 365 L 137 351" />
-      <rect class="cap-top" x="68" y="282" width="72" height="70" rx="9" />
-      <text x="104" y="317">K09</text>
-      <circle class="mapped-dot" cx="141" cy="283" r="5.5" />
+      <rect class="cap-shadow" x="35" y="256" width="98" height="98" rx="12" />
+      <rect class="halo" x="33" y="251" width="102" height="102" rx="14" />
+      <rect class="hit" x="35" y="253" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 39 257 L 51 267 M 129 257 L 117 267 M 39 347 L 51 333 M 129 347 L 117 333" />
+      <rect class="cap-top" x="48" y="264" width="72" height="70" rx="9" />
+      <text x="84" y="299">K09</text>
+      <circle class="mapped-dot" cx="121" cy="265" r="5.5" />
     </g>
     <g id="key-k10" class="key" data-ak-key="kivo.k18Lite.k10" data-ak-role="input" aria-label="K10" tabindex="0" role="button">
-      <rect class="cap-shadow" x="163" y="274" width="98" height="98" rx="12" />
-      <rect class="halo" x="161" y="269" width="102" height="102" rx="14" />
-      <rect class="hit" x="163" y="271" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 167 275 L 179 285 M 257 275 L 245 285 M 167 365 L 179 351 M 257 365 L 245 351" />
-      <rect class="cap-top" x="176" y="282" width="72" height="70" rx="9" />
-      <text x="212" y="317">K10</text>
-      <circle class="mapped-dot" cx="249" cy="283" r="5.5" />
+      <rect class="cap-shadow" x="143" y="256" width="98" height="98" rx="12" />
+      <rect class="halo" x="141" y="251" width="102" height="102" rx="14" />
+      <rect class="hit" x="143" y="253" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 147 257 L 159 267 M 237 257 L 225 267 M 147 347 L 159 333 M 237 347 L 225 333" />
+      <rect class="cap-top" x="156" y="264" width="72" height="70" rx="9" />
+      <text x="192" y="299">K10</text>
+      <circle class="mapped-dot" cx="229" cy="265" r="5.5" />
     </g>
     <g id="key-k11" class="key" data-ak-key="kivo.k18Lite.k11" data-ak-role="input" aria-label="K11" tabindex="0" role="button">
-      <rect class="cap-shadow" x="271" y="274" width="98" height="98" rx="12" />
-      <rect class="halo" x="269" y="269" width="102" height="102" rx="14" />
-      <rect class="hit" x="271" y="271" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 275 275 L 287 285 M 365 275 L 353 285 M 275 365 L 287 351 M 365 365 L 353 351" />
-      <rect class="cap-top" x="284" y="282" width="72" height="70" rx="9" />
-      <text x="320" y="317">K11</text>
-      <circle class="mapped-dot" cx="357" cy="283" r="5.5" />
+      <rect class="cap-shadow" x="251" y="256" width="98" height="98" rx="12" />
+      <rect class="halo" x="249" y="251" width="102" height="102" rx="14" />
+      <rect class="hit" x="251" y="253" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 255 257 L 267 267 M 345 257 L 333 267 M 255 347 L 267 333 M 345 347 L 333 333" />
+      <rect class="cap-top" x="264" y="264" width="72" height="70" rx="9" />
+      <text x="300" y="299">K11</text>
+      <circle class="mapped-dot" cx="337" cy="265" r="5.5" />
     </g>
     <g id="key-k12" class="key" data-ak-key="kivo.k18Lite.k12" data-ak-role="input" aria-label="K12" tabindex="0" role="button">
-      <rect class="cap-shadow" x="379" y="274" width="98" height="98" rx="12" />
-      <rect class="halo" x="377" y="269" width="102" height="102" rx="14" />
-      <rect class="hit" x="379" y="271" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 383 275 L 395 285 M 473 275 L 461 285 M 383 365 L 395 351 M 473 365 L 461 351" />
-      <rect class="cap-top" x="392" y="282" width="72" height="70" rx="9" />
-      <text x="428" y="317">K12</text>
-      <circle class="mapped-dot" cx="465" cy="283" r="5.5" />
+      <rect class="cap-shadow" x="359" y="256" width="98" height="98" rx="12" />
+      <rect class="halo" x="357" y="251" width="102" height="102" rx="14" />
+      <rect class="hit" x="359" y="253" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 363 257 L 375 267 M 453 257 L 441 267 M 363 347 L 375 333 M 453 347 L 441 333" />
+      <rect class="cap-top" x="372" y="264" width="72" height="70" rx="9" />
+      <text x="408" y="299">K12</text>
+      <circle class="mapped-dot" cx="445" cy="265" r="5.5" />
     </g>
     <g id="key-k13" class="key" data-ak-key="kivo.k18Lite.k13" data-ak-role="input" aria-label="K13" tabindex="0" role="button">
-      <rect class="cap-shadow" x="487" y="274" width="98" height="98" rx="12" />
-      <rect class="halo" x="485" y="269" width="102" height="102" rx="14" />
-      <rect class="hit" x="487" y="271" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 491 275 L 503 285 M 581 275 L 569 285 M 491 365 L 503 351 M 581 365 L 569 351" />
-      <rect class="cap-top" x="500" y="282" width="72" height="70" rx="9" />
-      <text x="536" y="317">K13</text>
-      <circle class="mapped-dot" cx="573" cy="283" r="5.5" />
+      <rect class="cap-shadow" x="467" y="256" width="98" height="98" rx="12" />
+      <rect class="halo" x="465" y="251" width="102" height="102" rx="14" />
+      <rect class="hit" x="467" y="253" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 471 257 L 483 267 M 561 257 L 549 267 M 471 347 L 483 333 M 561 347 L 549 333" />
+      <rect class="cap-top" x="480" y="264" width="72" height="70" rx="9" />
+      <text x="516" y="299">K13</text>
+      <circle class="mapped-dot" cx="553" cy="265" r="5.5" />
     </g>
     <g id="key-k14" class="key" data-ak-key="kivo.k18Lite.k14" data-ak-role="input" aria-label="K14" tabindex="0" role="button">
-      <rect class="cap-shadow" x="55" y="382" width="98" height="98" rx="12" />
-      <rect class="halo" x="53" y="377" width="102" height="102" rx="14" />
-      <rect class="hit" x="55" y="379" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 59 383 L 71 393 M 149 383 L 137 393 M 59 473 L 71 459 M 149 473 L 137 459" />
-      <rect class="cap-top" x="68" y="390" width="72" height="70" rx="9" />
-      <text x="104" y="425">K14</text>
-      <circle class="mapped-dot" cx="141" cy="391" r="5.5" />
+      <rect class="cap-shadow" x="35" y="364" width="98" height="98" rx="12" />
+      <rect class="halo" x="33" y="359" width="102" height="102" rx="14" />
+      <rect class="hit" x="35" y="361" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 39 365 L 51 375 M 129 365 L 117 375 M 39 455 L 51 441 M 129 455 L 117 441" />
+      <rect class="cap-top" x="48" y="372" width="72" height="70" rx="9" />
+      <text x="84" y="407">K14</text>
+      <circle class="mapped-dot" cx="121" cy="373" r="5.5" />
     </g>
     <g id="key-k15" class="key" data-ak-key="kivo.k18Lite.k15" data-ak-role="input" aria-label="K15" tabindex="0" role="button">
-      <rect class="cap-shadow" x="163" y="382" width="98" height="98" rx="12" />
-      <rect class="halo" x="161" y="377" width="102" height="102" rx="14" />
-      <rect class="hit" x="163" y="379" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 167 383 L 179 393 M 257 383 L 245 393 M 167 473 L 179 459 M 257 473 L 245 459" />
-      <rect class="cap-top" x="176" y="390" width="72" height="70" rx="9" />
-      <text x="212" y="425">K15</text>
-      <circle class="mapped-dot" cx="249" cy="391" r="5.5" />
+      <rect class="cap-shadow" x="143" y="364" width="98" height="98" rx="12" />
+      <rect class="halo" x="141" y="359" width="102" height="102" rx="14" />
+      <rect class="hit" x="143" y="361" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 147 365 L 159 375 M 237 365 L 225 375 M 147 455 L 159 441 M 237 455 L 225 441" />
+      <rect class="cap-top" x="156" y="372" width="72" height="70" rx="9" />
+      <text x="192" y="407">K15</text>
+      <circle class="mapped-dot" cx="229" cy="373" r="5.5" />
     </g>
     <g id="key-k16" class="key" data-ak-key="kivo.k18Lite.k16" data-ak-role="input" aria-label="K16" tabindex="0" role="button">
-      <rect class="cap-shadow" x="271" y="382" width="98" height="98" rx="12" />
-      <rect class="halo" x="269" y="377" width="102" height="102" rx="14" />
-      <rect class="hit" x="271" y="379" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 275 383 L 287 393 M 365 383 L 353 393 M 275 473 L 287 459 M 365 473 L 353 459" />
-      <rect class="cap-top" x="284" y="390" width="72" height="70" rx="9" />
-      <text x="320" y="425">K16</text>
-      <circle class="mapped-dot" cx="357" cy="391" r="5.5" />
+      <rect class="cap-shadow" x="251" y="364" width="98" height="98" rx="12" />
+      <rect class="halo" x="249" y="359" width="102" height="102" rx="14" />
+      <rect class="hit" x="251" y="361" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 255 365 L 267 375 M 345 365 L 333 375 M 255 455 L 267 441 M 345 455 L 333 441" />
+      <rect class="cap-top" x="264" y="372" width="72" height="70" rx="9" />
+      <text x="300" y="407">K16</text>
+      <circle class="mapped-dot" cx="337" cy="373" r="5.5" />
     </g>
     <g id="key-k17" class="key" data-ak-key="kivo.k18Lite.k17" data-ak-role="input" aria-label="K17" tabindex="0" role="button">
-      <rect class="cap-shadow" x="379" y="382" width="98" height="98" rx="12" />
-      <rect class="halo" x="377" y="377" width="102" height="102" rx="14" />
-      <rect class="hit" x="379" y="379" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 383 383 L 395 393 M 473 383 L 461 393 M 383 473 L 395 459 M 473 473 L 461 459" />
-      <rect class="cap-top" x="392" y="390" width="72" height="70" rx="9" />
-      <text x="428" y="425">K17</text>
-      <circle class="mapped-dot" cx="465" cy="391" r="5.5" />
+      <rect class="cap-shadow" x="359" y="364" width="98" height="98" rx="12" />
+      <rect class="halo" x="357" y="359" width="102" height="102" rx="14" />
+      <rect class="hit" x="359" y="361" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 363 365 L 375 375 M 453 365 L 441 375 M 363 455 L 375 441 M 453 455 L 441 441" />
+      <rect class="cap-top" x="372" y="372" width="72" height="70" rx="9" />
+      <text x="408" y="407">K17</text>
+      <circle class="mapped-dot" cx="445" cy="373" r="5.5" />
     </g>
     <g id="key-k18" class="key" data-ak-key="kivo.k18Lite.k18" data-ak-role="input" aria-label="K18" tabindex="0" role="button">
-      <rect class="cap-shadow" x="487" y="382" width="98" height="98" rx="12" />
-      <rect class="halo" x="485" y="377" width="102" height="102" rx="14" />
-      <rect class="hit" x="487" y="379" width="98" height="98" rx="12" />
-      <path class="cap-bevel" d="M 491 383 L 503 393 M 581 383 L 569 393 M 491 473 L 503 459 M 581 473 L 569 459" />
-      <rect class="cap-top" x="500" y="390" width="72" height="70" rx="9" />
-      <text x="536" y="425">K18</text>
-      <circle class="mapped-dot" cx="573" cy="391" r="5.5" />
+      <rect class="cap-shadow" x="467" y="364" width="98" height="98" rx="12" />
+      <rect class="halo" x="465" y="359" width="102" height="102" rx="14" />
+      <rect class="hit" x="467" y="361" width="98" height="98" rx="12" />
+      <path class="cap-bevel" d="M 471 365 L 483 375 M 561 365 L 549 375 M 471 455 L 483 441 M 561 455 L 549 441" />
+      <rect class="cap-top" x="480" y="372" width="72" height="70" rx="9" />
+      <text x="516" y="407">K18</text>
+      <circle class="mapped-dot" cx="553" cy="373" r="5.5" />
     </g>
   </g>
 
   <g data-ak-regions="true" fill="transparent" pointer-events="none">
-    <path data-ak-region="kivo.k18Lite.k01" data-ak-anchor="320 104" d="M 283 55 H 357 A 12 12 0 0 1 369 67 V 141 A 12 12 0 0 1 357 153 H 283 A 12 12 0 0 1 271 141 V 67 A 12 12 0 0 1 283 55 Z" />
-    <path data-ak-region="kivo.k18Lite.k02" data-ak-anchor="428 104" d="M 391 55 H 465 A 12 12 0 0 1 477 67 V 141 A 12 12 0 0 1 465 153 H 391 A 12 12 0 0 1 379 141 V 67 A 12 12 0 0 1 391 55 Z" />
-    <path data-ak-region="kivo.k18Lite.k03" data-ak-anchor="536 104" d="M 499 55 H 573 A 12 12 0 0 1 585 67 V 141 A 12 12 0 0 1 573 153 H 499 A 12 12 0 0 1 487 141 V 67 A 12 12 0 0 1 499 55 Z" />
-    <path data-ak-region="kivo.k18Lite.k04" data-ak-anchor="104 212" d="M 67 163 H 141 A 12 12 0 0 1 153 175 V 249 A 12 12 0 0 1 141 261 H 67 A 12 12 0 0 1 55 249 V 175 A 12 12 0 0 1 67 163 Z" />
-    <path data-ak-region="kivo.k18Lite.k05" data-ak-anchor="212 212" d="M 175 163 H 249 A 12 12 0 0 1 261 175 V 249 A 12 12 0 0 1 249 261 H 175 A 12 12 0 0 1 163 249 V 175 A 12 12 0 0 1 175 163 Z" />
-    <path data-ak-region="kivo.k18Lite.k06" data-ak-anchor="320 212" d="M 283 163 H 357 A 12 12 0 0 1 369 175 V 249 A 12 12 0 0 1 357 261 H 283 A 12 12 0 0 1 271 249 V 175 A 12 12 0 0 1 283 163 Z" />
-    <path data-ak-region="kivo.k18Lite.k07" data-ak-anchor="428 212" d="M 391 163 H 465 A 12 12 0 0 1 477 175 V 249 A 12 12 0 0 1 465 261 H 391 A 12 12 0 0 1 379 249 V 175 A 12 12 0 0 1 391 163 Z" />
-    <path data-ak-region="kivo.k18Lite.k08" data-ak-anchor="536 212" d="M 499 163 H 573 A 12 12 0 0 1 585 175 V 249 A 12 12 0 0 1 573 261 H 499 A 12 12 0 0 1 487 249 V 175 A 12 12 0 0 1 499 163 Z" />
-    <path data-ak-region="kivo.k18Lite.k09" data-ak-anchor="104 320" d="M 67 271 H 141 A 12 12 0 0 1 153 283 V 357 A 12 12 0 0 1 141 369 H 67 A 12 12 0 0 1 55 357 V 283 A 12 12 0 0 1 67 271 Z" />
-    <path data-ak-region="kivo.k18Lite.k10" data-ak-anchor="212 320" d="M 175 271 H 249 A 12 12 0 0 1 261 283 V 357 A 12 12 0 0 1 249 369 H 175 A 12 12 0 0 1 163 357 V 283 A 12 12 0 0 1 175 271 Z" />
-    <path data-ak-region="kivo.k18Lite.k11" data-ak-anchor="320 320" d="M 283 271 H 357 A 12 12 0 0 1 369 283 V 357 A 12 12 0 0 1 357 369 H 283 A 12 12 0 0 1 271 357 V 283 A 12 12 0 0 1 283 271 Z" />
-    <path data-ak-region="kivo.k18Lite.k12" data-ak-anchor="428 320" d="M 391 271 H 465 A 12 12 0 0 1 477 283 V 357 A 12 12 0 0 1 465 369 H 391 A 12 12 0 0 1 379 357 V 283 A 12 12 0 0 1 391 271 Z" />
-    <path data-ak-region="kivo.k18Lite.k13" data-ak-anchor="536 320" d="M 499 271 H 573 A 12 12 0 0 1 585 283 V 357 A 12 12 0 0 1 573 369 H 499 A 12 12 0 0 1 487 357 V 283 A 12 12 0 0 1 499 271 Z" />
-    <path data-ak-region="kivo.k18Lite.k14" data-ak-anchor="104 428" d="M 67 379 H 141 A 12 12 0 0 1 153 391 V 465 A 12 12 0 0 1 141 477 H 67 A 12 12 0 0 1 55 465 V 391 A 12 12 0 0 1 67 379 Z" />
-    <path data-ak-region="kivo.k18Lite.k15" data-ak-anchor="212 428" d="M 175 379 H 249 A 12 12 0 0 1 261 391 V 465 A 12 12 0 0 1 249 477 H 175 A 12 12 0 0 1 163 465 V 391 A 12 12 0 0 1 175 379 Z" />
-    <path data-ak-region="kivo.k18Lite.k16" data-ak-anchor="320 428" d="M 283 379 H 357 A 12 12 0 0 1 369 391 V 465 A 12 12 0 0 1 357 477 H 283 A 12 12 0 0 1 271 465 V 391 A 12 12 0 0 1 283 379 Z" />
-    <path data-ak-region="kivo.k18Lite.k17" data-ak-anchor="428 428" d="M 391 379 H 465 A 12 12 0 0 1 477 391 V 465 A 12 12 0 0 1 465 477 H 391 A 12 12 0 0 1 379 465 V 391 A 12 12 0 0 1 391 379 Z" />
-    <path data-ak-region="kivo.k18Lite.k18" data-ak-anchor="536 428" d="M 499 379 H 573 A 12 12 0 0 1 585 391 V 465 A 12 12 0 0 1 573 477 H 499 A 12 12 0 0 1 487 465 V 391 A 12 12 0 0 1 499 379 Z" />
+    <path data-ak-region="kivo.k18Lite.k01" data-ak-anchor="300 86" d="M 263 37 H 337 A 12 12 0 0 1 349 49 V 123 A 12 12 0 0 1 337 135 H 263 A 12 12 0 0 1 251 123 V 49 A 12 12 0 0 1 263 37 Z" />
+    <path data-ak-region="kivo.k18Lite.k02" data-ak-anchor="408 86" d="M 371 37 H 445 A 12 12 0 0 1 457 49 V 123 A 12 12 0 0 1 445 135 H 371 A 12 12 0 0 1 359 123 V 49 A 12 12 0 0 1 371 37 Z" />
+    <path data-ak-region="kivo.k18Lite.k03" data-ak-anchor="516 86" d="M 479 37 H 553 A 12 12 0 0 1 565 49 V 123 A 12 12 0 0 1 553 135 H 479 A 12 12 0 0 1 467 123 V 49 A 12 12 0 0 1 479 37 Z" />
+    <path data-ak-region="kivo.k18Lite.k04" data-ak-anchor="84 194" d="M 47 145 H 121 A 12 12 0 0 1 133 157 V 231 A 12 12 0 0 1 121 243 H 47 A 12 12 0 0 1 35 231 V 157 A 12 12 0 0 1 47 145 Z" />
+    <path data-ak-region="kivo.k18Lite.k05" data-ak-anchor="192 194" d="M 155 145 H 229 A 12 12 0 0 1 241 157 V 231 A 12 12 0 0 1 229 243 H 155 A 12 12 0 0 1 143 231 V 157 A 12 12 0 0 1 155 145 Z" />
+    <path data-ak-region="kivo.k18Lite.k06" data-ak-anchor="300 194" d="M 263 145 H 337 A 12 12 0 0 1 349 157 V 231 A 12 12 0 0 1 337 243 H 263 A 12 12 0 0 1 251 231 V 157 A 12 12 0 0 1 263 145 Z" />
+    <path data-ak-region="kivo.k18Lite.k07" data-ak-anchor="408 194" d="M 371 145 H 445 A 12 12 0 0 1 457 157 V 231 A 12 12 0 0 1 445 243 H 371 A 12 12 0 0 1 359 231 V 157 A 12 12 0 0 1 371 145 Z" />
+    <path data-ak-region="kivo.k18Lite.k08" data-ak-anchor="516 194" d="M 479 145 H 553 A 12 12 0 0 1 565 157 V 231 A 12 12 0 0 1 553 243 H 479 A 12 12 0 0 1 467 231 V 157 A 12 12 0 0 1 479 145 Z" />
+    <path data-ak-region="kivo.k18Lite.k09" data-ak-anchor="84 302" d="M 47 253 H 121 A 12 12 0 0 1 133 265 V 339 A 12 12 0 0 1 121 351 H 47 A 12 12 0 0 1 35 339 V 265 A 12 12 0 0 1 47 253 Z" />
+    <path data-ak-region="kivo.k18Lite.k10" data-ak-anchor="192 302" d="M 155 253 H 229 A 12 12 0 0 1 241 265 V 339 A 12 12 0 0 1 229 351 H 155 A 12 12 0 0 1 143 339 V 265 A 12 12 0 0 1 155 253 Z" />
+    <path data-ak-region="kivo.k18Lite.k11" data-ak-anchor="300 302" d="M 263 253 H 337 A 12 12 0 0 1 349 265 V 339 A 12 12 0 0 1 337 351 H 263 A 12 12 0 0 1 251 339 V 265 A 12 12 0 0 1 263 253 Z" />
+    <path data-ak-region="kivo.k18Lite.k12" data-ak-anchor="408 302" d="M 371 253 H 445 A 12 12 0 0 1 457 265 V 339 A 12 12 0 0 1 445 351 H 371 A 12 12 0 0 1 359 339 V 265 A 12 12 0 0 1 371 253 Z" />
+    <path data-ak-region="kivo.k18Lite.k13" data-ak-anchor="516 302" d="M 479 253 H 553 A 12 12 0 0 1 565 265 V 339 A 12 12 0 0 1 553 351 H 479 A 12 12 0 0 1 467 339 V 265 A 12 12 0 0 1 479 253 Z" />
+    <path data-ak-region="kivo.k18Lite.k14" data-ak-anchor="84 410" d="M 47 361 H 121 A 12 12 0 0 1 133 373 V 447 A 12 12 0 0 1 121 459 H 47 A 12 12 0 0 1 35 447 V 373 A 12 12 0 0 1 47 361 Z" />
+    <path data-ak-region="kivo.k18Lite.k15" data-ak-anchor="192 410" d="M 155 361 H 229 A 12 12 0 0 1 241 373 V 447 A 12 12 0 0 1 229 459 H 155 A 12 12 0 0 1 143 447 V 373 A 12 12 0 0 1 155 361 Z" />
+    <path data-ak-region="kivo.k18Lite.k16" data-ak-anchor="300 410" d="M 263 361 H 337 A 12 12 0 0 1 349 373 V 447 A 12 12 0 0 1 337 459 H 263 A 12 12 0 0 1 251 447 V 373 A 12 12 0 0 1 263 361 Z" />
+    <path data-ak-region="kivo.k18Lite.k17" data-ak-anchor="408 410" d="M 371 361 H 445 A 12 12 0 0 1 457 373 V 447 A 12 12 0 0 1 445 459 H 371 A 12 12 0 0 1 359 447 V 373 A 12 12 0 0 1 371 361 Z" />
+    <path data-ak-region="kivo.k18Lite.k18" data-ak-anchor="516 410" d="M 479 361 H 553 A 12 12 0 0 1 565 373 V 447 A 12 12 0 0 1 553 459 H 479 A 12 12 0 0 1 467 447 V 373 A 12 12 0 0 1 479 361 Z" />
   </g>
 </svg>

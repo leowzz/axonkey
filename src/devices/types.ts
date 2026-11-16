@@ -55,6 +55,13 @@ export type DeviceKind =
   | 'phicommDb1R'
   | 'kivoK18Lite'
 
+export type WorkspaceLayout = 'multi-lane' | 'single-lane'
+
+export type DeviceScreenRegion = {
+  label: string
+  path: string
+}
+
 export type DeviceSupportPackage = {
   kind: DeviceKind
   name: string
@@ -62,6 +69,8 @@ export type DeviceSupportPackage = {
   artwork: string
   inputs: readonly MappingInput<string>[]
   remoteView?: RemoteView
+  workspaceLayout?: WorkspaceLayout
+  screenRegion?: DeviceScreenRegion
 }
 
 export type DeviceSettingsPageProps = {

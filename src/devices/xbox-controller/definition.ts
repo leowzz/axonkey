@@ -8,4 +8,5 @@ export const xboxSupportPackage: DeviceSupportPackage = {
   artwork: '/device-descriptors/xbox.svg',
   inputs: xboxInputs,
   remoteView: xboxRemoteView,
+  workspaceLayout: 'single-lane',
 }
