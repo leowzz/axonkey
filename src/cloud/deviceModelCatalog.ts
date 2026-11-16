@@ -1,6 +1,11 @@
 import * as bundledCatalogModule from '../devices/bundledModelCatalog.json' with { type: 'json' }
-import { isBuiltinDeviceKind, setRuntimeSupportPackages } from '../devices/integration/model.ts'
-import { tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
+import {
+  deriveDeviceKindFromId,
+  isBuiltinDeviceKind,
+  setLocalCustomSupportPackages,
+  setRuntimeSupportPackages,
+} from '../devices/integration/model.ts'
+import { parseRuntimeDescriptorSvg, tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
 import type { DeviceSupportPackage } from '../devices/types.ts'
 import { normalizeExternalHttpUrl } from '../openExternalUrl.ts'
 import type { RelayClient } from './relayClient.ts'
@@ -50,6 +55,16 @@ export type CloudDescriptorSvgPayload = {
   svg: string
 }
 
+export type LocalCustomDeviceEntry = {
+  kind: string
+  deviceId: string
+  name: string
+  model: string
+  vendor: string
+  svg: string
+  filePath: string
+}
+
 export type CatalogCacheStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 type CatalogCacheEntry = {
@@ -61,6 +76,7 @@ type CatalogCacheEntry = {
 export type LoadDeviceModelCatalogOptions = {
   retainedKinds?: Iterable<string>
   activateDescriptors?: boolean
+  forceRefresh?: boolean
   syncPackages?: (packages: readonly DeviceSupportPackage[]) => boolean
 }
 
@@ -70,6 +86,18 @@ const memoryCacheByStorage = new WeakMap<CatalogCacheStorage, CatalogCacheEntry>
 let fallbackMemoryCache: CatalogCacheEntry | null = null
 const inFlightByClient = new WeakMap<RelayClient, Promise<ParsedDeviceModelCatalogEnvelope>>()
 let parsedBundledCatalog: readonly CatalogDeviceModel[] | null = null
+const catalogListeners = new Set<() => void>()
+
+export function subscribeDeviceModelCatalog(listener: () => void): () => void {
+  catalogListeners.add(listener)
+  return () => {
+    catalogListeners.delete(listener)
+  }
+}
+
+function notifyDeviceModelCatalogListeners() {
+  for (const listener of catalogListeners) listener()
+}
 
 export function getBundledDeviceModelCatalog(): CatalogDeviceModel[] {
   if (!parsedBundledCatalog) {
@@ -221,6 +249,7 @@ export function writeCachedDeviceModelCatalog(
   } else {
     fallbackMemoryCache = entry
   }
+  notifyDeviceModelCatalogListeners()
 }
 
 export function clearDeviceModelCatalogCache(storage?: CatalogCacheStorage) {
@@ -235,6 +264,7 @@ export function clearDeviceModelCatalogCache(storage?: CatalogCacheStorage) {
   } else {
     fallbackMemoryCache = null
   }
+  notifyDeviceModelCatalogListeners()
 }
 
 export function extractCatalogRuntimeDescriptors(items: readonly CatalogDeviceModel[]): {
@@ -304,7 +334,7 @@ export async function loadDeviceModelCatalog(
   const shouldActivate = options.activateDescriptors !== false
   const syncPackages = options.syncPackages ?? setRuntimeSupportPackages
   const cached = readCachedDeviceModelCatalog(storage, now ?? Date.now())
-  if (cached?.fresh) {
+  if (!options.forceRefresh && cached?.fresh) {
     if (shouldActivate) activateCatalogDeviceDescriptors(cached.items, syncPackages)
     return cached.items
   }
@@ -321,7 +351,7 @@ export async function loadDeviceModelCatalog(
     if (shouldActivate) activateCatalogDeviceDescriptors(envelope.items, syncPackages)
     return envelope.items
   } catch {
-    const fallback = buildOfflineFallbackCatalog(cached?.items, options.retainedKinds)
+    const fallback = cached?.fresh ? cached.items : buildOfflineFallbackCatalog(cached?.items, options.retainedKinds)
     if (shouldActivate) activateCatalogDeviceDescriptors(fallback, syncPackages)
     return fallback
   }
@@ -380,4 +410,194 @@ function normalizeCatalogItem(raw: unknown): CatalogDeviceModel | null {
     extra.svg = candidate.svg
   }
   return { id, code, name, model, brand_id, brand_name, description, tags, links, ...extra }
+}
+
+const previewLocalDevicesKey = 'axonkey.local-custom-devices.v1'
+let currentLocalEntries: readonly LocalCustomDeviceEntry[] = Object.freeze([])
+let initializedPreviewLocalEntries = false
+const localCustomListeners = new Set<() => void>()
+
+export function subscribeLocalCustomDevices(listener: () => void): () => void {
+  localCustomListeners.add(listener)
+  return () => {
+    localCustomListeners.delete(listener)
+  }
+}
+
+export function getLocalCustomDevices(): readonly LocalCustomDeviceEntry[] {
+  return currentLocalEntries
+}
+
+export function applyLocalCustomDevices(entries: readonly LocalCustomDeviceEntry[]): boolean {
+  const packages: DeviceSupportPackage[] = []
+  const validEntries: LocalCustomDeviceEntry[] = []
+  const seenKinds = new Set<string>()
+
+  for (const entry of entries) {
+    const kind = entry.kind?.trim()
+    if (!kind || seenKinds.has(kind)) continue
+    const parsed = tryParseRuntimeDescriptorSvg(entry.svg, {
+      kind,
+      name: entry.name,
+      model: entry.model,
+    })
+    if (!parsed) continue
+    seenKinds.add(kind)
+    validEntries.push(entry)
+    packages.push(parsed.supportPackage)
+  }
+
+  const sameList =
+    validEntries.length === currentLocalEntries.length &&
+    validEntries.every((item, index) => {
+      const prev = currentLocalEntries[index]
+      return (
+        prev.kind === item.kind &&
+        prev.name === item.name &&
+        prev.model === item.model &&
+        prev.vendor === item.vendor &&
+        prev.filePath === item.filePath &&
+        prev.svg === item.svg
+      )
+    })
+
+  setLocalCustomSupportPackages(packages)
+  if (sameList) return false
+  currentLocalEntries = Object.freeze(validEntries)
+  for (const listener of localCustomListeners) listener()
+  return true
+}
+
+export function hydratePreviewLocalCustomDevices(storage?: CatalogCacheStorage): LocalCustomDeviceEntry[] {
+  if (initializedPreviewLocalEntries) return [...currentLocalEntries]
+  initializedPreviewLocalEntries = true
+  if (!storage) return [...currentLocalEntries]
+  try {
+    const raw = storage.getItem(previewLocalDevicesKey)
+    if (!raw) return [...currentLocalEntries]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [...currentLocalEntries]
+    const valid = parsed.filter((item): item is LocalCustomDeviceEntry =>
+      Boolean(
+        item &&
+        typeof item === 'object' &&
+        typeof item.kind === 'string' &&
+        typeof item.deviceId === 'string' &&
+        typeof item.name === 'string' &&
+        typeof item.model === 'string' &&
+        typeof item.vendor === 'string' &&
+        typeof item.svg === 'string' &&
+        typeof item.filePath === 'string',
+      ),
+    )
+    if (valid.length > 0) applyLocalCustomDevices(valid)
+  } catch {
+    /* Preview storage is best-effort. */
+  }
+  return [...currentLocalEntries]
+}
+
+export function upsertLocalCustomDevice(
+  entry: LocalCustomDeviceEntry,
+  persistPreviewStorage?: CatalogCacheStorage,
+): LocalCustomDeviceEntry {
+  const merged = [...currentLocalEntries.filter(item => item.kind !== entry.kind), entry]
+  if (persistPreviewStorage) {
+    try {
+      persistPreviewStorage.setItem(previewLocalDevicesKey, JSON.stringify(merged))
+    } catch {
+      /* Preview storage is best-effort. */
+    }
+  }
+  applyLocalCustomDevices(merged)
+  return entry
+}
+
+export function buildPreviewLocalCustomDeviceEntry(svgContent: string): LocalCustomDeviceEntry {
+  const trimmed = svgContent.trim()
+  const deviceTag = trimmed.match(/<(?:ak:)?device\b[^>]*>/i)?.[0] ?? ''
+  const readAttr = (attrName: string) => {
+    const m = deviceTag.match(new RegExp(`\\b${attrName}\\s*=\\s*["']([^"']*)["']`, 'i'))
+    return m?.[1]?.trim() ?? ''
+  }
+  const deviceId = readAttr('id') || 'custom-device'
+  const vendor = readAttr('vendor') || 'Unknown'
+  const model = readAttr('model') || deviceId
+  const displayName =
+    readAttr('display-name') ||
+    (vendor && vendor !== 'Unknown' && !model.startsWith(vendor) ? `${vendor} ${model}` : model)
+  const kind = deriveDeviceKindFromId(deviceId)
+  if (!kind) {
+    throw new Error(`无法从设备 ID「${deviceId}」推导合法型号标识`)
+  }
+  parseRuntimeDescriptorSvg(trimmed, { kind, name: displayName, model })
+  const safeStem = deviceId.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+|[.-]+$/g, '') || 'custom-device'
+  return {
+    kind,
+    deviceId,
+    name: displayName,
+    model,
+    vendor,
+    svg: trimmed,
+    filePath: `custom-devices/${safeStem}.svg`,
+  }
+}
+
+export function localCustomDeviceToCatalogModel(entry: LocalCustomDeviceEntry): CatalogDeviceModel {
+  const parsed = tryParseRuntimeDescriptorSvg(entry.svg, {
+    kind: entry.kind,
+    name: entry.name,
+    model: entry.model,
+  })
+  const inputCount = parsed?.supportPackage.inputs.length ?? 0
+  const hasVoice = Boolean(parsed?.supportPackage.remoteView?.voice)
+  const tags: string[] = ['本机测试']
+  if (inputCount > 0) tags.push(`${inputCount} 键`)
+  if (parsed?.supportPackage.remoteView?.usesVendorUsbHid) {
+    tags.push('USB-C 免驱')
+  } else if (/transport\s*=\s*["']usb-hid["']/i.test(entry.svg)) {
+    tags.push('USB HID')
+  } else if (/transport\s*=\s*["']bluetooth/i.test(entry.svg)) {
+    tags.push('蓝牙 HID')
+  }
+  if (!hasVoice) tags.push('仅按键映射')
+
+  const brandName = entry.vendor && entry.vendor !== 'Unknown' ? entry.vendor : '本机适配'
+  return {
+    id: `local:${entry.kind}`,
+    code: entry.kind,
+    name: entry.name,
+    model: entry.model,
+    brand_id: null,
+    brand_name: brandName,
+    description: `已放入本机可用目录进行实机联调测试。\n\n- 文件路径：\`${entry.filePath}\``,
+    tags,
+    links: [],
+    has_svg: true,
+    svg: entry.svg,
+  }
+}
+
+export function mergeCatalogWithLocalCustomDevices(
+  catalogItems: readonly CatalogDeviceModel[],
+  localDevices: readonly LocalCustomDeviceEntry[],
+): CatalogDeviceModel[] {
+  if (localDevices.length === 0) return [...catalogItems]
+  const localModels = localDevices.map(localCustomDeviceToCatalogModel)
+  const localByCode = new Map(localModels.map(item => [item.code, item]))
+  const merged: CatalogDeviceModel[] = catalogItems.map(item => localByCode.get(item.code) ?? item)
+  const existingCodes = new Set(catalogItems.map(item => item.code))
+  for (const localItem of localModels) {
+    if (!existingCodes.has(localItem.code)) {
+      merged.unshift(localItem)
+    }
+  }
+  return merged
+}
+
+export function resetLocalCustomDevicesForTest() {
+  currentLocalEntries = Object.freeze([])
+  initializedPreviewLocalEntries = false
+  setLocalCustomSupportPackages([])
+  for (const listener of localCustomListeners) listener()
 }

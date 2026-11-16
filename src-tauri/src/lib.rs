@@ -1307,12 +1307,8 @@ struct SystemProbe {
 
 #[cfg(target_os = "windows")]
 fn supports_quarbor(kind: &str) -> bool {
-    devices::descriptor_registry::descriptor_for_kind(kind).is_some_and(|descriptor| {
-        descriptor
-            .identities
-            .iter()
-            .any(|identity| identity.attributes.contains_key("windows-prefix"))
-    })
+    devices::descriptor_registry::descriptor_for_kind(kind).is_some()
+        && !devices::descriptor_registry::uses_vendor_usb_hid(kind)
 }
 
 #[cfg(target_os = "windows")]
@@ -1932,6 +1928,79 @@ fn sync_cloud_device_descriptors(
 }
 
 #[tauri::command]
+fn install_local_custom_device(
+    app: tauri::AppHandle,
+    svg_content: String,
+    markdown_content: Option<String>,
+) -> Result<devices::descriptor_registry::LocalCustomDeviceEntry, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let (entry, changed) = devices::descriptor_registry::install_local_custom_descriptor(
+        &app_data_dir,
+        &svg_content,
+        markdown_content.as_deref(),
+    )?;
+    if changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    Ok(entry)
+}
+
+#[tauri::command]
+fn list_local_custom_devices(
+    app: tauri::AppHandle,
+) -> Result<Vec<devices::descriptor_registry::LocalCustomDeviceEntry>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let (changed, entries) =
+        devices::descriptor_registry::load_local_custom_descriptors(&app_data_dir);
+    if changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+async fn open_local_custom_devices_dir(
+    app: tauri::AppHandle,
+    highlight_file: Option<String>,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let dir = devices::descriptor_registry::custom_devices_dir(&app_data_dir);
+    std::fs::create_dir_all(&dir).map_err(|error| format!("无法创建本机设备目录：{error}"))?;
+    if let Some(file_str) = highlight_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let candidate = std::path::Path::new(file_str);
+        if candidate.is_file() {
+            backup_files::open_shell_target(&app, candidate, true, "本机设备目录")?;
+            return Ok(dir.to_string_lossy().into_owned());
+        }
+    }
+    backup_files::open_shell_target(&app, &dir, false, "本机设备目录")?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn put_device_instance(
     revision: u64,
     instance: DeviceInstance,
@@ -2088,6 +2157,7 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     devices::descriptor_registry::load_persisted_cloud_descriptors(&app_data_dir);
+    let _ = devices::descriptor_registry::load_local_custom_descriptors(&app_data_dir);
     let device_path = app_data_dir.join("device-instances.json");
     app.manage(foreground::Monitor::start(
         device_path.with_file_name("recent-applications.json"),
@@ -2304,6 +2374,9 @@ pub fn run() {
             update_input_settings,
             device_snapshot,
             sync_cloud_device_descriptors,
+            install_local_custom_device,
+            list_local_custom_devices,
+            open_local_custom_devices_dir,
             foreground::foreground_applications,
             foreground::resolve_application_path,
             foreground::application_icons,

@@ -290,6 +290,9 @@ export function parseRuntimeDescriptorSvg(
   if (rootAttrs['data-ak-schema'] !== akSchema) {
     throw new Error('缺少或不支持 data-ak-schema="axonkey.device/1"')
   }
+  if ((rootAttrs['data-ak-status'] ?? '').trim().toLowerCase() === 'draft') {
+    throw new Error('不支持加载待采集草稿（draft）SVG 描述符')
+  }
   const rootDeviceId = requiredAttr(rootAttrs, 'data-ak-device', 'svg')
   const rootRevision = parsePositiveInt(requiredAttr(rootAttrs, 'data-ak-revision', 'svg'), 'data-ak-revision')
 
@@ -305,6 +308,9 @@ export function parseRuntimeDescriptorSvg(
   const viewBox = { width: box[2], height: box[3] }
 
   if (!deviceAttrs) throw new Error('缺少 ak:device 元数据')
+  if ((deviceAttrs.status ?? '').trim().toLowerCase() === 'draft') {
+    throw new Error('不支持加载待采集草稿（draft）SVG 描述符')
+  }
   const deviceSchema = requiredAttr(deviceAttrs, 'schema', 'ak:device')
   const deviceId = requiredAttr(deviceAttrs, 'id', 'ak:device')
   const vendor = requiredAttr(deviceAttrs, 'vendor', 'ak:device')
@@ -315,11 +321,23 @@ export function parseRuntimeDescriptorSvg(
   }
 
   if (matchTags.length === 0) throw new Error('ak:identity 至少需要包含一条 ak:match')
+  let everyIdentityVendorUsbHid = true
   const identities = matchTags.map(identity => {
     const vendorIds = parseIdentityNumbers(identity.vid)
     const productIds = parseIdentityNumbers(identity.pid)
     if (vendorIds.length === 0 || productIds.length === 0) {
       throw new Error('ak:match 必须声明有效的 vid 与 pid')
+    }
+    if (vendorIds.every(v => v === 0) && productIds.every(p => p === 0)) {
+      throw new Error('ak:match 不能使用 0x0000:0x0000 占位硬件标识')
+    }
+    const usagePages = parseIdentityNumbers(identity['usage-page'])
+    if (
+      identity.transport?.trim() !== 'usb-hid' ||
+      usagePages.length === 0 ||
+      !usagePages.every(page => page >= 0xff00 && page <= 0xffff)
+    ) {
+      everyIdentityVendorUsbHid = false
     }
     return {
       vendorIds,
@@ -412,6 +430,9 @@ export function parseRuntimeDescriptorSvg(
     })
   }
 
+  if (!rawInputs.some(entry => entry.sources.length > 0)) {
+    throw new Error('SVG 描述符尚未包含任何已采集报文来源的按键')
+  }
   parsedInputs.sort((left, right) => left.order - right.order)
   if (parsedInputs.length === 0 || parsedInputs.length !== regions.size) {
     throw new Error('按键定义与 data-ak-region 热区数量不一致')
@@ -451,6 +472,7 @@ export function parseRuntimeDescriptorSvg(
     buttons,
     identities,
     voice,
+    usesVendorUsbHid: everyIdentityVendorUsbHid,
     viewBox,
     keyRegions: Object.fromEntries(parsedInputs.map(input => [input.id, input.region])),
     artworkUrl,

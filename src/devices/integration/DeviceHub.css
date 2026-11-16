@@ -204,6 +204,8 @@ body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open])
 }
 .managed-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 5px;
   border: 0;
   border-radius: 6px;
@@ -457,12 +459,51 @@ body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open])
   color: var(--blue);
   font-weight: 600;
 }
+.managed-catalog-search-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
 .managed-catalog-search {
   position: relative;
   display: flex;
   align-items: center;
-  margin-left: auto;
-  width: min(228px, 100%);
+  width: min(224px, 100%);
+}
+.managed-catalog-refresh {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-secondary);
+  transition:
+    border-color 0.14s ease,
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+.managed-catalog-refresh > svg {
+  display: block;
+}
+.managed-catalog-refresh:hover:not(:disabled) {
+  border-color: var(--blue-border);
+  background: #f5f9ff;
+  color: var(--blue);
+}
+.managed-catalog-refresh.is-spinning > svg,
+.managed-discovery-refresh.is-spinning > svg {
+  animation: managed-spin 0.9s linear infinite;
+}
+@keyframes managed-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .managed-catalog-search > svg {
   position: absolute;

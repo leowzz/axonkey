@@ -25,6 +25,7 @@ pub(crate) const KINDS: &[&str] = &[
 pub(crate) const BUNDLED_KINDS: &[&str] = KINDS;
 
 const PERSISTED_DESCRIPTORS_FILE: &str = "cloud-device-descriptors.json";
+pub(crate) const CUSTOM_DEVICES_DIR: &str = "custom-devices";
 const MAX_INTERNED_KINDS: usize = 512;
 const MAX_INTERNED_DESCRIPTORS: usize = 1024;
 
@@ -32,6 +33,18 @@ const MAX_INTERNED_DESCRIPTORS: usize = 1024;
 pub(crate) struct CloudDescriptorSvg {
     pub kind: String,
     pub svg: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalCustomDeviceEntry {
+    pub kind: String,
+    pub device_id: String,
+    pub name: String,
+    pub model: String,
+    pub vendor: String,
+    pub svg: String,
+    pub file_path: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -46,7 +59,9 @@ pub(crate) struct CloudDescriptorSyncResult {
 struct DynamicRegistry {
     interned_kinds: BTreeMap<String, &'static str>,
     interned_descriptors: BTreeMap<(String, [u8; 32]), &'static DeviceDescriptor>,
-    active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    cloud_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    local_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    local_entries: Vec<LocalCustomDeviceEntry>,
 }
 
 fn dynamic_registry() -> &'static RwLock<DynamicRegistry> {
@@ -102,8 +117,8 @@ impl DynamicRegistry {
 pub(crate) fn registered_kinds() -> Vec<&'static str> {
     let mut kinds = KINDS.to_vec();
     if let Ok(guard) = dynamic_registry().read() {
-        for &kind in guard.active.keys() {
-            if !KINDS.contains(&kind) {
+        for &kind in guard.cloud_active.keys().chain(guard.local_active.keys()) {
+            if !kinds.contains(&kind) {
                 kinds.push(kind);
             }
         }
@@ -171,12 +186,12 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         valid_items.push(CloudDescriptorSvg { kind, svg });
     }
 
-    let changed = guard.active.len() != next_active.len()
-        || guard.active.iter().any(|(kind, (hash, _))| {
+    let changed = guard.cloud_active.len() != next_active.len()
+        || guard.cloud_active.iter().any(|(kind, (hash, _))| {
             next_active.get(kind).map(|(next_hash, _)| next_hash) != Some(hash)
         });
     let applied = next_active.len();
-    guard.active = next_active;
+    guard.cloud_active = next_active;
 
     (
         CloudDescriptorSyncResult {
@@ -186,6 +201,302 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         },
         valid_items,
     )
+}
+
+pub(crate) fn derive_kind_from_device_id(device_id: &str) -> Option<String> {
+    let trimmed = device_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(&bundled) = BUNDLED_KINDS
+        .iter()
+        .find(|&&kind| bundled_descriptor_for_kind(kind).is_some_and(|desc| desc.id == trimmed))
+    {
+        return Some(bundled.to_owned());
+    }
+    let parts: Vec<&str> = trimmed
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut code = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index == 0 {
+            code.push_str(&part.to_ascii_lowercase());
+        } else {
+            let mut chars = part.chars();
+            if let Some(first) = chars.next() {
+                code.push(first.to_ascii_uppercase());
+                for rest in chars {
+                    code.push(rest.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    if code.as_bytes().first().is_some_and(|b| b.is_ascii_digit()) {
+        code.insert(0, 'd');
+    }
+    if code.len() > 64 {
+        code.truncate(64);
+    }
+    if code == "mouse" {
+        code = "customMouse".into();
+    }
+    valid_cloud_kind(&code).then_some(code)
+}
+
+fn sanitize_custom_device_stem(device_id: &str) -> String {
+    let mut stem: String = device_id
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    stem = stem.trim_matches(|c| c == '-' || c == '.').to_owned();
+    if stem.is_empty() {
+        stem = "custom-device".into();
+    }
+    if stem.len() > 80 {
+        stem.truncate(80);
+    }
+    stem
+}
+
+fn inspect_custom_svg_header(svg: &str) -> (bool, Option<String>) {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_str(svg);
+    reader.config_mut().trim_text(true);
+    let mut is_draft = false;
+    let mut display_name = None;
+
+    loop {
+        let Ok(event) = reader.read_event() else {
+            break;
+        };
+        match event {
+            Event::Start(element) | Event::Empty(element) => {
+                let raw_name = element.name();
+                let local = raw_name
+                    .as_ref()
+                    .rsplit(|&b| b == b':')
+                    .next()
+                    .unwrap_or(raw_name.as_ref());
+                if local.eq_ignore_ascii_case(b"svg") || local.eq_ignore_ascii_case(b"device") {
+                    for attr in element.attributes().flatten() {
+                        let key = attr.key.as_ref();
+                        let Ok(val) = attr.normalized_value(quick_xml::XmlVersion::default())
+                        else {
+                            continue;
+                        };
+                        let val_trimmed = val.trim();
+                        if (key.eq_ignore_ascii_case(b"status")
+                            || key.eq_ignore_ascii_case(b"data-ak-status"))
+                            && val_trimmed.eq_ignore_ascii_case("draft")
+                        {
+                            is_draft = true;
+                        } else if local.eq_ignore_ascii_case(b"device")
+                            && key.eq_ignore_ascii_case(b"display-name")
+                            && !val_trimmed.is_empty()
+                        {
+                            display_name = Some(val_trimmed.to_owned());
+                        }
+                    }
+                    if local.eq_ignore_ascii_case(b"device") {
+                        break;
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    (is_draft, display_name)
+}
+
+fn parse_runnable_custom_svg(
+    svg_content: &str,
+    file_path: &Path,
+) -> Result<(LocalCustomDeviceEntry, [u8; 32], DeviceDescriptor), String> {
+    let trimmed = svg_content.trim();
+    if trimmed.is_empty() {
+        return Err("SVG 内容为空。".into());
+    }
+    let (explicitly_draft, header_display_name) = inspect_custom_svg_header(trimmed);
+    if explicitly_draft {
+        return Err(
+            "当前 SVG 仍为未完成草稿（status=\"draft\"），请至少采集 1 个按键并启用正式状态后再放入本机测试。"
+                .into(),
+        );
+    }
+    let descriptor =
+        parse_svg(trimmed).map_err(|error| format!("SVG 描述符校验未通过：{error}"))?;
+    let has_real_vid_pid = descriptor.identities.iter().any(|identity| {
+        let vid_ok = identity
+            .attributes
+            .get("vid")
+            .is_some_and(|v| identity_numbers(v).any(|n| n > 0));
+        let pid_ok = identity
+            .attributes
+            .get("pid")
+            .is_some_and(|p| identity_numbers(p).any(|n| n > 0));
+        vid_ok && pid_ok
+    });
+    if !has_real_vid_pid {
+        return Err("设备 VID/PID 仍为占位值 0x0000:0x0000，请先连接真实硬件完成采集。".into());
+    }
+    if !descriptor
+        .inputs
+        .iter()
+        .any(|input| !input.pending && !input.sources.is_empty())
+    {
+        return Err("至少需要完成 1 个按键的报文采集才能放入本机测试。".into());
+    }
+    let kind = derive_kind_from_device_id(&descriptor.id)
+        .ok_or_else(|| format!("无法从设备 ID「{}」推导合法型号标识。", descriptor.id))?;
+    let name = header_display_name.unwrap_or_else(|| {
+        if descriptor.vendor.trim().is_empty()
+            || descriptor.vendor == "Unknown"
+            || descriptor.model.starts_with(&descriptor.vendor)
+        {
+            descriptor.model.clone()
+        } else {
+            format!("{} {}", descriptor.vendor, descriptor.model)
+        }
+    });
+    let hash: [u8; 32] = Sha256::digest(trimmed.as_bytes()).into();
+    let entry = LocalCustomDeviceEntry {
+        kind,
+        device_id: descriptor.id.clone(),
+        name,
+        model: descriptor.model.clone(),
+        vendor: descriptor.vendor.clone(),
+        svg: trimmed.to_owned(),
+        file_path: file_path.to_string_lossy().into_owned(),
+    };
+    Ok((entry, hash, descriptor))
+}
+
+pub(crate) fn custom_devices_dir(app_data_dir: &Path) -> std::path::PathBuf {
+    app_data_dir.join(CUSTOM_DEVICES_DIR)
+}
+
+pub(crate) fn load_local_custom_descriptors(
+    app_data_dir: &Path,
+) -> (bool, Vec<LocalCustomDeviceEntry>) {
+    let dir = custom_devices_dir(app_data_dir);
+    let mut svg_paths = Vec::new();
+    if let Ok(read_dir) = fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+            {
+                svg_paths.push(path);
+            }
+        }
+    }
+    svg_paths.sort();
+
+    let mut parsed_list = Vec::new();
+    let mut seen_kinds = BTreeSet::new();
+    for path in svg_paths {
+        let Ok(raw_svg) = fs::read_to_string(&path) else {
+            continue;
+        };
+        match parse_runnable_custom_svg(&raw_svg, &path) {
+            Ok((entry, hash, descriptor)) => {
+                if seen_kinds.insert(entry.kind.clone()) {
+                    parsed_list.push((entry, hash, descriptor));
+                }
+            }
+            Err(error) => {
+                log::warn!(
+                    target: "axonkey::devices",
+                    "Ignoring invalid local custom SVG {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let mut guard = dynamic_registry()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut next_local = BTreeMap::new();
+    let mut next_entries = Vec::new();
+
+    for (entry, hash, descriptor) in parsed_list {
+        let Some(static_kind) = guard.intern_kind(&entry.kind) else {
+            continue;
+        };
+        let Some(static_descriptor) = guard.intern_descriptor(static_kind, hash, descriptor) else {
+            continue;
+        };
+        next_local.insert(static_kind, (hash, static_descriptor));
+        next_entries.push(entry);
+    }
+
+    let changed = guard.local_active.len() != next_local.len()
+        || guard.local_active.iter().any(|(kind, (hash, _))| {
+            next_local.get(kind).map(|(next_hash, _)| next_hash) != Some(hash)
+        });
+    guard.local_active = next_local;
+    guard.local_entries = next_entries.clone();
+    (changed, next_entries)
+}
+
+pub(crate) fn install_local_custom_descriptor(
+    app_data_dir: &Path,
+    svg_content: &str,
+    markdown_content: Option<&str>,
+) -> Result<(LocalCustomDeviceEntry, bool), String> {
+    let dir = custom_devices_dir(app_data_dir);
+    let preview_path = dir.join("pending.svg");
+    let (validated_entry, _, _) = parse_runnable_custom_svg(svg_content, &preview_path)?;
+    fs::create_dir_all(&dir).map_err(|error| format!("无法创建本机设备目录：{error}"))?;
+
+    let stem = sanitize_custom_device_stem(&validated_entry.device_id);
+    let svg_path = dir.join(format!("{stem}.svg"));
+    let temp_svg = dir.join(format!("{stem}.svg.tmp"));
+    fs::write(&temp_svg, validated_entry.svg.as_bytes())
+        .map_err(|error| format!("写入本机设备 SVG 失败：{error}"))?;
+    fs::rename(&temp_svg, &svg_path).map_err(|error| format!("保存本机设备 SVG 失败：{error}"))?;
+
+    if let Some(md) = markdown_content.map(str::trim).filter(|s| !s.is_empty()) {
+        let md_path = dir.join(format!("{stem}.md"));
+        let _ = fs::write(&md_path, md.as_bytes());
+    }
+
+    let (changed, entries) = load_local_custom_descriptors(app_data_dir);
+    let installed = entries
+        .into_iter()
+        .find(|item| item.kind == validated_entry.kind)
+        .unwrap_or(LocalCustomDeviceEntry {
+            file_path: svg_path.to_string_lossy().into_owned(),
+            ..validated_entry
+        });
+    Ok((installed, changed))
+}
+
+#[cfg(test)]
+pub(crate) fn clear_local_custom_descriptors_for_test() {
+    let mut guard = dynamic_registry()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.local_active.clear();
+    guard.local_entries.clear();
 }
 
 pub(crate) fn load_persisted_cloud_descriptors(directory: &Path) {
@@ -221,13 +532,16 @@ pub(crate) fn save_persisted_cloud_descriptors(
     }
 }
 
-/// Return the active cloud descriptor or bundled fallback for a device kind.
+/// Return the active local custom descriptor, cloud descriptor, or bundled fallback for a device kind.
 ///
 /// Bundled descriptors are parsed once after startup on first use. A malformed
 /// file is treated as unsupported instead of falling back to a different model.
 pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescriptor> {
     if let Ok(guard) = dynamic_registry().read() {
-        if let Some((_, descriptor)) = guard.active.get(kind) {
+        if let Some((_, descriptor)) = guard.local_active.get(kind) {
+            return Some(*descriptor);
+        }
+        if let Some((_, descriptor)) = guard.cloud_active.get(kind) {
             return Some(*descriptor);
         }
     }
@@ -830,6 +1144,67 @@ mod tests {
         save_persisted_cloud_descriptors(&dir, &[]);
         assert!(!dir.join(PERSISTED_DESCRIPTORS_FILE).exists());
         let _ = sync_cloud_descriptors(&[]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn local_custom_descriptors_install_persist_and_survive_cloud_refresh() {
+        let _guard = DYNAMIC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_local_custom_descriptors_for_test();
+        let _ = sync_cloud_descriptors(&[]);
+
+        let dir = std::env::temp_dir().join(format!(
+            "axonkey-local-custom-devices-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            derive_kind_from_device_id("mini-pad-v2"),
+            Some("miniPadV2".into())
+        );
+        assert_eq!(
+            derive_kind_from_device_id("phicomm-db1-r"),
+            Some("phicommDb1R".into())
+        );
+
+        let draft_svg = custom_remote_svg("local-test-pad", "0x2E8A", "0xA099").replace(
+            "display-name=\"自定义遥控器 X\"",
+            "display-name=\"本机测试小键盘\" status=\"draft\"",
+        );
+        assert!(install_local_custom_descriptor(&dir, &draft_svg, None).is_err());
+
+        let placeholder_svg = custom_remote_svg("local-test-pad", "0x0000", "0x0000");
+        assert!(install_local_custom_descriptor(&dir, &placeholder_svg, None).is_err());
+
+        let active_svg = custom_remote_svg("local-test-pad", "0x2E8A", "0xA099");
+        let (installed, changed) =
+            install_local_custom_descriptor(&dir, &active_svg, Some("# 采集摘要\n")).unwrap();
+        assert!(changed);
+        assert_eq!(installed.kind, "localTestPad");
+        assert_eq!(installed.device_id, "local-test-pad");
+        assert_eq!(installed.name, "自定义遥控器 X");
+        assert!(Path::new(&installed.file_path).is_file());
+        assert!(dir
+            .join(CUSTOM_DEVICES_DIR)
+            .join("local-test-pad.md")
+            .is_file());
+        assert!(registered_kinds().contains(&"localTestPad"));
+        assert!(descriptor_for_kind("localTestPad").is_some());
+
+        // Cloud refresh with an empty or different model list must NOT clobber local custom devices.
+        let _ = sync_cloud_descriptors(&[]);
+        assert!(registered_kinds().contains(&"localTestPad"));
+        assert!(descriptor_for_kind("localTestPad").is_some());
+
+        // Deleting the file from custom-devices and reloading removes the local custom device cleanly.
+        fs::remove_file(&installed.file_path).unwrap();
+        let (removed_changed, remaining) = load_local_custom_descriptors(&dir);
+        assert!(removed_changed);
+        assert!(remaining.is_empty());
+        assert!(descriptor_for_kind("localTestPad").is_none());
+
+        clear_local_custom_descriptors_for_test();
         let _ = fs::remove_dir_all(&dir);
     }
 }

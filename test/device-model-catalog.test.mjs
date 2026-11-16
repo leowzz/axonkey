@@ -27,9 +27,11 @@ import { readCloud } from '../src/cloud/cloudSync.ts'
 import {
   bundledSupportPackages,
   getSupportPackages,
+  newInstance,
   packageFor,
   resetRuntimeSupportPackages,
   supportPackages,
+  supportsWindowsDriver,
   usesSingleLaneWorkspace,
 } from '../src/devices/integration/model.ts'
 import { createDescriptorView, parseRuntimeDescriptorSvg } from '../src/devices/shared/descriptorSvg.ts'
@@ -930,6 +932,7 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
     await act(async () => {
       openAddBtn.props.onClick()
     })
+    assert.equal(text(view.root.findByProps({ id: 'managed-integration-title' })), '添加设备')
     assert.equal(catalogRequests.length, 0, 'waits for accountReady before firing catalog request')
     const detailPane = () => view.root.findByProps({ className: 'managed-catalog-detail' })
     assert.match(text(detailPane()), /Win \/ macOS/, 'shows offline curated rc003 tags immediately')
@@ -1233,4 +1236,112 @@ test('Step 2 opened directly from a discovered device exposes cached model detai
   const css = readFileSync('src/devices/integration/DeviceHub.css', 'utf8')
   assert.match(css, /\.macos-vibrancy\s+\.managed-integration-dialog/)
   assert.match(css, /\.managed-catalog-picker[\s\S]*?min-height:\s*0/)
+})
+
+test('forceRefresh pulls newly Console-added minimal button-only models immediately within TTL and aligns Windows driver support', async () => {
+  const storage = createStorage()
+  resetRuntimeSupportPackages()
+  let requestCount = 0
+  const vendorUsbMiniPadSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="240" viewBox="0 0 240 240"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="acme.usb-pad"
+     data-ak-revision="1"
+     data-ak-status="active">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="acme.usb-pad" vendor="Acme" model="UP-2" revision="1" display-name="Acme 免驱按键板" status="active">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x2E8A" pid="0xB010" usage-page="0xFF60" usage="0x01" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="4" encoding="bit-field" prefix="0x01" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="acme.usb-pad.k1" label="按键 1" short="K1" icon="center" kind="button" target="#k1" order="0" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x01" /></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="k1"><rect x="20" y="20" width="80" height="80" /></g>
+  <path data-ak-region="acme.usb-pad.k1" data-ak-anchor="60 60" d="M20 20h80v80h-80z" />
+</svg>`
+  const btMiniRemoteSvg = buildCustomRemoteSvg({
+    deviceId: 'acme.bt-mini',
+    model: 'BM-2',
+    displayName: 'Acme 蓝牙双键器',
+    vid: '0x2B11',
+    pid: '0x9922',
+  }).replace(' windows-prefix="BTHLEDEVICE"', '')
+
+  let cloudItems = getBundledDeviceModelCatalog()
+  const client = new RelayClient(
+    async () => {
+      requestCount += 1
+      return { status: 200, body: { cache_ttl_seconds: 3600, items: cloudItems } }
+    },
+    null,
+    () => {},
+  )
+
+  try {
+    const t0 = 1_700_000_000_000
+    const initial = await loadDeviceModelCatalog(client, storage, t0)
+    assert.equal(requestCount, 1)
+    assert.equal(initial.length, 13)
+
+    // Admin adds two minimal button-only models in Relay Console 10 seconds later (well inside 3600s TTL)
+    cloudItems = [
+      ...cloudItems,
+      {
+        id: 'model-usb-pad',
+        code: 'acmeUsbPad',
+        name: 'Acme 免驱按键板',
+        model: 'UP-2',
+        brand_id: null,
+        brand_name: 'Acme',
+        description: 'USB 免驱双键板',
+        tags: ['1 键', 'USB-C 免驱', '仅按键映射'],
+        links: [],
+        has_svg: true,
+        svg: vendorUsbMiniPadSvg,
+      },
+      {
+        id: 'model-bt-mini',
+        code: 'acmeBtMini',
+        name: 'Acme 蓝牙双键器',
+        model: 'BM-2',
+        brand_id: null,
+        brand_name: 'Acme',
+        description: '蓝牙纯按键遥控器',
+        tags: ['2 键', '蓝牙 HID', '仅按键映射'],
+        links: [],
+        has_svg: true,
+        svg: btMiniRemoteSvg,
+      },
+    ]
+
+    // Passive load within TTL still serves cache
+    const cachedLoad = await loadDeviceModelCatalog(client, storage, t0 + 10_000)
+    assert.equal(requestCount, 1)
+    assert.equal(cachedLoad.length, 13)
+
+    // Explicit user refresh (`forceRefresh: true`) bypasses TTL and activates new models immediately
+    const refreshed = await loadDeviceModelCatalog(client, storage, t0 + 10_000, { forceRefresh: true })
+    assert.equal(requestCount, 2)
+    assert.equal(refreshed.length, 15)
+
+    assert.equal(packageFor('acmeUsbPad').name, 'Acme 免驱按键板')
+    assert.equal(packageFor('acmeUsbPad').inputs.length, 1)
+    assert.equal(supportsWindowsDriver('acmeUsbPad'), false, 'vendor USB HID 0xFF60 should be driverless on Windows')
+    assert.equal(supportsWindowsDriver('acmeBtMini'), true, 'Bluetooth HID without windows-prefix still uses Quarbor on Windows')
+
+    const created = newInstance('acmeUsbPad', 'phys-usb-pad-1')
+    assert.equal(created.kind, 'acmeUsbPad')
+    assert.equal(created.name, 'Acme 免驱按键板')
+    assert.equal(created.binding, 'phys-usb-pad-1')
+  } finally {
+    resetRuntimeSupportPackages()
+    clearDeviceModelCatalogCache(storage)
+  }
 })

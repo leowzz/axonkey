@@ -2487,6 +2487,12 @@ body:has(.capture-safety-dialog[open]),
   font-variant-numeric: tabular-nums;
 }
 
+.capture-export-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
 .capture-export-btn {
   min-height: 36px;
   font-weight: 600;
@@ -2519,9 +2525,17 @@ body:has(.capture-safety-dialog[open]),
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   color: var(--muted);
   font-size: 11.5px;
+}
+
+.capture-cli-next-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .capture-copy-btn {

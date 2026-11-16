@@ -26,6 +26,7 @@ export type RemoteView<Id extends string = string> = {
     manufacturerContains: string
   }[]
   voice: { engine: string; transport: string; triggerModes: readonly string[] } | null
+  usesVendorUsbHid?: boolean
   viewBox: { width: number; height: number }
   keyRegions: Record<string, RemoteKeyRegion>
   artworkUrl: string

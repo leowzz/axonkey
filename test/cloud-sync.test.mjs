@@ -908,3 +908,95 @@ test('Kivo K18 Lite display settings trigger cloud snapshot, bump profile versio
     )
   }
 })
+
+test('console-added minimal button-only device supports cloud snapshot and restore via getSupportPackages', async () => {
+  const { setRuntimeSupportPackages, resetRuntimeSupportPackages } = await import('../src/devices/integration/model.ts')
+  const { parseRuntimeDescriptorSvg } = await import('../src/devices/shared/descriptorSvg.ts')
+  const miniPadSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="240" viewBox="0 0 240 240"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="acme.mini-pad"
+     data-ak-revision="1"
+     data-ak-status="active">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="acme.mini-pad" vendor="Acme" model="MP-2" revision="1" display-name="Acme 双键小板" status="active">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x2E8A" pid="0xB002" usage-page="0xFF60" usage="0x01" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="4" encoding="bit-field" prefix="0x01" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="acme.mini-pad.k1" label="按键 1" short="K1" icon="center" kind="button" target="#k1" order="0" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x01" /></ak:input>
+        <ak:input id="acme.mini-pad.k2" label="按键 2" short="K2" icon="center" kind="button" target="#k2" order="1" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x02" /></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="k1"><rect x="20" y="20" width="80" height="80" /></g>
+  <g id="k2"><rect x="140" y="20" width="80" height="80" /></g>
+  <path data-ak-region="acme.mini-pad.k1" data-ak-anchor="60 60" d="M20 20h80v80h-80z" />
+  <path data-ak-region="acme.mini-pad.k2" data-ak-anchor="180 60" d="M140 20h80v80h-80z" />
+</svg>`
+  const parsed = parseRuntimeDescriptorSvg(miniPadSvg, {
+    kind: 'consoleMiniPad',
+    name: 'Acme 双键小板',
+    model: 'MP-2',
+  })
+  setRuntimeSupportPackages([parsed.supportPackage])
+  try {
+    const backup = createDataBackup(sampleData(), '1.8.13')
+    const localInst = {
+      id: 'mini-1',
+      kind: 'consoleMiniPad',
+      name: '桌面双键板',
+      binding: 'phys-mini-1',
+      enabled: true,
+      activeProfileId: 'default',
+      profiles: [
+        {
+          id: 'default',
+          name: '默认方案',
+          behaviors: {
+            'acme.mini-pad.k1': {
+              click: [createBehavior({ type: 'key', key: 'Space', id: 'mini-space' })],
+              doubleClick: [],
+              longPress: [],
+            },
+          },
+        },
+      ],
+    }
+    const snap = createCloudSnapshot(backup, [localInst])
+    assert.equal(snap.documents.length, 3)
+    const miniDoc = snap.documents.find(d => d.kind === 'consoleMiniPad')
+    assert.ok(miniDoc)
+
+    const cloud = {
+      models: [{ id: 'model-mini', code: 'consoleMiniPad' }],
+      documents: [
+        {
+          ...remote(),
+          id: 'doc-mini',
+          model_id: 'model-mini',
+          config: {
+            ...miniDoc.config,
+            profiles: miniDoc.config.profiles.map(p => ({ ...p, app_version: '1.8.13' })),
+          },
+        },
+      ],
+      settings: null,
+    }
+    const restored = prepareCloudRestore(cloud, backup, [], {
+      devices: [{ documentId: 'doc-mini', profileIds: ['default'], targetId: 'new:mini-restored' }],
+      settings: false,
+      savedBehaviors: false,
+    })
+    assert.equal(restored.instances.length, 1)
+    assert.equal(restored.instances[0].kind, 'consoleMiniPad')
+    assert.equal(restored.instances[0].profiles[0].behaviors['acme.mini-pad.k1'].click[0].key, 'Space')
+  } finally {
+    resetRuntimeSupportPackages()
+  }
+})

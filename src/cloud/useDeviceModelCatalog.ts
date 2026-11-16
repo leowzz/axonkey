@@ -1,14 +1,21 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
   activateCatalogDeviceDescriptors,
+  applyLocalCustomDevices,
   buildOfflineFallbackCatalog,
   extractCatalogRuntimeDescriptors,
+  getLocalCustomDevices,
+  hydratePreviewLocalCustomDevices,
   loadDeviceModelCatalog,
+  mergeCatalogWithLocalCustomDevices,
   readCachedDeviceModelCatalog,
+  subscribeDeviceModelCatalog,
+  subscribeLocalCustomDevices,
   type CatalogCacheStorage,
   type CatalogDeviceModel,
   type CloudDescriptorSvgPayload,
+  type LocalCustomDeviceEntry,
 } from './deviceModelCatalog.ts'
 import type { RelayClient } from './relayClient.ts'
 
@@ -34,6 +41,19 @@ function localStorageOrUndefined(): CatalogCacheStorage | undefined {
   }
 }
 
+async function refreshLocalCustomDevices(native: boolean): Promise<LocalCustomDeviceEntry[]> {
+  if (native) {
+    try {
+      const list = await invoke<LocalCustomDeviceEntry[]>('list_local_custom_devices')
+      if (Array.isArray(list)) applyLocalCustomDevices(list)
+    } catch {
+      /* Ignore when command is unavailable in non-desktop mocks. */
+    }
+    return [...getLocalCustomDevices()]
+  }
+  return hydratePreviewLocalCustomDevices(localStorageOrUndefined())
+}
+
 function collectRetainedKinds(storage: CatalogCacheStorage | undefined, explicitKinds?: readonly string[]): string[] {
   const result = new Set<string>(explicitKinds ?? [])
   if (storage) {
@@ -56,24 +76,28 @@ function collectRetainedKinds(storage: CatalogCacheStorage | undefined, explicit
   return [...result].sort()
 }
 
-function syncNativeCloudDescriptors(
+async function syncNativeCloudDescriptors(
   descriptors: CloudDescriptorSvgPayload[],
   native: boolean,
   forceEvenWhenEmpty: boolean,
   onSynced?: () => void,
-) {
-  if (!native) return
-  if (descriptors.length === 0 && !forceEvenWhenEmpty && lastSyncedNativeSignature === null) return
+): Promise<boolean> {
+  if (!native) return false
+  if (descriptors.length === 0 && !forceEvenWhenEmpty && lastSyncedNativeSignature === null) return false
   const signature = JSON.stringify(descriptors)
-  if (signature === lastSyncedNativeSignature) return
+  if (signature === lastSyncedNativeSignature) return false
   lastSyncedNativeSignature = signature
-  void invoke<{ changed?: boolean } | undefined>('sync_cloud_device_descriptors', { descriptors })
-    .then(result => {
-      if (result?.changed) onSynced?.()
-    })
-    .catch(() => {
-      lastSyncedNativeSignature = null
-    })
+  try {
+    const result = await invoke<{ changed?: boolean } | undefined>('sync_cloud_device_descriptors', { descriptors })
+    if (result?.changed) {
+      onSynced?.()
+      return true
+    }
+    return false
+  } catch {
+    lastSyncedNativeSignature = null
+    return false
+  }
 }
 
 export function useDeviceModelCatalog(
@@ -84,6 +108,8 @@ export function useDeviceModelCatalog(
   const native = options.native ?? (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
   const onNativeSyncedRef = useRef(options.onNativeDescriptorsSynced)
   onNativeSyncedRef.current = options.onNativeDescriptorsSynced
+  const retainedKindsRef = useRef(options.retainedKinds)
+  retainedKindsRef.current = options.retainedKinds
   const explicitRetainedKey = (options.retainedKinds ?? []).join('\0')
 
   const [initialState] = useState(() => {
@@ -101,6 +127,23 @@ export function useDeviceModelCatalog(
 
   const [items, setItems] = useState<CatalogDeviceModel[]>(initialState.items)
   const [loading, setLoading] = useState<boolean>(initialState.loading)
+  const localDevices = useSyncExternalStore(subscribeLocalCustomDevices, getLocalCustomDevices, getLocalCustomDevices)
+
+  useEffect(() => {
+    void refreshLocalCustomDevices(native)
+  }, [native])
+
+  useEffect(() => {
+    return subscribeDeviceModelCatalog(() => {
+      const storage = localStorageOrUndefined()
+      const retainedKinds = collectRetainedKinds(storage, retainedKindsRef.current)
+      const cached = readCachedDeviceModelCatalog(storage)
+      const next = cached?.fresh ? cached.items : buildOfflineFallbackCatalog(cached?.items, retainedKinds)
+      const { cloudDescriptors } = activateCatalogDeviceDescriptors(next)
+      void syncNativeCloudDescriptors(cloudDescriptors, native, Boolean(client), onNativeSyncedRef.current)
+      setItems(next)
+    })
+  }, [client, native])
 
   useEffect(() => {
     const storage = localStorageOrUndefined()
@@ -108,7 +151,7 @@ export function useDeviceModelCatalog(
     const cached = readCachedDeviceModelCatalog(storage)
     if (cached?.fresh) {
       const { cloudDescriptors } = activateCatalogDeviceDescriptors(cached.items)
-      syncNativeCloudDescriptors(cloudDescriptors, native, Boolean(client), onNativeSyncedRef.current)
+      void syncNativeCloudDescriptors(cloudDescriptors, native, Boolean(client), onNativeSyncedRef.current)
       setItems(cached.items)
       setLoading(false)
       return
@@ -116,7 +159,7 @@ export function useDeviceModelCatalog(
     if (!client) {
       const fallback = buildOfflineFallbackCatalog(cached?.items, retainedKinds)
       const { cloudDescriptors } = activateCatalogDeviceDescriptors(fallback)
-      syncNativeCloudDescriptors(cloudDescriptors, native, false, onNativeSyncedRef.current)
+      void syncNativeCloudDescriptors(cloudDescriptors, native, false, onNativeSyncedRef.current)
       setItems(fallback)
       setLoading(false)
       return
@@ -131,7 +174,7 @@ export function useDeviceModelCatalog(
       .then(loaded => {
         if (!active) return
         const { cloudDescriptors } = extractCatalogRuntimeDescriptors(loaded)
-        syncNativeCloudDescriptors(cloudDescriptors, native, true, onNativeSyncedRef.current)
+        void syncNativeCloudDescriptors(cloudDescriptors, native, true, onNativeSyncedRef.current)
         setItems(loaded)
         setLoading(false)
       })
@@ -139,7 +182,7 @@ export function useDeviceModelCatalog(
         if (!active) return
         const fallback = buildOfflineFallbackCatalog(cached?.items, retainedKinds)
         const { cloudDescriptors } = activateCatalogDeviceDescriptors(fallback)
-        syncNativeCloudDescriptors(cloudDescriptors, native, true, onNativeSyncedRef.current)
+        void syncNativeCloudDescriptors(cloudDescriptors, native, true, onNativeSyncedRef.current)
         setItems(fallback)
         setLoading(false)
       })
@@ -148,6 +191,34 @@ export function useDeviceModelCatalog(
     }
   }, [client, accountReady, native, explicitRetainedKey])
 
-  const modelsByCode = useMemo(() => new Map(items.map(item => [item.code, item])), [items])
-  return { items, modelsByCode, loading }
+  const refresh = useCallback(async () => {
+    const storage = localStorageOrUndefined()
+    const retainedKinds = collectRetainedKinds(storage, retainedKindsRef.current)
+    const latestLocal = await refreshLocalCustomDevices(native)
+    if (!client) {
+      const cached = readCachedDeviceModelCatalog(storage)
+      const fallback = cached?.fresh ? cached.items : buildOfflineFallbackCatalog(cached?.items, retainedKinds)
+      const { cloudDescriptors } = activateCatalogDeviceDescriptors(fallback)
+      await syncNativeCloudDescriptors(cloudDescriptors, native, false, onNativeSyncedRef.current)
+      setItems(fallback)
+      return mergeCatalogWithLocalCustomDevices(fallback, latestLocal)
+    }
+    setLoading(true)
+    try {
+      const loaded = await loadDeviceModelCatalog(client, storage, undefined, {
+        retainedKinds,
+        forceRefresh: true,
+      })
+      const { cloudDescriptors } = extractCatalogRuntimeDescriptors(loaded)
+      await syncNativeCloudDescriptors(cloudDescriptors, native, true, onNativeSyncedRef.current)
+      setItems(loaded)
+      return mergeCatalogWithLocalCustomDevices(loaded, latestLocal)
+    } finally {
+      setLoading(false)
+    }
+  }, [client, native])
+
+  const mergedItems = useMemo(() => mergeCatalogWithLocalCustomDevices(items, localDevices), [items, localDevices])
+  const modelsByCode = useMemo(() => new Map(mergedItems.map(item => [item.code, item])), [mergedItems])
+  return { items: mergedItems, modelsByCode, loading, refresh }
 }

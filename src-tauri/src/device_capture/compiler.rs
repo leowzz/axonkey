@@ -898,6 +898,19 @@ fn build_identity_matches(
                 attrs.insert("usage-page".into(), format!("0x{page:02X}"));
                 attrs.insert("usage".into(), format!("0x{usage:02X}"));
             }
+        } else if transport == "usb-hid" {
+            if let (Some(page), Some(usage)) = (cand.usage_page.filter(|&p| p > 0), cand.usage) {
+                let page_hex = if page > 0xff {
+                    format!("0x{page:04X}")
+                } else {
+                    format!("0x{page:02X}")
+                };
+                attrs.insert("usage-page".into(), page_hex);
+                attrs.insert("usage".into(), format!("0x{usage:02X}"));
+                if !(0xff00..=0xffff).contains(&page) {
+                    attrs.insert("windows-prefix".into(), "HID".into());
+                }
+            }
         }
 
         let mut has_gatt_filter = false;
@@ -1138,24 +1151,29 @@ fn render_metadata_xml(
             "pending"
         };
 
+        let valid_target = node.attrs.get("target").and_then(|target| {
+            let stripped = target.strip_prefix('#')?;
+            svg_ids.contains(stripped).then_some(target.as_str())
+        });
         xml.push_str(&format!(
             "        <ak:input id=\"{}\" label=\"{}\"",
             escape_xml(&id),
             escape_xml(&label)
         ));
-        if let Some(short) = node.attrs.get("short") {
+        if let Some(short) = node.attrs.get("short").filter(|s| !s.trim().is_empty()) {
             xml.push_str(&format!(" short=\"{}\"", escape_xml(short)));
+        } else if valid_target.is_some() {
+            let fallback_short: String = label.chars().take(4).collect();
+            xml.push_str(&format!(" short=\"{}\"", escape_xml(&fallback_short)));
         }
-        if let Some(icon) = node.attrs.get("icon") {
+        if let Some(icon) = node.attrs.get("icon").filter(|s| !s.trim().is_empty()) {
             xml.push_str(&format!(" icon=\"{}\"", escape_xml(icon)));
+        } else if valid_target.is_some() {
+            xml.push_str(" icon=\"center\"");
         }
         xml.push_str(&format!(" kind=\"{}\"", escape_xml(&kind)));
-        if let Some(target) = node.attrs.get("target") {
-            if let Some(stripped) = target.strip_prefix('#') {
-                if svg_ids.contains(stripped) {
-                    xml.push_str(&format!(" target=\"{}\"", escape_xml(target)));
-                }
-            }
+        if let Some(target) = valid_target {
+            xml.push_str(&format!(" target=\"{}\"", escape_xml(target)));
         }
         let order = node
             .attrs

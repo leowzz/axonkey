@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { LoaderCircle, X } from 'lucide-react'
 import type { ManagedDriverCleanupState, ManagedDriverUninstallResult } from '../appTypes'
-import type { DeviceInstance, DeviceSnapshot } from '../devices/integration/model'
+import {
+  packageFor,
+  supportsWindowsDriver,
+  type DeviceInstance,
+  type DeviceSnapshot,
+} from '../devices/integration/model'
 import './ManagedDriverCleanupDialog.css'
 
 export function ManagedDriverCleanupDialog({
@@ -36,21 +41,7 @@ export function ManagedDriverCleanupDialog({
     try {
       const snapshot = await invoke<DeviceSnapshot>('device_snapshot')
       setDevices(
-        snapshot.store.instances.filter(
-          device =>
-            (device.kind === 'rc003' ||
-              device.kind === 'cmiotA15' ||
-              device.kind === 'xmBt29' ||
-              device.kind === 'rc313' ||
-              device.kind === 'obeRcuR5' ||
-              device.kind === 'tclRc802a' ||
-              device.kind === 'tclRc902n' ||
-              device.kind === 'tclRc902v' ||
-              device.kind === 'hisenseRcf3b65' ||
-              device.kind === 'phicommDb1R' ||
-              device.kind === 'xboxBluetooth') &&
-            device.binding !== null,
-        ),
+        snapshot.store.instances.filter(device => supportsWindowsDriver(device.kind) && device.binding !== null),
       )
     } catch (error) {
       setState({ status: 'idle', error: `无法读取设备：${String(error)}` })
@@ -113,27 +104,13 @@ export function ManagedDriverCleanupDialog({
                 <li key={device.id}>
                   <strong>{device.name}</strong>
                   <span>
-                    {device.kind === 'rc003'
-                      ? 'RC003'
+                    {device.kind === 'rc003' || device.kind === 'obeRcuR5'
+                      ? packageFor(device.kind).model
                       : device.kind === 'cmiotA15'
                         ? 'CMIOT A15'
-                        : device.kind === 'xmBt29'
-                          ? 'XM-BT-29'
-                          : device.kind === 'rc313'
-                            ? 'RC-313'
-                            : device.kind === 'obeRcuR5'
-                              ? 'OBE_RCU_R5'
-                              : device.kind === 'tclRc802a'
-                                ? 'TCL RC802A'
-                                : device.kind === 'tclRc902n'
-                                  ? 'TCL RC902N'
-                                  : device.kind === 'tclRc902v'
-                                    ? 'TCL RC902V'
-                                    : device.kind === 'hisenseRcf3b65'
-                                      ? 'Hisense RCF3B65'
-                                      : device.kind === 'phicommDb1R'
-                                        ? '斐讯 DB1-R'
-                                        : 'Xbox 蓝牙手柄'}{' '}
+                        : device.kind === 'xboxBluetooth'
+                          ? 'Xbox 蓝牙手柄'
+                          : packageFor(device.kind).name || packageFor(device.kind).model}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>

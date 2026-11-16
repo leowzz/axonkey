@@ -262,6 +262,16 @@ export function DeviceHub(props: Props) {
             native={native}
             onBack={() => setCaptureOpen(false)}
             onDevicesChanged={() => void controller.refresh()}
+            onInstalledLocalDevice={installedKind => {
+              void (async () => {
+                const snap = await controller.refresh()
+                const matched = snap.discovered.find(
+                  d => deviceMatchesKind(d, installedKind) && !snap.store.instances.some(i => i.binding === d.id),
+                )
+                setCaptureOpen(false)
+                setIntegration({ kind: installedKind, ...(matched ? { device: matched } : {}) })
+              })()
+            }}
             onToast={props.onToast}
           />
         </Suspense>
@@ -408,6 +418,17 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   const packages = useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const { controller, native, guide = false } = props
   const { snapshot, error, busy } = controller
+  const libraryContext = useContext(BehaviorLibraryContext)
+  const retainedKinds = useMemo(() => snapshot.store.instances.map(item => item.kind), [snapshot.store.instances])
+  const { refresh: refreshCatalog, loading: catalogLoading } = useDeviceModelCatalog(
+    libraryContext?.client,
+    libraryContext?.accountReady ?? true,
+    {
+      native,
+      retainedKinds,
+      onNativeDescriptorsSynced: () => void controller.refresh(),
+    },
+  )
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
   const [troubleshootModalOpen, setTroubleshootModalOpen] = useState(false)
@@ -475,15 +496,18 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
           </button>
           <button
             type="button"
-            className="managed-icon managed-discovery-refresh"
+            className={`managed-icon managed-discovery-refresh${catalogLoading ? ' is-spinning' : ''}`}
             aria-label="刷新设备"
             title="刷新设备"
             onClick={event => {
               event.preventDefault()
               event.stopPropagation()
-              void controller.refresh()
+              void (async () => {
+                await refreshCatalog().catch(() => {})
+                await controller.refresh()
+              })()
             }}
-            disabled={!native}
+            disabled={!native && !libraryContext?.client}
           >
             <RefreshCw size={14} />
           </button>
@@ -839,15 +863,15 @@ function IntegrationDialog({
     () => controller.snapshot.store.instances.map(item => item.kind),
     [controller.snapshot.store.instances],
   )
-  const { modelsByCode, loading: catalogLoading } = useDeviceModelCatalog(
-    libraryContext?.client,
-    libraryContext?.accountReady ?? true,
-    {
-      native,
-      retainedKinds,
-      onNativeDescriptorsSynced: () => void controller.refresh(),
-    },
-  )
+  const {
+    modelsByCode,
+    loading: catalogLoading,
+    refresh: refreshCatalog,
+  } = useDeviceModelCatalog(libraryContext?.client, libraryContext?.accountReady ?? true, {
+    native,
+    retainedKinds,
+    onNativeDescriptorsSynced: () => void controller.refresh(),
+  })
   const [kind, setKind] = useState<DeviceKind | undefined>(() =>
     mobileModelSelection ? mobileRemoteFallbackKind : (initial.kind ?? packages[0]?.kind),
   )
@@ -1014,7 +1038,9 @@ function IntegrationDialog({
     >
       <section className="behavior-dialog managed-integration-dialog">
         <header className="behavior-dialog-head">
-          <h2 id="managed-integration-title">{initial.instance ? '绑定物理设备' : '集成设备'}</h2>
+          <h2 id="managed-integration-title">
+            {initial.instance ? '绑定物理设备' : manualAdd ? '添加设备' : '集成设备'}
+          </h2>
           <button aria-label="关闭集成" className="dialog-close" onClick={onClose}>
             <X size={17} />
           </button>
@@ -1046,23 +1072,42 @@ function IntegrationDialog({
                     ))}
                   </div>
                 )}
-                <div className="managed-catalog-search">
-                  <Search size={14} aria-hidden="true" />
-                  <input
-                    type="search"
-                    aria-label="搜索设备型号"
-                    placeholder="搜索名称或型号…"
-                    value={searchQuery}
-                    onChange={event => setSearchQuery(event.target.value)}
-                  />
-                  {searchQuery && (
+                <div className="managed-catalog-search-group">
+                  <div className="managed-catalog-search">
+                    <Search size={14} aria-hidden="true" />
+                    <input
+                      type="search"
+                      aria-label="搜索设备型号"
+                      placeholder="搜索名称或型号…"
+                      value={searchQuery}
+                      onChange={event => setSearchQuery(event.target.value)}
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        className="managed-catalog-search-clear"
+                        aria-label="清空搜索"
+                        onClick={() => setSearchQuery('')}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {(native || Boolean(libraryContext?.client)) && (
                     <button
                       type="button"
-                      className="managed-catalog-search-clear"
-                      aria-label="清空搜索"
-                      onClick={() => setSearchQuery('')}
+                      className={`managed-icon managed-catalog-refresh${catalogLoading ? ' is-spinning' : ''}`}
+                      aria-label="刷新型号列表"
+                      title="刷新型号列表"
+                      disabled={catalogLoading}
+                      onClick={() => {
+                        void (async () => {
+                          await refreshCatalog().catch(() => {})
+                          if (native) await controller.refresh()
+                        })()
+                      }}
                     >
-                      <X size={13} />
+                      <RefreshCw size={14} />
                     </button>
                   )}
                 </div>

@@ -1490,6 +1490,51 @@ fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
             )
         })
 }
+
+fn physical_hid_container_key(kind: &str, path: &str, bluetooth_address: Option<&str>) -> String {
+    if let Some(addr) = bluetooth_address.filter(|s| !s.trim().is_empty()) {
+        return format!("{kind}:bt:{}", addr.to_ascii_uppercase());
+    }
+    if let Some(body) = path
+        .strip_prefix(r"\\?\")
+        .and_then(|rest| rest.rsplit_once("#{"))
+        .map(|(id, _)| id.to_ascii_lowercase())
+    {
+        let mut segments = body.splitn(3, '#');
+        if let (Some("hid"), Some(hw), Some(inst)) =
+            (segments.next(), segments.next(), segments.next())
+        {
+            let mut had_col = false;
+            let stripped_hw = hw
+                .split('&')
+                .filter(|part| {
+                    let is_col = part.starts_with("col")
+                        && part.len() > 3
+                        && part[3..].bytes().all(|b| b.is_ascii_hexdigit());
+                    if is_col {
+                        had_col = true;
+                    }
+                    !is_col
+                })
+                .collect::<Vec<_>>()
+                .join("&");
+            if had_col {
+                if stripped_hw.contains("00001812-0000-1000-8000-00805f9b34fb") {
+                    return format!("{kind}:win-ble:{stripped_hw}");
+                }
+                let stripped_inst = inst
+                    .rsplit_once('&')
+                    .filter(|(_, tail)| {
+                        !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_hexdigit())
+                    })
+                    .map(|(prefix, _)| prefix)
+                    .unwrap_or(inst);
+                return format!("{kind}:win:{stripped_hw}#{stripped_inst}");
+            }
+        }
+    }
+    format!("{kind}:{path}")
+}
 // hidapi's macOS manager is process-global and is scheduled on its creator's
 // CFRunLoop. Close it before that worker thread exits, otherwise a later manager
 // can dereference the previous thread's released run loop.
@@ -1533,9 +1578,7 @@ fn remember_pairing_ids(snapshot: &mut Snapshot, discovered: &[Discovered], shar
                 changed = true;
             }
         }
-        if crate::devices::descriptor_registry::voice_engine(&instance.kind).is_some()
-            && instance.voice_target.is_none()
-        {
+        if instance.voice_target.is_none() {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
                     && device_kind_matches(d, &instance.kind)
@@ -1602,18 +1645,35 @@ pub(crate) fn driver_target(
             device.bound || device.recovery_active,
         ));
     }
-    if instance.kind == "xboxBluetooth" {
-        if let Some(target) = discovered
+    let resolve_hid_instance_target = || {
+        discovered
             .iter()
             .find(|d| Some(&d.id) == instance.binding.as_ref() && d.identity_quality != "ambiguous")
             .and_then(|d| d.hid_instance_id.as_ref())
-        {
-            return devices
-                .iter()
-                .find(|d| {
-                    d.instance_id.eq_ignore_ascii_case(target) && d.matches_kind(&instance.kind)
-                })
-                .map(|d| (d.instance_id.clone(), d.bound || d.recovery_active));
+            .and_then(|target| {
+                devices
+                    .iter()
+                    .find(|d| {
+                        d.instance_id.eq_ignore_ascii_case(target) && d.matches_kind(&instance.kind)
+                    })
+                    .map(|d| (d.instance_id.clone(), d.bound || d.recovery_active))
+            })
+    };
+    let prefers_hid_prefix = crate::devices::descriptor_registry::descriptor_for_kind(
+        &instance.kind,
+    )
+    .is_some_and(|descriptor| {
+        !descriptor.identities.is_empty()
+            && descriptor.identities.iter().all(|identity| {
+                identity
+                    .attributes
+                    .get("windows-prefix")
+                    .is_some_and(|prefix| prefix.to_ascii_uppercase().starts_with("HID"))
+            })
+    });
+    if prefers_hid_prefix {
+        if let Some(matched) = resolve_hid_instance_target() {
+            return Some(matched);
         }
     }
     let address = instance.voice_target.as_deref().or_else(|| {
@@ -1623,11 +1683,14 @@ pub(crate) fn driver_target(
             .and_then(|d| d.bluetooth_address.as_deref())
     });
     if let Some(address) = address {
-        return crate::quarbor_installer::target_for_bluetooth_address(
-            devices,
-            address,
-            &instance.kind,
-        );
+        if let Some(matched) =
+            crate::quarbor_installer::target_for_bluetooth_address(devices, address, &instance.kind)
+        {
+            return Some(matched);
+        }
+    }
+    if let Some(matched) = resolve_hid_instance_target() {
+        return Some(matched);
     }
     // Compatibility for old RC003 bindings without a Bluetooth identity.
     if instance.kind == "rc003"
@@ -1775,6 +1838,7 @@ fn run(shared: Arc<Shared>) {
             let mut discovered = vec![];
             let mut seen_paths = HashSet::new();
             let mut next_paths = HashMap::new();
+            let mut seen_containers = HashSet::new();
             let stored = shared.snapshot.lock().unwrap().store.instances.clone();
             let bindings: HashSet<String> =
                 stored.iter().filter_map(|i| i.binding.clone()).collect();
@@ -1788,9 +1852,13 @@ fn run(shared: Arc<Shared>) {
                         continue;
                     };
                     let path = info.path().to_string_lossy().into_owned();
-                    seen_paths.insert(path.clone());
-                    let serial = info.serial_number().filter(|s| !s.trim().is_empty());
                     let address = paired::hid_address(info);
+                    let container_key = physical_hid_container_key(kind, &path, address.as_deref());
+                    if !seen_containers.insert(container_key.clone()) {
+                        continue;
+                    }
+                    seen_paths.insert(container_key.clone());
+                    let serial = info.serial_number().filter(|s| !s.trim().is_empty());
                     let pairing_id = address.as_ref().map(|address| {
                         paired::identity(
                             kind,
@@ -1826,7 +1894,7 @@ fn run(shared: Arc<Shared>) {
                         id
                     } else {
                         sessions
-                            .entry(path.clone())
+                            .entry(container_key)
                             .or_insert_with(|| digest(&unique_id()))
                             .clone()
                     };
@@ -4869,5 +4937,214 @@ mod tests {
         }
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn physical_hid_container_key_deduplicates_multi_collection_handles_without_hiding_distinct_devices(
+    ) {
+        assert_eq!(
+            physical_hid_container_key("phicommDb1R", "DevSrvsID:4295001234", None),
+            physical_hid_container_key("phicommDb1R", "DevSrvsID:4295001234", None)
+        );
+        assert_ne!(
+            physical_hid_container_key("phicommDb1R", "DevSrvsID:4295001234", None),
+            physical_hid_container_key("phicommDb1R", "DevSrvsID:4295009999", None)
+        );
+
+        let win_ble_col1 = r"\\?\hid#{00001812-0000-1000-8000-00805f9b34fb}_dev_vid&01005d_pid&0001_rev&0001_aabbccddeeff&col01#8&11111111&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let win_ble_col2 = r"\\?\hid#{00001812-0000-1000-8000-00805f9b34fb}_dev_vid&01005d_pid&0001_rev&0001_aabbccddeeff&col02#8&22222222&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert_eq!(
+            physical_hid_container_key("phicommDb1R", win_ble_col1, None),
+            physical_hid_container_key("phicommDb1R", win_ble_col2, None)
+        );
+
+        let win_usb_port1_col1 = r"\\?\hid#vid_2e8a&pid_b001&col01#7&1a2b3c4d&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let win_usb_port1_col2 = r"\\?\hid#vid_2e8a&pid_b001&col02#7&1a2b3c4d&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let win_usb_port2_col1 = r"\\?\hid#vid_2e8a&pid_b001&col01#7&99887766&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert_eq!(
+            physical_hid_container_key("consoleMiniPad", win_usb_port1_col1, None),
+            physical_hid_container_key("consoleMiniPad", win_usb_port1_col2, None)
+        );
+        assert_ne!(
+            physical_hid_container_key("consoleMiniPad", win_usb_port1_col1, None),
+            physical_hid_container_key("consoleMiniPad", win_usb_port2_col1, None)
+        );
+    }
+
+    #[test]
+    fn console_added_button_only_device_integrates_binds_and_executes_mapped_actions_end_to_end() {
+        let _lock = crate::devices::descriptor_registry::DYNAMIC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let svg = r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="240" viewBox="0 0 240 240"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="acme.mini-pad"
+     data-ak-revision="1"
+     data-ak-status="active">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="acme.mini-pad" vendor="Acme" model="MP-4" revision="1" display-name="Acme 四键小键盘" status="active">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x2E8A" pid="0xB004" usage-page="0xFF60" usage="0x01" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="4" encoding="bit-field" prefix="0x01" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="acme.mini-pad.k1" label="按键 1" short="K1" icon="center" kind="button" target="#k1" order="0" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x01" /></ak:input>
+        <ak:input id="acme.mini-pad.k2" label="按键 2" short="K2" icon="center" kind="button" target="#k2" order="1" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x02" /></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="k1"><rect x="20" y="20" width="80" height="80" /></g>
+  <g id="k2"><rect x="140" y="20" width="80" height="80" /></g>
+  <path data-ak-region="acme.mini-pad.k1" data-ak-anchor="60 60" d="M20 20h80v80h-80z" />
+  <path data-ak-region="acme.mini-pad.k2" data-ak-anchor="180 60" d="M140 20h80v80h-80z" />
+</svg>"##;
+
+        let sync_res = crate::devices::descriptor_registry::sync_cloud_descriptors(&[
+            crate::devices::descriptor_registry::CloudDescriptorSvg {
+                kind: "consoleMiniPad".into(),
+                svg: svg.into(),
+            },
+        ]);
+        assert_eq!(sync_res.applied, 1);
+        assert!(sync_res.rejected.is_empty());
+        assert!(crate::devices::descriptor_registry::uses_vendor_usb_hid(
+            "consoleMiniPad"
+        ));
+        assert!(crate::devices::descriptor_registry::voice_engine("consoleMiniPad").is_none());
+        assert!(crate::devices::descriptor_registry::matches_hardware(
+            "consoleMiniPad",
+            0x2e8a,
+            0xb004,
+            Some(0xff60),
+            Some(0x01)
+        ));
+
+        let manager = offline_manager(vec![]);
+        manager.shared.snapshot.lock().unwrap().discovered = vec![Discovered {
+            id: "phys-mini-pad-1".into(),
+            kind: "consoleMiniPad".into(),
+            name: "Acme MP-4".into(),
+            transport: "USB".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x2e8a,
+            product_id: 0xb004,
+            connected: true,
+            paired: false,
+            device_info: Default::default(),
+            pairing_id: None,
+            bluetooth_address: None,
+            hid_instance_id: None,
+        }];
+
+        let mut new_dev = instance("桌面四键板", "phys-mini-pad-1");
+        new_dev.id = String::new();
+        new_dev.kind = "consoleMiniPad".into();
+        new_dev.profiles[0].behaviors = serde_json::json!({
+            "acme.mini-pad.k1": {
+                "click": [{ "id": "act-1", "type": "key", "key": "Space", "enabled": true }],
+                "doubleClick": [],
+                "longPress": []
+            },
+            "acme.mini-pad.k2": {
+                "click": [{ "id": "act-2", "type": "paste", "text": "OK", "enabled": true }],
+                "doubleClick": [],
+                "longPress": []
+            }
+        });
+
+        let saved_snapshot = manager.put(0, new_dev).expect("integrate consoleMiniPad");
+        assert_eq!(saved_snapshot.store.instances.len(), 1);
+        let integrated = &saved_snapshot.store.instances[0];
+        assert_eq!(integrated.kind, "consoleMiniPad");
+        assert_eq!(integrated.binding.as_deref(), Some("phys-mini-pad-1"));
+
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("consoleMiniPad")
+            .expect("consoleMiniPad descriptor");
+        let (actions_tx, _actions_rx) = sync_channel(4);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(integrated)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: None,
+            path: CString::new("test-console-mini-pad").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps: active_mappings(integrated),
+            actions: actions_tx,
+            reports: 0,
+        };
+
+        let mut sequence = Vec::new();
+        // 1) K1 single-key mapping uses real-time hold pool on press `[0x01, 0x01, 0, 0]` and releases on `[0x01, 0x00, 0, 0]`.
+        for (id, down) in reader
+            .engine
+            .accept(reader.descriptor, &[0x01, 0x01, 0x00, 0x00])
+        {
+            let key = reader
+                .descriptor
+                .inputs
+                .iter()
+                .find(|input| input.id == id)
+                .map(crate::devices::descriptor_registry::input_key)
+                .unwrap_or(&id);
+            reader.handle_local_edge(key, down, 10, &mut sequence);
+        }
+        assert!(reader.holds.has_leases_for_test(&integrated.id));
+        for (id, down) in reader
+            .engine
+            .accept(reader.descriptor, &[0x01, 0x00, 0x00, 0x00])
+        {
+            let key = reader
+                .descriptor
+                .inputs
+                .iter()
+                .find(|input| input.id == id)
+                .map(crate::devices::descriptor_registry::input_key)
+                .unwrap_or(&id);
+            reader.handle_local_edge(key, down, 30, &mut sequence);
+        }
+        assert!(!reader.holds.has_leases_for_test(&integrated.id));
+
+        // 2) K2 paste mapping dispatches through gesture sequence on press `[0x01, 0x02, 0, 0]` + release `[0x01, 0x00, 0, 0]`.
+        for (id, down) in reader
+            .engine
+            .accept(reader.descriptor, &[0x01, 0x02, 0x00, 0x00])
+        {
+            let key = reader
+                .descriptor
+                .inputs
+                .iter()
+                .find(|input| input.id == id)
+                .map(crate::devices::descriptor_registry::input_key)
+                .unwrap_or(&id);
+            reader.handle_local_edge(key, down, 50, &mut sequence);
+        }
+        for (id, down) in reader
+            .engine
+            .accept(reader.descriptor, &[0x01, 0x00, 0x00, 0x00])
+        {
+            let key = reader
+                .descriptor
+                .inputs
+                .iter()
+                .find(|input| input.id == id)
+                .map(crate::devices::descriptor_registry::input_key)
+                .unwrap_or(&id);
+            reader.handle_local_edge(key, down, 80, &mut sequence);
+        }
+        assert_eq!(sequence.len(), 1);
+        assert_eq!(sequence[0].input, "acme.mini-pad.k2");
+        assert_eq!(sequence[0].trigger, gesture::TriggerKind::Click);
+        assert_eq!(sequence[0].behaviors.len(), 1);
+
+        let _ = crate::devices::descriptor_registry::sync_cloud_descriptors(&[]);
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
 }

@@ -12,27 +12,27 @@ fn exported_file(path: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-#[tauri::command]
-pub async fn open_backup_location(
-    _app: tauri::AppHandle,
-    path: String,
-    directory: bool,
+pub(crate) fn open_shell_target(
+    app: &tauri::AppHandle,
+    target: &Path,
+    reveal_file: bool,
+    label: &str,
 ) -> Result<(), String> {
-    let file = exported_file(&path)?;
     #[cfg(target_os = "macos")]
     {
+        let _ = app;
         let mut command = std::process::Command::new("/usr/bin/open");
-        if directory {
-            // Reveal the backup in Finder, including paths inside .app folders.
+        if reveal_file && target.is_file() {
+            // Reveal the file in Finder, including paths inside .app folders.
             command.arg("-R");
         }
         let output = command
-            .arg(file)
+            .arg(target)
             .output()
-            .map_err(|error| format!("无法打开备份：{error}"))?;
+            .map_err(|error| format!("无法打开{label}：{error}"))?;
         if !output.status.success() {
             return Err(format!(
-                "无法打开备份：{}",
+                "无法打开{label}：{}",
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
@@ -54,17 +54,24 @@ pub async fn open_backup_location(
                 show: i32,
             ) -> isize;
         }
-        let target = if directory {
-            file.parent().ok_or("无法定位备份目录")?
+        let open_target = if reveal_file && target.is_file() {
+            target
+                .parent()
+                .ok_or_else(|| format!("无法定位{label}目录"))?
         } else {
-            &file
+            target
         };
-        let path: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        let path: Vec<u16> = open_target
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
         let operation: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+        let label_owned = label.to_owned();
         // Tauri's GUI thread already has the COM apartment needed by shell
         // handlers. Async command workers need not have COM initialized.
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        _app.run_on_main_thread(move || {
+        app.run_on_main_thread(move || {
             let result = unsafe {
                 ShellExecuteW(
                     std::ptr::null_mut(),
@@ -76,21 +83,31 @@ pub async fn open_backup_location(
                 )
             };
             let _ = sender.send(if result <= 32 {
-                Err(format!("无法打开备份（系统错误 {result}）"))
+                Err(format!("无法打开{label_owned}（系统错误 {result}）"))
             } else {
                 Ok(())
             });
         })
-        .map_err(|error| format!("无法打开备份：{error}"))?;
+        .map_err(|error| format!("无法打开{label}：{error}"))?;
         receiver
             .recv()
-            .map_err(|error| format!("无法打开备份：{error}"))?
+            .map_err(|error| format!("无法打开{label}：{error}"))?
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (file, directory);
-        Err("当前系统暂不支持打开备份文件".into())
+        let _ = (app, target, reveal_file);
+        Err(format!("当前系统暂不支持打开{label}"))
     }
+}
+
+#[tauri::command]
+pub async fn open_backup_location(
+    app: tauri::AppHandle,
+    path: String,
+    directory: bool,
+) -> Result<(), String> {
+    let file = exported_file(&path)?;
+    open_shell_target(&app, &file, directory, "备份")
 }
 
 #[cfg(test)]

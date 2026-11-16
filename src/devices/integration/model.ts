@@ -160,13 +160,22 @@ export const mobileRemoteFallbackKind: DeviceKind =
   getMobileRemotePackages().find(pkg => pkg.remoteView?.identities.some(identity => identity.softwareFallback))?.kind ??
   'rc313'
 
-export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+let cloudOverlayPackages: readonly DeviceSupportPackage[] = []
+let localCustomOverlayPackages: readonly DeviceSupportPackage[] = []
+
+function rebuildSupportPackages(): boolean {
   const overlayByKind = new Map<string, DeviceSupportPackage>()
-  for (const pkg of overlays) {
+  for (const pkg of cloudOverlayPackages) {
     const kind = pkg?.kind?.trim()
     if (!kind || kind === 'mouse') continue
     overlayByKind.set(kind, pkg)
   }
+  for (const pkg of localCustomOverlayPackages) {
+    const kind = pkg?.kind?.trim()
+    if (!kind || kind === 'mouse') continue
+    overlayByKind.set(kind, pkg)
+  }
+
   const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => {
     const overlay = overlayByKind.get(pkg.kind)
     if (!overlay) return pkg
@@ -193,6 +202,7 @@ export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackag
         prev.model === pkg.model &&
         prev.artwork === pkg.artwork &&
         prev.inputs.length === pkg.inputs.length &&
+        prev.remoteView?.usesVendorUsbHid === pkg.remoteView?.usesVendorUsbHid &&
         prev.workspaceLayout === pkg.workspaceLayout &&
         prev.screenRegion?.label === pkg.screenRegion?.label &&
         prev.screenRegion?.path === pkg.screenRegion?.path
@@ -208,8 +218,43 @@ export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackag
   return true
 }
 
+export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+  cloudOverlayPackages = [...overlays]
+  return rebuildSupportPackages()
+}
+
+export function setLocalCustomSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+  localCustomOverlayPackages = [...overlays]
+  return rebuildSupportPackages()
+}
+
 export function resetRuntimeSupportPackages(): boolean {
-  return setRuntimeSupportPackages([])
+  cloudOverlayPackages = []
+  localCustomOverlayPackages = []
+  return rebuildSupportPackages()
+}
+
+const bundledDeviceIdAliases: Readonly<Record<string, BuiltinDeviceKind>> = {
+  'xiaomi.rc003': 'rc003',
+  'xbox.bluetooth': 'xboxBluetooth',
+  'xbox-bluetooth-045e-02e0': 'xboxBluetooth',
+}
+
+export function deriveDeviceKindFromId(deviceId: string): string {
+  const trimmed = deviceId.trim()
+  if (!trimmed) return ''
+  if (trimmed in bundledDeviceIdAliases) return bundledDeviceIdAliases[trimmed]
+  const parts = trimmed.split(/[^A-Za-z0-9]+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  let code = parts
+    .map((part, index) =>
+      index === 0 ? part.toLowerCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase(),
+    )
+    .join('')
+  if (/^[0-9]/.test(code)) code = `d${code}`
+  code = code.slice(0, 64)
+  if (code === 'mouse') code = 'customMouse'
+  return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code) ? code : ''
 }
 
 export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
@@ -298,7 +343,11 @@ export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
   )
 }
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
-  return Boolean(kind !== undefined && packageFor(kind).remoteView?.identities.some(identity => identity.windowsPrefix))
+  if (kind === undefined || kind === 'mouse') return false
+  const view = packageFor(kind).remoteView
+  if (!view || view.identities.length === 0) return false
+  if (view.usesVendorUsbHid !== undefined) return !view.usesVendorUsbHid
+  return view.identities.some(identity => Boolean(identity.windowsPrefix))
 }
 export function supportsDeviceInformation(kind: DeviceKind) {
   const view = packageFor(kind).remoteView

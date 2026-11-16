@@ -2,7 +2,7 @@ import { createDefaultBehaviorMap, normalizeBehavior, triggerTypes } from '../be
 import type { TriggerBehaviors } from '../behaviorModel.ts'
 import { parseDataBackupDocument } from '../dataBackup.ts'
 import type { BackupDocument } from '../dataBackup.ts'
-import { defaultDeviceDisplaySettings, supportPackages } from '../devices/integration/model.ts'
+import { defaultDeviceDisplaySettings, getSupportPackages } from '../devices/integration/model.ts'
 import type { DeviceDisplaySettings, DeviceInstance, ProfileDisplayConfig } from '../devices/integration/model.ts'
 import { profileContent, profileMetadataKey, readProfileMetadata } from './cloudMetadata.ts'
 import type { ProfileMetadata, RestoreSource } from './cloudMetadata.ts'
@@ -163,7 +163,7 @@ export function prepareCloudRestore(
     const legacyKind = (Object.keys(legacyKeys) as (keyof typeof legacyKeys)[]).find(
       key => selected.targetId === `legacy:${key}` && key === kind,
     )
-    const support = supportPackages.find(item => item.kind === kind)
+    const support = getSupportPackages().find(item => item.kind === kind)
     if (!support && kind !== 'mouse') throw new Error(`当前版本不支持云端设备型号 ${kind}`)
     const inputs =
       kind === 'mouse'
