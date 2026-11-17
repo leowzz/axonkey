@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { activeApplicationProfile, selectInstanceProfile, setApplicationProfile } from '../src/devices/integration/applicationProfiles.ts'
-import { bindMouseApplication, deleteMouseProfile } from '../src/mouseProfiles.ts'
+import { addMouseApplicationForEditing, bindMouseApplication, deleteMouseProfile } from '../src/mouseProfiles.ts'
 import { addApplicationForEditing, addInstanceProfile, deleteInstanceProfile } from '../src/devices/integration/instanceProfiles.ts'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -84,6 +84,45 @@ test('deleting the mouse global profile moves its app bindings to the new global
   const deleted = deleteMouseProfile(profiles, 'global', 'global')
   assert.equal(deleted.globalProfileId, 'other')
   assert.deepEqual(deleted.profiles[0].applicationIds, [chrome.id])
+})
+
+test('adding a mouse app defaults to the global profile without creating extra profiles, and manual profile creation rebinds only that app', () => {
+  const initialProfiles = [
+    { id: 'global', name: '默认配置', deviceId: 'mouse', behaviors: {} },
+    { id: 'browser', name: '浏览器', deviceId: 'mouse', behaviors: {} },
+  ]
+  const first = addMouseApplicationForEditing(initialProfiles, chrome.id, 'global', false)
+  assert.equal(first.profiles.length, 2)
+  assert.equal(first.profileId, 'global')
+  assert.equal(first.autoSwitching, true)
+  assert.deepEqual(first.profiles[0].applicationIds, [chrome.id])
+  assert.deepEqual(first.profiles[1].applicationIds, [])
+
+  const reused = bindMouseApplication(first.profiles, chrome.id, 'browser')
+  assert.equal(reused.length, 2)
+  assert.deepEqual(reused[0].applicationIds, [])
+  assert.deepEqual(reused[1].applicationIds, [chrome.id])
+
+  const repeatExisting = addMouseApplicationForEditing(reused, chrome.id, 'global', false)
+  assert.equal(repeatExisting.profileId, 'browser')
+  assert.equal(repeatExisting.autoSwitching, false)
+  assert.deepEqual(repeatExisting.profiles[1].applicationIds, [chrome.id])
+
+  const second = addMouseApplicationForEditing(reused, code.id, 'global', false)
+  assert.equal(second.profiles.length, 2)
+  assert.equal(second.profileId, 'global')
+  assert.equal(second.autoSwitching, false)
+  assert.deepEqual(second.profiles[0].applicationIds, [code.id])
+  assert.deepEqual(second.profiles[1].applicationIds, [chrome.id])
+
+  const manualCreated = bindMouseApplication(
+    [...second.profiles, { id: 'editor', name: '新配置', deviceId: 'mouse', behaviors: {} }],
+    code.id,
+    'editor',
+  )
+  assert.deepEqual(manualCreated[0].applicationIds, [])
+  assert.deepEqual(manualCreated[1].applicationIds, [chrome.id])
+  assert.deepEqual(manualCreated[2].applicationIds, [code.id])
 })
 
 function compile(path, imports = {}, globals = {}) {
