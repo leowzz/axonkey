@@ -15,6 +15,7 @@ pub(crate) const KINDS: &[&str] = &[
     "tclRc802a",
     "tclRc902n",
     "tclRc902v",
+    "rmfTx800c",
     "hisenseRcf3b65",
     "phicommDb1R",
     "xboxBluetooth",
@@ -601,6 +602,7 @@ pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceD
         "tclRc802a" => crate::devices::tcl_rc802a::descriptor(),
         "tclRc902n" => crate::devices::tcl_rc902n::descriptor(),
         "tclRc902v" => crate::devices::tcl_rc902v::descriptor(),
+        "rmfTx800c" => rmf_tx800c(),
         "hisenseRcf3b65" => crate::devices::hisense_rcf3b65::descriptor(),
         "phicommDb1R" => crate::devices::phicomm_db1_r::descriptor(),
         "xboxBluetooth" => xbox(),
@@ -660,6 +662,14 @@ fn xbox() -> Option<&'static DeviceDescriptor> {
     static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
     load(
         include_str!("../../../public/device-descriptors/xbox.svg"),
+        &DESCRIPTOR,
+    )
+}
+
+fn rmf_tx800c() -> Option<&'static DeviceDescriptor> {
+    static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
+    load(
+        include_str!("../../../public/device-descriptors/rmf-tx800c.svg"),
         &DESCRIPTOR,
     )
 }
@@ -1038,6 +1048,77 @@ mod tests {
             assert!(!descriptor.inputs.is_empty(), "missing inputs for {kind}");
             assert!(!descriptor.reports.is_empty(), "missing reports for {kind}");
         }
+    }
+
+    #[test]
+    fn sony_rmf_tx800c_matches_and_decodes_captured_reports() {
+        let kind = "rmfTx800c";
+        let descriptor = bundled_descriptor_for_kind(kind).unwrap();
+        assert_eq!(descriptor.id, "rmf-tx800c");
+        assert_eq!(
+            derive_kind_from_device_id(&descriptor.id).as_deref(),
+            Some(kind)
+        );
+        assert!(requires_information(kind));
+        for manufacturer in ["Sony Corporation", "Sony_Corporation"] {
+            assert!(matches_information(
+                kind,
+                0x054c,
+                0x0df7,
+                None,
+                Some(manufacturer),
+                None
+            ));
+        }
+        assert!(!matches_information(
+            kind,
+            0x054c,
+            0x0df8,
+            None,
+            Some("Sony Corporation"),
+            None
+        ));
+        assert!(!matches_information(kind, 0x054c, 0x0df7, None, None, None));
+
+        let cases = [
+            ("tv", [0x89, 0x00]),
+            ("settings", [0xc3, 0x03]),
+            ("input", [0x33, 0x05]),
+            ("number", [0x1f, 0x05]),
+            ("up", [0x42, 0x00]),
+            ("left", [0x44, 0x00]),
+            ("confirm", [0x41, 0x00]),
+            ("right", [0x45, 0x00]),
+            ("down", [0x43, 0x00]),
+            ("back", [0x24, 0x02]),
+            ("home", [0x23, 0x02]),
+            ("mute", [0xe2, 0x00]),
+            ("menu", [0x8b, 0x03]),
+            ("volumeUp", [0xe9, 0x00]),
+            ("volumeDown", [0xea, 0x00]),
+        ];
+        let mut engine = DescriptorEngine::default();
+        for (key, [lo, hi]) in cases {
+            let id = format!("rmf-tx800c.{key}");
+            assert_eq!(
+                engine.accept(descriptor, &[0x04, lo, hi, 0, 0]),
+                [(id.clone(), true)]
+            );
+            assert!(engine.accept(descriptor, &[0x04, 0, 0]).is_empty());
+            assert_eq!(
+                engine.accept(descriptor, &[0x04, 0, 0, 0, 0]),
+                [(id, false)]
+            );
+        }
+        let pending: Vec<_> = descriptor
+            .inputs
+            .iter()
+            .filter(|input| input.pending && input.sources.is_empty())
+            .map(|input| input.id.as_str())
+            .collect();
+        assert_eq!(pending, ["rmf-tx800c.power", "rmf-tx800c.voice"]);
+        assert_eq!(voice_key(kind), Some("rmf-tx800c.voice"));
+        assert_eq!(voice_engine(kind), Some("tcl-rc902v-atvv"));
     }
 
     #[test]

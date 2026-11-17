@@ -52,6 +52,7 @@ export type BuiltinDeviceKind =
   | 'tclRc802a'
   | 'tclRc902n'
   | 'tclRc902v'
+  | 'rmfTx800c'
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
   | 'kivoK18Lite'

@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all twelve protocol SVGs', () => {
+test('the committed device index is generated from all thirteen protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 12)
+  assert.equal(Object.keys(deviceDescriptors).length, 13)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -20,6 +20,19 @@ test('the committed device index is generated from all twelve protocol SVGs', ()
       assert.ok(input.anchor.y >= 0 && input.anchor.y <= descriptor.viewBox.height)
     }
   }
+})
+
+test('Sony RMF-TX800C retains its stable inputs and uses click-only GATT voice', () => {
+  const sony = deviceDescriptors['rmf-tx800c']
+  assert.equal(sony.inputs.length, 17)
+  assert.ok(sony.inputs.every(input => input.id === input.stableId && input.id.startsWith('rmf-tx800c.')))
+  assert.deepEqual(sony.identities[0].vendorIds, [0x054c])
+  assert.deepEqual(sony.identities[0].productIds, [0x0df7])
+  assert.deepEqual(sony.voice, {
+    engine: 'tcl-rc902v-atvv',
+    transport: 'gatt',
+    triggerModes: ['click'],
+  })
 })
 
 test('stable RC003 protocol IDs retain existing saved mapping IDs', () => {

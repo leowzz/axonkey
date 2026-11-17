@@ -10,6 +10,7 @@ import { xboxSupportPackage } from '../xbox-controller/index.ts'
 import { tclRc802aSupportPackage } from '../tcl-rc802a-remote/definition.ts'
 import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
 import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
+import { rmfTx800cSupportPackage } from '../rmf-tx800c-remote/definition.ts'
 import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
 import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
@@ -120,6 +121,7 @@ export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.fr
   tclRc802aSupportPackage,
   tclRc902nSupportPackage,
   tclRc902vSupportPackage,
+  rmfTx800cSupportPackage,
   hisenseRcf3b65SupportPackage,
   phicommDb1RSupportPackage,
   kivoK18LiteSupportPackage,

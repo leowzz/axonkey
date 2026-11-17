@@ -1425,6 +1425,7 @@ pub(crate) fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .instances
         .iter()
         .filter(|instance| instance.binding.is_some())
+        .filter(|instance| cfg!(windows) || instance.kind != "rmfTx800c")
         .filter(
             |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
                 Some("rc003-atvv" | "tcl-rc902v-atvv") => true,

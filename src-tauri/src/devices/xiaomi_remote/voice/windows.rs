@@ -46,6 +46,7 @@ enum GattRemoteKind {
     Rc003,
     TclRc902n,
     TclRc902v,
+    SonyRmfTx800c,
 }
 
 impl GattRemoteKind {
@@ -53,6 +54,7 @@ impl GattRemoteKind {
         match kind {
             "tclRc902n" => Self::TclRc902n,
             "tclRc902v" => Self::TclRc902v,
+            "rmfTx800c" => Self::SonyRmfTx800c,
             _ => Self::Rc003,
         }
     }
@@ -65,8 +67,11 @@ impl GattRemoteKind {
         }
     }
 
-    fn is_tcl_rc902(self) -> bool {
-        matches!(self, Self::TclRc902n | Self::TclRc902v)
+    fn uses_on_request_atvv(self) -> bool {
+        matches!(
+            self,
+            Self::TclRc902n | Self::TclRc902v | Self::SonyRmfTx800c
+        )
     }
 
     fn descriptor_kind(self) -> &'static str {
@@ -74,6 +79,7 @@ impl GattRemoteKind {
             Self::Rc003 => "rc003",
             Self::TclRc902n => "tclRc902n",
             Self::TclRc902v => "tclRc902v",
+            Self::SonyRmfTx800c => "rmfTx800c",
         }
     }
 
@@ -82,6 +88,7 @@ impl GattRemoteKind {
             Self::Rc003 => "RC003",
             Self::TclRc902n => "TCL RC902N",
             Self::TclRc902v => "TCL RC902V",
+            Self::SonyRmfTx800c => "Sony RMF-TX800C",
         }
     }
 }
@@ -405,7 +412,7 @@ impl AudioService {
     }
 
     pub(crate) fn set_recording_mode(&self, mode: RecordingMode) {
-        if !self.shared.remote_kind.is_tcl_rc902() {
+        if !self.shared.remote_kind.uses_on_request_atvv() {
             return;
         }
         let action = self
@@ -418,7 +425,9 @@ impl AudioService {
     }
 
     pub(crate) fn handle_voice_key_edge(&self, pressed: bool) {
-        if !self.shared.remote_kind.is_tcl_rc902() || !self.shared.enabled.load(Ordering::Acquire) {
+        if !self.shared.remote_kind.uses_on_request_atvv()
+            || !self.shared.enabled.load(Ordering::Acquire)
+        {
             return;
         }
         let action = self
@@ -607,7 +616,7 @@ impl VoiceConnection {
         let (command_tx, commands) = mpsc::channel();
         let rc902_tx = shared
             .remote_kind
-            .is_tcl_rc902()
+            .uses_on_request_atvv()
             .then(|| command_tx.clone());
         let mut connection = Self {
             device,
@@ -619,7 +628,7 @@ impl VoiceConnection {
             control_token: None,
             commands,
         };
-        if shared.remote_kind.is_tcl_rc902() {
+        if shared.remote_kind.uses_on_request_atvv() {
             let audio_tx = command_tx.clone();
             connection.audio_token = Some(watch_packets(
                 &connection.audio,
@@ -654,7 +663,7 @@ impl VoiceConnection {
 
         enable_notifications(&connection.audio, "audio", &request)?;
         enable_notifications(&connection.control, "control", &request)?;
-        if shared.remote_kind.is_tcl_rc902() {
+        if shared.remote_kind.uses_on_request_atvv() {
             let label = shared.remote_kind.label();
             let action = shared
                 .rc902v_session
@@ -704,7 +713,7 @@ impl VoiceConnection {
                     "{label} voice channel disconnected; wake the remote to reconnect"
                 ));
             }
-            if shared.remote_kind.is_tcl_rc902() {
+            if shared.remote_kind.uses_on_request_atvv() {
                 let polled = shared
                     .rc902v_session
                     .lock()
@@ -724,7 +733,7 @@ impl VoiceConnection {
             }
             match self.commands.recv_timeout(CONNECTION_POLL) {
                 Ok(command) => {
-                    if shared.remote_kind.is_tcl_rc902() {
+                    if shared.remote_kind.uses_on_request_atvv() {
                         log::info!(
                             target: "axonkey::audio",
                             "{label} ATVV TX len={} hex={}",
@@ -748,7 +757,7 @@ impl VoiceConnection {
         if let Ok(mut slot) = shared.rc902v_command_tx.lock() {
             *slot = None;
         }
-        let close_commands = if shared.remote_kind.is_tcl_rc902() {
+        let close_commands = if shared.remote_kind.uses_on_request_atvv() {
             let (commands, events) = shared
                 .rc902v_session
                 .lock()
@@ -818,7 +827,7 @@ fn find_remote(
     request: &BluetoothRequest<'_>,
 ) -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     let label = remote_kind.label();
-    if remote_kind.is_tcl_rc902() {
+    if remote_kind.uses_on_request_atvv() {
         let valid_target = target_bluetooth_address
             .is_some_and(|addr| addr.chars().filter(|ch| ch.is_ascii_hexdigit()).count() == 12);
         if !valid_target {
@@ -841,7 +850,7 @@ fn find_remote(
             continue;
         };
         let id_text = id.to_string();
-        let approved = if remote_kind.is_tcl_rc902() {
+        let approved = if remote_kind.uses_on_request_atvv() {
             approved_rc902_service_id(
                 remote_kind.descriptor_kind(),
                 &id_text,

@@ -1768,6 +1768,49 @@ mod tests {
     }
 
     #[test]
+    fn sony_gatt_only_press_toggles_the_observed_atvv_v10_stream() {
+        let t0 = Instant::now();
+        let mut session = AtvvSession::with_recording_mode(RecordingMode::Click);
+        let caps = [
+            0x0b, 0x01, 0x00, 0x02, 0, 0, 0xa0, 0, 0, b'2', b'2', b'0', b'1', b'0', b'1', b'0',
+            b'2', b'2', 0, 0,
+        ];
+        let mut search = [0; 20];
+        search[0] = 0x08;
+        let mut audio_start = [0; 20];
+        audio_start[0] = 0x04;
+        audio_start[2] = 0x02;
+
+        assert_eq!(
+            session.begin_negotiation(t0).tx_commands,
+            [vec![0x0a, 0x01, 0, 0, 0x03, 0]]
+        );
+        session.handle_control(&caps, t0);
+        assert_eq!(
+            session.handle_control(&search, t0).tx_commands,
+            [vec![0x0c, 0]]
+        );
+        assert_eq!(
+            session.handle_control(&audio_start, t0).events,
+            [SessionEvent::SessionStarted {
+                stream_id: 0,
+                sample_rate: 16_000,
+            }]
+        );
+        let audio = session.handle_audio(&[0; 160], t0);
+        assert!(matches!(
+            &audio.events[..],
+            [SessionEvent::PcmChunk { sample_rate: 16_000, samples }] if samples.len() == 320
+        ));
+        assert_eq!(
+            session
+                .handle_control(&search, t0 + Duration::from_secs(1))
+                .tx_commands,
+            [vec![0x0d, 0]]
+        );
+    }
+
+    #[test]
     fn ptt_click_toggle_mode_keeps_recording_after_release_and_stops_on_second_press() {
         let t0 = Instant::now();
         let mut session = AtvvSession::with_recording_mode(RecordingMode::Click);
