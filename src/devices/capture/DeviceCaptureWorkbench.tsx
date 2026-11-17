@@ -20,7 +20,14 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
+import {
+  buildPreviewLocalCustomDeviceEntry,
+  getLocalCloudDescriptorOverrides,
+  upsertLocalCustomDevice,
+  type LocalCustomDeviceEntry,
+} from '../../cloud/deviceModelCatalog'
 import { deviceDescriptors } from '../generatedDescriptors'
+import type { DeviceKind } from '../integration/model'
 import { CaptureDeviceList } from './CaptureDeviceList'
 import { CaptureSafetyConfirmDialog, type CaptureSafetyDialogState } from './CaptureSafetyConfirmDialog'
 import { CaptureSvgStage, type RawCaptureFrameItem } from './CaptureSvgStage'
@@ -32,7 +39,9 @@ import {
   captureAttachDriver,
   captureCompileSvg,
   captureDetachDriver,
+  captureInstallLocalDevice,
   captureListCandidates,
+  captureOpenLocalDevicesDir,
   captureParseDraftSvg,
   captureSaveExport,
   captureSetLivePreviewSvg,
@@ -75,6 +84,7 @@ export type DeviceCaptureWorkbenchProps = {
   native?: boolean
   onBack: () => void
   onDevicesChanged?: () => void
+  onInstalledLocalDevice?: (kind: DeviceKind) => void
   onToast?: (message: string) => void
 }
 
@@ -120,7 +130,13 @@ const REPO_SVG_PRESETS: readonly RepoSvgPreset[] = Object.entries(deviceDescript
   inputCount: item.inputs.length,
 }))
 
-export function DeviceCaptureWorkbench({ native, onBack, onDevicesChanged, onToast }: DeviceCaptureWorkbenchProps) {
+export function DeviceCaptureWorkbench({
+  native,
+  onBack,
+  onDevicesChanged,
+  onInstalledLocalDevice,
+  onToast,
+}: DeviceCaptureWorkbenchProps) {
   const nativeRuntime = isTauriCaptureRuntime(native)
   const stepFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -180,7 +196,9 @@ export function DeviceCaptureWorkbench({ native, onBack, onDevicesChanged, onToa
   const [compiled, setCompiled] = useState<CompiledCaptureResult | null>(null)
   const [compiling, setCompiling] = useState(false)
   const [savingExport, setSavingExport] = useState(false)
+  const [installingLocal, setInstallingLocal] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
+  const [localDeviceEntry, setLocalDeviceEntry] = useState<LocalCustomDeviceEntry | null>(null)
   const [copiedCli, setCopiedCli] = useState(false)
 
   const [errorBanner, setErrorBanner] = useState('')
@@ -1145,6 +1163,83 @@ export function DeviceCaptureWorkbench({ native, onBack, onDevicesChanged, onToa
       setErrorBanner(formatErr(err))
     } finally {
       setSavingExport(false)
+    }
+  }
+
+  const handleInstallLocalAndTest = async () => {
+    if (!draft || !rawSvgContent || adaptedCount === 0) return
+    setInstallingLocal(true)
+    setErrorBanner('')
+    try {
+      let activeCompiled = targetStatus === 'active' && compiled ? compiled : null
+      if (!activeCompiled) {
+        const sampleList = [...samples.values()]
+        try {
+          activeCompiled = await captureCompileSvg(
+            {
+              draftSvg: rawSvgContent,
+              candidate: effectiveCandidate,
+              samples: sampleList,
+              targetStatus: 'active',
+            },
+            nativeRuntime,
+          )
+        } catch (err) {
+          if (!nativeRuntime) {
+            activeCompiled = compileCaptureSvgLocal(rawSvgContent, effectiveCandidate, sampleList, 'active')
+          } else {
+            throw err
+          }
+        }
+        setTargetStatus('active')
+        setCompiled(activeCompiled)
+      }
+
+      const installed = nativeRuntime
+        ? upsertLocalCustomDevice(
+            await captureInstallLocalDevice(
+              {
+                svgContent: activeCompiled.svgContent,
+                markdownContent: activeCompiled.markdownSummary,
+              },
+              true,
+            ),
+          )
+        : upsertLocalCustomDevice(
+            buildPreviewLocalCustomDeviceEntry(activeCompiled.svgContent),
+            typeof window !== 'undefined' ? window.localStorage : undefined,
+          )
+      setLocalDeviceEntry(installed)
+      setExportedPath(installed.filePath)
+      onDevicesChanged?.()
+      const overridesCloud = getLocalCloudDescriptorOverrides().some(item => item.kind === installed.kind)
+      onToast?.(
+        overridesCloud
+          ? `已放入本机可用目录（${installed.name}），当前将覆盖同型号云端配置`
+          : `已放入本机可用目录（${installed.name}）`,
+      )
+
+      await captureSetLivePreviewSvg(null, nativeRuntime).catch(() => {})
+      await captureStopSession(nativeRuntime).catch(() => {})
+      await captureSetWorkbenchActive(false, nativeRuntime).catch(() => {})
+      if (onInstalledLocalDevice) {
+        onInstalledLocalDevice(installed.kind)
+      } else {
+        onBack()
+      }
+    } catch (err) {
+      setErrorBanner(formatErr(err))
+    } finally {
+      setInstallingLocal(false)
+    }
+  }
+
+  const handleOpenLocalDir = async () => {
+    setErrorBanner('')
+    try {
+      await captureOpenLocalDevicesDir(localDeviceEntry?.filePath ?? null, nativeRuntime)
+    } catch (err) {
+      setErrorBanner(formatErr(err))
     }
   }
 
@@ -2175,15 +2270,28 @@ export function DeviceCaptureWorkbench({ native, onBack, onDevicesChanged, onToa
                       </div>
                     )}
 
-                    <button
-                      type="button"
-                      className="capture-btn-primary capture-export-btn"
-                      disabled={!compiled || compiling || savingExport}
-                      onClick={() => void handleSaveExport()}
-                    >
-                      <Download size={15} aria-hidden="true" />
-                      {savingExport ? '正在保存…' : '保存 SVG 与采集记录'}
-                    </button>
+                    <div className="capture-export-actions">
+                      <button
+                        type="button"
+                        className="capture-btn-primary capture-export-btn"
+                        disabled={
+                          compiling || installingLocal || savingExport || adaptedCount === 0 || collisions.length > 0
+                        }
+                        onClick={() => void handleInstallLocalAndTest()}
+                      >
+                        <Sparkles size={15} aria-hidden="true" />
+                        {installingLocal ? '正在放入本机…' : '放入本机并测试'}
+                      </button>
+                      <button
+                        type="button"
+                        className="capture-btn-secondary capture-export-btn"
+                        disabled={!compiled || compiling || savingExport || installingLocal}
+                        onClick={() => void handleSaveExport()}
+                      >
+                        <Download size={15} aria-hidden="true" />
+                        {savingExport ? '正在保存…' : '保存 SVG 与采集记录'}
+                      </button>
+                    </div>
 
                     {exportedPath && (
                       <p className="capture-exported-path" role="status">
@@ -2193,16 +2301,29 @@ export function DeviceCaptureWorkbench({ native, onBack, onDevicesChanged, onToa
 
                     <div className="capture-cli-next">
                       <div className="capture-cli-next-head">
-                        <span>放入 public/device-descriptors/ 后生成索引</span>
-                        <button
-                          type="button"
-                          className="capture-copy-btn"
-                          onClick={() => void handleCopyCli()}
-                          aria-label="复制设备索引生成命令"
-                        >
-                          {copiedCli ? <Check size={13} /> : <Copy size={13} />}
-                          {copiedCli ? '已复制' : '复制'}
-                        </button>
+                        <span>本机 custom-devices 目录已对接集成体系；也可上传云端控制台或构建内置索引</span>
+                        <div className="capture-cli-next-actions">
+                          {nativeRuntime && (
+                            <button
+                              type="button"
+                              className="capture-copy-btn"
+                              onClick={() => void handleOpenLocalDir()}
+                              aria-label="打开本机设备目录"
+                            >
+                              <FolderOpen size={13} aria-hidden="true" />
+                              打开本机目录
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="capture-copy-btn"
+                            onClick={() => void handleCopyCli()}
+                            aria-label="复制设备索引生成命令"
+                          >
+                            {copiedCli ? <Check size={13} /> : <Copy size={13} />}
+                            {copiedCli ? '已复制' : '复制'}
+                          </button>
+                        </div>
                       </div>
                       <code>{CLI_GENERATE_CMD}</code>
                     </div>

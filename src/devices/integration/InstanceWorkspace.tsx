@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, Info, RefreshCw, Settings2, TriangleAlert } from 'lucide-react'
 import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
+import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
+import { iconFor } from '../../components/InputIcon'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
+import { idleVoiceBarLevels, nextVoiceAmplitudeBars, type gainLevelTone } from '../../audioGain'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
 import { removedProfileSwitchTriggers } from '../../profileNavigation'
 import { RemoteControl } from '../shared/RemoteControl'
 import { ApplicationProfileToolbar } from '../../components/ApplicationProfileToolbar'
 import { useForegroundApplications } from '../../useForegroundApplications'
 import { setApplicationProfile } from './applicationProfiles'
+import { buildRailOverviewItems, railKeyGlyphText, shouldOpenRailSummaryPopover } from './railOverview'
 import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
 import { SettingsHelp } from '../../components/SettingsHelp'
@@ -31,9 +36,13 @@ import {
   deviceMatchesKind,
   deviceScreenSelectionId,
   emptyTriggers,
+  getLocalCloudDescriptorOverrides,
+  getSupportPackages,
   instanceState,
+  localCloudOverrideWarningText,
   packageFor,
   stateLabel,
+  subscribeSupportPackages,
   supportsWindowsDriver,
   supportsDeviceInformation,
   usesHidVoice,
@@ -92,12 +101,15 @@ export function InstanceWorkspace({
   deviceOptions,
   onSelectDevice,
 }: Props) {
+  useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const pkg = packageFor(instance.kind)
+  const localCloudOverride = getLocalCloudDescriptorOverrides().find(item => item.kind === instance.kind)
   const singleLaneWorkspace = usesSingleLaneWorkspace(instance.kind)
   const voice = pkg.remoteView?.voice
   const voiceModes = voice?.triggerModes ?? []
   const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
+  const [railMode, setRailMode] = useState<'diagram' | 'list'>('diagram')
   const [selected, setSelected] = useState<string>(() =>
     getStoredDeviceInput(instance.id, [
       ...pkg.inputs.map(input => input.id),
@@ -105,6 +117,17 @@ export function InstanceWorkspace({
     ]),
   )
   const isScreenSelected = Boolean(pkg.screenRegion && selected === deviceScreenSelectionId)
+  useEffect(() => {
+    if (isScreenSelected) return
+    if (pkg.inputs.length > 0 && !pkg.inputs.some(input => input.id === selected)) {
+      setSelected(
+        getStoredDeviceInput(instance.id, [
+          ...pkg.inputs.map(input => input.id),
+          ...(pkg.screenRegion ? [deviceScreenSelectionId] : []),
+        ]),
+      )
+    }
+  }, [instance.id, isScreenSelected, pkg.inputs, pkg.screenRegion, selected])
   const selectInput = (inputId: string) => {
     setSelected(inputId)
     storeDeviceInput(instance.id, inputId)
@@ -143,8 +166,21 @@ export function InstanceWorkspace({
     binding => binding.application.id === editingApplicationId,
   )
   const profile = instance.profiles.find(p => p.id === (applicationProfile?.profileId ?? instance.activeProfileId))!
-  const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
+  const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ??
+    pkg.inputs[0] ?? {
+      id: selected || 'pending',
+      label: pkg.name,
+      short: '—',
+      icon: 'center',
+    }
   const status = controller.snapshot.runtime[instance.id]
+  const recording = native && !!status?.recording
+  const { bars: voiceAmplitudes, tone: voiceTone } = useVoiceAmplitude(
+    native && Boolean(voice),
+    instance.id,
+    recording,
+    instance.audioGainDb ?? 0,
+  )
   const boundDevice = instance.binding
     ? controller.snapshot.discovered.find(device => device.id === instance.binding)
     : undefined
@@ -333,6 +369,13 @@ export function InstanceWorkspace({
   const mapped = Object.keys(activeBehaviors).filter(id =>
     Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
+  const overviewItems = buildRailOverviewItems(pkg.inputs, activeBehaviors, platform, pkg.remoteView?.buttons)
+  const diagramTabLabel = instance.kind === 'xboxBluetooth' ? '手柄' : singleLaneWorkspace ? '控制器' : '遥控器'
+  const showCalibrationButton =
+    !!voice &&
+    (voice.transport === 'gatt' || (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos')))
+  const standbyVoiceLabel = '语音待机'
+  const voiceDeviceTitle = platform === 'macos' ? '虚拟麦克风：MiRemoteV 2ch' : '虚拟麦克风：Quarbor Virtual Microphone'
   const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
   const connectionState = native ? instanceState(instance, controller.snapshot) : undefined
@@ -559,54 +602,126 @@ export function InstanceWorkspace({
               <span />
             </button>
           </section>
-          <div className={`remote-stage ${singleLaneWorkspace ? 'managed-controller-stage' : ''}`}>
-            <div className="remote-art">
-              <RemoteControl
-                activeId={selected}
-                pressedIds={input.pressed}
-                mappedIds={mapped}
-                onSelect={selectInput}
-                remoteView={pkg.remoteView}
-                screenRegion={pkg.screenRegion}
-              />
-            </div>
+          <div className="rail-mode-tabs" role="tablist" aria-label="按键视图">
+            <button
+              type="button"
+              role="tab"
+              className={`rail-tab${railMode === 'diagram' ? ' active' : ''}`}
+              aria-selected={railMode === 'diagram'}
+              onClick={() => setRailMode('diagram')}
+            >
+              {diagramTabLabel}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`rail-tab${railMode === 'list' ? ' active' : ''}`}
+              aria-selected={railMode === 'list'}
+              onClick={() => setRailMode('list')}
+            >
+              已配速览{overviewItems.length > 0 ? ` (${overviewItems.length})` : ''}
+            </button>
           </div>
-          {voice && (
-            <DeviceRecordingStatus
-              recording={native && !!status?.recording}
-              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
-              disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
-            />
+          {railMode === 'diagram' ? (
+            <>
+              <div className={`remote-stage ${singleLaneWorkspace ? 'managed-controller-stage' : ''}`}>
+                <div className="remote-art">
+                  <RemoteControl
+                    activeId={selected}
+                    pressedIds={input.pressed}
+                    mappedIds={mapped}
+                    onSelect={selectInput}
+                    remoteView={pkg.remoteView}
+                    screenRegion={pkg.screenRegion}
+                  />
+                </div>
+              </div>
+              {analogInputs.length > 0 && (
+                <div className="managed-analog">
+                  {analogInputs.map(button => (
+                    <label key={button.id}>
+                      {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
+                    </label>
+                  ))}
+                  <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
+                    {analogInputs.map(button => (
+                      <p key={button.id}>
+                        {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
+                        {Math.round(button.releaseThreshold * 100)}% 时释放。
+                      </p>
+                    ))}
+                  </SettingsHelp>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rail-keymap-list" role="listbox" aria-label="已配按键速览">
+              {overviewItems.length === 0 ? (
+                <div className="rail-keymap-empty">
+                  <p>当前配置暂无已配按键</p>
+                  <button type="button" onClick={() => setRailMode('diagram')}>
+                    前往选键配置
+                  </button>
+                </div>
+              ) : (
+                overviewItems.map(item => {
+                  const isSelected = item.input.id === selected
+                  const isPressed = input.pressed.includes(item.input.id)
+                  const glyphText = railKeyGlyphText(item.input, item.short)
+                  return (
+                    <BehaviorSummaryPopover
+                      key={item.input.id}
+                      openDelay={250}
+                      placement="right"
+                      label={item.input.label}
+                      platform={platform}
+                      groups={item.groups}
+                      shouldOpen={anchor => shouldOpenRailSummaryPopover(anchor, item.hasAbbreviatedDetails)}
+                    >
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isPressed ? ' pressed' : ''}`}
+                        onClick={() => selectInput(item.input.id)}
+                      >
+                        <span className="rail-keymap-head">
+                          <strong>{item.input.label}</strong>
+                          <span className="rail-keymap-glyph" aria-hidden="true">
+                            {glyphText ?? iconFor(item.input.icon, 14)}
+                          </span>
+                        </span>
+                        <span className="rail-keymap-summary">{item.summary}</span>
+                      </button>
+                    </BehaviorSummaryPopover>
+                  )
+                })
+              )}
+            </div>
           )}
-          {voice &&
-            (voice.transport === 'gatt' ||
-              (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos'))) && (
-              <button
-                type="button"
-                className="managed-audio-calibration"
-                disabled={!native}
-                title={!native ? '请在桌面应用中校准音量' : undefined}
-                onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
-              >
-                <SlidersHorizontal size={16} aria-hidden="true" />
-                校准音量
-              </button>
-            )}
-          {analogInputs.length > 0 && (
-            <div className="managed-analog">
-              {analogInputs.map(button => (
-                <label key={button.id}>
-                  {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
-                </label>
-              ))}
-              <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
-                {analogInputs.map(button => (
-                  <p key={button.id}>
-                    {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
-                    {Math.round(button.releaseThreshold * 100)}% 时释放。
-                  </p>
-                ))}
-              </SettingsHelp>
+          {voice && (
+            <div className={`rail-voice-strip${recording ? ` is-recording tone-${voiceTone}` : ''}`}>
+              <DeviceRecordingStatus
+                recording={recording}
+                onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
+                disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
+                idleLabel={standbyVoiceLabel}
+                title={voiceDeviceTitle}
+                amplitudes={voiceAmplitudes}
+                levelTone={voiceTone}
+              />
+              {showCalibrationButton && (
+                <button
+                  type="button"
+                  className="managed-audio-calibration"
+                  aria-label="校准音量"
+                  disabled={!native}
+                  title={!native ? '请在桌面应用中校准音量' : '校准音量'}
+                  onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
+                >
+                  校准
+                </button>
+              )}
             </div>
           )}
         </aside>
@@ -624,6 +739,20 @@ export function InstanceWorkspace({
                 .join('、')}
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
+          )}
+          {localCloudOverride && (
+            <div className="managed-warning" role="status">
+              <TriangleAlert size={15} aria-hidden="true" />
+              <span>{localCloudOverrideWarningText([localCloudOverride])}</span>
+              {native && (
+                <button
+                  type="button"
+                  onClick={() => void invoke('open_local_custom_devices_dir', { highlightFile: null }).catch(() => {})}
+                >
+                  打开本机目录
+                </button>
+              )}
+            </div>
           )}
           {isScreenSelected ? (
             <KivoScreenEditor
@@ -1073,4 +1202,41 @@ function DeviceInformationPanel({
       )}
     </div>
   )
+}
+
+type VoiceAmplitudeState = {
+  bars: number[]
+  tone: ReturnType<typeof gainLevelTone>
+}
+
+const initialRecordingBars = () => idleVoiceBarLevels.map(() => 0)
+
+function useVoiceAmplitude(enabled: boolean, instanceId: string, recording: boolean, audioGainDb: number) {
+  const [live, setLive] = useState<VoiceAmplitudeState>(() => ({ bars: initialRecordingBars(), tone: 'silent' }))
+  const gainRef = useRef(audioGainDb)
+  gainRef.current = audioGainDb
+
+  useEffect(() => {
+    if (!enabled || !recording) return
+    let active = true
+    let timer: number | undefined
+    setLive({ bars: initialRecordingBars(), tone: 'silent' })
+    const poll = async () => {
+      try {
+        const level = await invoke<{ peak: number; rms: number }>('get_audio_level', { instanceId })
+        if (!active) return
+        setLive(current => nextVoiceAmplitudeBars(current.bars, level?.rms ?? 0, level?.peak ?? 0, gainRef.current))
+        timer = setTimeout(() => void poll(), 80)
+      } catch {
+        // Non-Tauri browser previews and unit tests omit the native audio level command.
+      }
+    }
+    void poll()
+    return () => {
+      active = false
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [enabled, instanceId, recording])
+
+  return enabled && recording ? live : { bars: idleVoiceBarLevels, tone: 'silent' as const }
 }

@@ -12,15 +12,14 @@ use tauri::{Emitter, Manager};
 
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
     use crate::devices::descriptor_registry::{
-        descriptor_for_kind, matches_hardware, primary_hardware, KINDS,
+        descriptor_for_kind, matches_hardware, primary_hardware, registered_kinds,
     };
     if !super::uses_hid_voice(kind) {
         return None;
     }
     let (vendor, product) = primary_hardware(kind)?;
-    let candidates = KINDS
-        .iter()
-        .copied()
+    let candidates = registered_kinds()
+        .into_iter()
         .filter(|candidate| matches_hardware(candidate, vendor, product, None, None))
         .collect::<Vec<_>>();
     candidates
@@ -71,9 +70,11 @@ fn supports_information(kind: &str) -> bool {
 }
 
 fn detected_kind(device: &Discovered, info: &DeviceInformation) -> Option<&'static str> {
-    use crate::devices::descriptor_registry::{matches_information, requires_information, KINDS};
+    use crate::devices::descriptor_registry::{
+        matches_information, registered_kinds, requires_information,
+    };
     if requires_information(&device.kind) {
-        return KINDS.iter().copied().find(|kind| {
+        return registered_kinds().into_iter().find(|kind| {
             requires_information(kind)
                 && matches_information(
                     kind,

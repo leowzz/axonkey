@@ -244,6 +244,9 @@ test('workspace edits the explicitly selected app while paused and does not foll
   const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
     'react-dom': { createPortal: node => node }, '@tauri-apps/api/event': { listen: async () => () => {} },
     '../../behaviorModel': require('../src/behaviorModel.ts'), '../../appConfig': { triggerLabels: {} },
+    '../../audioGain': require('../src/audioGain.ts'),
+    '../../components/InputIcon': compile('src/components/InputIcon.tsx'),
+    './railOverview': require('../src/devices/integration/railOverview.ts'),
     '../../deviceInputSelection': { getStoredDeviceInput: () => 'voice', storeDeviceInput() {} },
     '../../profileNavigation': require('../src/profileNavigation.ts'),
     '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar: props => React.createElement('app-toolbar', props) },
@@ -255,6 +258,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: nullComponent },
     '../../components/SettingsHelp': { SettingsHelp: nullComponent }, '../../components/BatteryIndicator': { BatteryIndicator: nullComponent },
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/BehaviorSummaryPopover': { BehaviorSummaryPopover: ({ children }) => children },
     '../../components/DeviceRail': { DeviceRecordingStatus: nullComponent },
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },

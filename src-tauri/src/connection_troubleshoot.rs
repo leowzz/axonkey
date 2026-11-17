@@ -784,9 +784,8 @@ mod win_impl {
                 name
             };
             let supported_kind = match (vid, pid) {
-                (Some(v), Some(p)) => crate::devices::descriptor_registry::KINDS
-                    .iter()
-                    .copied()
+                (Some(v), Some(p)) => crate::devices::descriptor_registry::registered_kinds()
+                    .into_iter()
                     .find(|kind| {
                         crate::devices::descriptor_registry::matches_hardware(
                             kind, v, p, None, None,
@@ -899,9 +898,8 @@ fn build_macos_report(
                 present: false,
                 bound_to_quarbor: false,
                 recovery_active: false,
-                supported_kind: crate::devices::descriptor_registry::KINDS
-                    .iter()
-                    .copied()
+                supported_kind: crate::devices::descriptor_registry::registered_kinds()
+                    .into_iter()
                     .find(|kind| {
                         crate::devices::descriptor_registry::matches_hardware(
                             kind,

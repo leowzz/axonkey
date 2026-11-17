@@ -1004,6 +1004,7 @@ mod tests {
 
     #[test]
     fn display_controller_applies_brightness_idle_sleep_activity_wake_and_toast_gating() {
+        let _ = font::render_two_lines_128x32("Kivo K18 Lite", "默认");
         let controller = DisplayController::start_worker(
             "Kivo K18 Lite".into(),
             "默认".into(),

@@ -1,6 +1,6 @@
 import type { TriggerBehaviors } from '../../behaviorModel'
 import type { ApplicationProfile } from '../../applications'
-import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
+import type { BuiltinDeviceKind, DeviceKind, DeviceSupportPackage } from '../types.ts'
 import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
 import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
 import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
@@ -15,7 +15,7 @@ import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts
 import { oneplusRc001aSupportPackage } from '../oneplus-rc-001a-remote/definition.ts'
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 
-export type { DeviceKind } from '../types.ts'
+export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
 export const deviceScreenSelectionId = '__screen__'
 export type ProfileDisplayMode = 'auto' | 'custom'
 export type ProfileDisplayConfig = {
@@ -111,7 +111,8 @@ export type DeviceSnapshot = {
   scanError: string | null
   scanning: boolean
 }
-export const supportPackages: readonly DeviceSupportPackage[] = [
+
+export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.freeze([
   xiaomiRemoteSupportPackage,
   cmiotA15SupportPackage,
   xmBt29SupportPackage,
@@ -125,29 +126,199 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   oneplusRc001aSupportPackage,
   kivoK18LiteSupportPackage,
   xboxSupportPackage,
-]
-const mobileRemotePackages = supportPackages.filter(pkg =>
-  pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
-)
-export const mobileRemoteKinds = mobileRemotePackages.map(pkg => pkg.kind)
-export const mobileRemoteFallbackKind = mobileRemotePackages.find(pkg =>
-  pkg.remoteView?.identities.some(identity => identity.softwareFallback),
-)!.kind
+])
+
+const builtinKindSet = new Set<string>(bundledSupportPackages.map(pkg => pkg.kind))
+
+export function isBuiltinDeviceKind(kind: string): kind is BuiltinDeviceKind {
+  return builtinKindSet.has(kind)
+}
+
+const mutableSupportPackages: DeviceSupportPackage[] = [...bundledSupportPackages]
+export const supportPackages: readonly DeviceSupportPackage[] = mutableSupportPackages
+let supportPackagesSnapshot: readonly DeviceSupportPackage[] = Object.freeze([...bundledSupportPackages])
+const supportPackageListeners = new Set<() => void>()
+
+export function getSupportPackages(): readonly DeviceSupportPackage[] {
+  return supportPackagesSnapshot
+}
+
+export function subscribeSupportPackages(listener: () => void): () => void {
+  supportPackageListeners.add(listener)
+  return () => {
+    supportPackageListeners.delete(listener)
+  }
+}
+
+function getMobileRemotePackages(list: readonly DeviceSupportPackage[] = mutableSupportPackages) {
+  return list.filter(pkg =>
+    pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
+  )
+}
+
+const mutableMobileRemoteKinds: DeviceKind[] = getMobileRemotePackages().map(pkg => pkg.kind)
+export const mobileRemoteKinds: readonly DeviceKind[] = mutableMobileRemoteKinds
+export const mobileRemoteFallbackKind: DeviceKind =
+  getMobileRemotePackages().find(pkg => pkg.remoteView?.identities.some(identity => identity.softwareFallback))?.kind ??
+  'rc313'
+
+export type LocalCloudDescriptorOverride = {
+  kind: string
+  name: string
+  cloudName: string
+  differsFromCloud: boolean
+}
+
+let cloudOverlayPackages: readonly DeviceSupportPackage[] = []
+let localCustomOverlayPackages: readonly DeviceSupportPackage[] = []
+let localCloudOverridesSnapshot: readonly LocalCloudDescriptorOverride[] = Object.freeze([])
+
+export function getLocalCloudDescriptorOverrides(): readonly LocalCloudDescriptorOverride[] {
+  return localCloudOverridesSnapshot
+}
+
+export function localCloudOverrideWarningText(overrides: readonly LocalCloudDescriptorOverride[]): string {
+  if (overrides.length === 0) return ''
+  const names = overrides.map(item => item.name).join('、')
+  if (overrides.some(item => item.differsFromCloud)) {
+    return `本机目录文件正在覆盖「${names}」的云端配置（内容与云端不同），云端更新暂不生效。`
+  }
+  return `本机目录文件正在覆盖「${names}」的云端配置，后续云端更新将不会自动生效。`
+}
+
+function rebuildSupportPackages(): boolean {
+  const overlayByKind = new Map<string, DeviceSupportPackage>()
+  const cloudByKind = new Map<string, DeviceSupportPackage>()
+  for (const pkg of cloudOverlayPackages) {
+    const kind = pkg?.kind?.trim()
+    if (!kind || kind === 'mouse') continue
+    cloudByKind.set(kind, pkg)
+    overlayByKind.set(kind, pkg)
+  }
+  const nextOverrides: LocalCloudDescriptorOverride[] = []
+  for (const pkg of localCustomOverlayPackages) {
+    const kind = pkg?.kind?.trim()
+    if (!kind || kind === 'mouse') continue
+    overlayByKind.set(kind, pkg)
+    const cloudPkg = cloudByKind.get(kind)
+    if (cloudPkg) {
+      nextOverrides.push({
+        kind,
+        name: pkg.name,
+        cloudName: cloudPkg.name,
+        differsFromCloud: pkg.artwork !== cloudPkg.artwork,
+      })
+    }
+  }
+
+  const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => {
+    const overlay = overlayByKind.get(pkg.kind)
+    if (!overlay) return pkg
+    return {
+      ...overlay,
+      ...(overlay.workspaceLayout === undefined && pkg.workspaceLayout !== undefined
+        ? { workspaceLayout: pkg.workspaceLayout }
+        : {}),
+      ...(overlay.screenRegion === undefined && pkg.screenRegion !== undefined
+        ? { screenRegion: pkg.screenRegion }
+        : {}),
+    }
+  })
+  for (const [kind, pkg] of overlayByKind) {
+    if (!builtinKindSet.has(kind)) next.push(pkg)
+  }
+  const packagesUnchanged =
+    next.length === supportPackagesSnapshot.length &&
+    next.every((pkg, index) => {
+      const prev = supportPackagesSnapshot[index]
+      return (
+        prev.kind === pkg.kind &&
+        prev.name === pkg.name &&
+        prev.model === pkg.model &&
+        prev.artwork === pkg.artwork &&
+        prev.inputs.length === pkg.inputs.length &&
+        prev.remoteView?.usesVendorUsbHid === pkg.remoteView?.usesVendorUsbHid &&
+        prev.workspaceLayout === pkg.workspaceLayout &&
+        prev.screenRegion?.label === pkg.screenRegion?.label &&
+        prev.screenRegion?.path === pkg.screenRegion?.path
+      )
+    })
+  const overridesUnchanged =
+    nextOverrides.length === localCloudOverridesSnapshot.length &&
+    nextOverrides.every((item, index) => {
+      const prev = localCloudOverridesSnapshot[index]
+      return (
+        prev.kind === item.kind &&
+        prev.name === item.name &&
+        prev.cloudName === item.cloudName &&
+        prev.differsFromCloud === item.differsFromCloud
+      )
+    })
+  if (packagesUnchanged && overridesUnchanged) return false
+
+  mutableSupportPackages.splice(0, mutableSupportPackages.length, ...next)
+  const nextMobileKinds = getMobileRemotePackages(next).map(pkg => pkg.kind)
+  mutableMobileRemoteKinds.splice(0, mutableMobileRemoteKinds.length, ...nextMobileKinds)
+  supportPackagesSnapshot = Object.freeze([...next])
+  localCloudOverridesSnapshot = Object.freeze(nextOverrides)
+  for (const listener of supportPackageListeners) listener()
+  return true
+}
+
+export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+  cloudOverlayPackages = [...overlays]
+  return rebuildSupportPackages()
+}
+
+export function setLocalCustomSupportPackages(overlays: readonly DeviceSupportPackage[]): boolean {
+  localCustomOverlayPackages = [...overlays]
+  return rebuildSupportPackages()
+}
+
+export function resetRuntimeSupportPackages(): boolean {
+  cloudOverlayPackages = []
+  localCustomOverlayPackages = []
+  return rebuildSupportPackages()
+}
+
+const bundledDeviceIdAliases: Readonly<Record<string, BuiltinDeviceKind>> = {
+  'xiaomi.rc003': 'rc003',
+  'xbox.bluetooth': 'xboxBluetooth',
+  'xbox-bluetooth-045e-02e0': 'xboxBluetooth',
+}
+
+export function deriveDeviceKindFromId(deviceId: string): string {
+  const trimmed = deviceId.trim()
+  if (!trimmed) return ''
+  if (trimmed in bundledDeviceIdAliases) return bundledDeviceIdAliases[trimmed]
+  const parts = trimmed.split(/[^A-Za-z0-9]+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  let code = parts
+    .map((part, index) =>
+      index === 0 ? part.toLowerCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase(),
+    )
+    .join('')
+  if (/^[0-9]/.test(code)) code = `d${code}`
+  code = code.slice(0, 64)
+  if (code === 'mouse') code = 'customMouse'
+  return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code) ? code : ''
+}
+
 export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
-  return mobileRemotePackages.some(pkg =>
-    pkg.remoteView!.identities.some(
+  return getMobileRemotePackages().some(pkg =>
+    pkg.remoteView?.identities.some(
       identity => identity.vendorIds.includes(device.vendorId) && identity.productIds.includes(device.productId),
     ),
   )
 }
-export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is (typeof mobileRemoteKinds)[number] {
-  return kind !== undefined && mobileRemoteKinds.includes(kind as (typeof mobileRemoteKinds)[number])
+export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is DeviceKind {
+  return kind !== undefined && mutableMobileRemoteKinds.includes(kind)
 }
 export function mobileRemoteKindForSoftware(software: string | null | undefined): DeviceKind | null {
   if (!software) return null
   return (
-    mobileRemotePackages.find(pkg =>
-      pkg.remoteView!.identities.some(
+    getMobileRemotePackages().find(pkg =>
+      pkg.remoteView?.identities.some(
         identity =>
           identity.softwareContains && identity.softwareContains.split('|').some(marker => software.includes(marker)),
       ),
@@ -162,7 +333,41 @@ export const emptySnapshot = (): DeviceSnapshot => ({
   scanError: null,
   scanning: false,
 })
-export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
+
+const placeholderArtworkUrl =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="520" viewBox="0 0 240 520" fill="none"><rect x="36" y="20" width="168" height="480" rx="44" fill="#EEF2F6" stroke="#CBD5E1" stroke-width="4"/></svg>',
+  )
+const placeholderCache = new Map<string, DeviceSupportPackage>()
+
+function placeholderPackageFor(kind: DeviceKind): DeviceSupportPackage {
+  let cached = placeholderCache.get(kind)
+  if (!cached) {
+    cached = {
+      kind,
+      name: kind,
+      model: kind,
+      artwork: placeholderArtworkUrl,
+      inputs: [],
+      remoteView: {
+        buttons: [],
+        identities: [],
+        voice: null,
+        viewBox: { width: 240, height: 520 },
+        keyRegions: {},
+        artworkUrl: placeholderArtworkUrl,
+        ariaLabel: kind,
+      },
+    }
+    placeholderCache.set(kind, cached)
+  }
+  return cached
+}
+
+export const packageFor = (kind: DeviceKind): DeviceSupportPackage =>
+  mutableSupportPackages.find(p => p.kind === kind) ?? placeholderPackageFor(kind)
+
 export function usesSingleLaneWorkspace(kind: DeviceKind | undefined) {
   return kind !== undefined && packageFor(kind).workspaceLayout === 'single-lane'
 }
@@ -185,7 +390,11 @@ export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
   )
 }
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
-  return kind !== undefined && packageFor(kind).remoteView!.identities.some(identity => identity.windowsPrefix)
+  if (kind === undefined || kind === 'mouse') return false
+  const view = packageFor(kind).remoteView
+  if (!view || view.identities.length === 0) return false
+  if (view.usesVendorUsbHid !== undefined) return !view.usesVendorUsbHid
+  return view.identities.some(identity => Boolean(identity.windowsPrefix))
 }
 export function supportsDeviceInformation(kind: DeviceKind) {
   const view = packageFor(kind).remoteView

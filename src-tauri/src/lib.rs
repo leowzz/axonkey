@@ -1237,6 +1237,18 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    if let Ok(parsed) = tauri::Url::parse(&url) {
+        log::info!(
+            target: "axonkey::runtime",
+            "Opening external URL host={}",
+            parsed.host_str().unwrap_or("")
+        );
+    }
+    input_service::launch::open_website(&url)
+}
+
+#[tauri::command]
 fn open_external_page(page: String, ticket: Option<String>) -> Result<(), String> {
     let url = match page.as_str() {
         "github" => "https://github.com/leowzz/axonkey".to_owned(),
@@ -1295,12 +1307,8 @@ struct SystemProbe {
 
 #[cfg(target_os = "windows")]
 fn supports_quarbor(kind: &str) -> bool {
-    devices::descriptor_registry::descriptor_for_kind(kind).is_some_and(|descriptor| {
-        descriptor
-            .identities
-            .iter()
-            .any(|identity| identity.attributes.contains_key("windows-prefix"))
-    })
+    devices::descriptor_registry::descriptor_for_kind(kind).is_some()
+        && !devices::descriptor_registry::uses_vendor_usb_hid(kind)
 }
 
 #[cfg(target_os = "windows")]
@@ -1583,6 +1591,14 @@ fn get_audio_test_state(
         audio_service.status(instance_id.as_deref()),
         audio_service.level(instance_id.as_deref()),
     )
+}
+
+#[tauri::command]
+fn get_audio_level(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> audio_service::AudioLevel {
+    audio_service.level(instance_id.as_deref())
 }
 
 #[tauri::command]
@@ -1888,6 +1904,103 @@ fn device_snapshot(
 }
 
 #[tauri::command]
+fn sync_cloud_device_descriptors(
+    app: tauri::AppHandle,
+    descriptors: Vec<devices::descriptor_registry::CloudDescriptorSvg>,
+) -> devices::descriptor_registry::CloudDescriptorSyncResult {
+    let (result, valid_descriptors) =
+        devices::descriptor_registry::sync_cloud_descriptors_with_valid(&descriptors);
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        devices::descriptor_registry::save_persisted_cloud_descriptors(
+            &app_data_dir,
+            &valid_descriptors,
+        );
+    }
+    if result.changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    result
+}
+
+#[tauri::command]
+fn install_local_custom_device(
+    app: tauri::AppHandle,
+    svg_content: String,
+    markdown_content: Option<String>,
+) -> Result<devices::descriptor_registry::LocalCustomDeviceEntry, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let (entry, changed) = devices::descriptor_registry::install_local_custom_descriptor(
+        &app_data_dir,
+        &svg_content,
+        markdown_content.as_deref(),
+    )?;
+    if changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    Ok(entry)
+}
+
+#[tauri::command]
+fn list_local_custom_devices(
+    app: tauri::AppHandle,
+) -> Result<Vec<devices::descriptor_registry::LocalCustomDeviceEntry>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let (changed, entries) =
+        devices::descriptor_registry::load_local_custom_descriptors(&app_data_dir);
+    if changed {
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            let snapshot = manager.refresh_descriptors();
+            if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+                audio_service.sync_instances(&audio_targets(&snapshot));
+            }
+        }
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+async fn open_local_custom_devices_dir(
+    app: tauri::AppHandle,
+    highlight_file: Option<String>,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    let dir = devices::descriptor_registry::custom_devices_dir(&app_data_dir);
+    std::fs::create_dir_all(&dir).map_err(|error| format!("无法创建本机设备目录：{error}"))?;
+    if let Some(file_str) = highlight_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let candidate = std::path::Path::new(file_str);
+        if candidate.is_file() {
+            backup_files::open_shell_target(&app, candidate, true, "本机设备目录")?;
+            return Ok(dir.to_string_lossy().into_owned());
+        }
+    }
+    backup_files::open_shell_target(&app, &dir, false, "本机设备目录")?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn put_device_instance(
     revision: u64,
     instance: DeviceInstance,
@@ -2042,11 +2155,10 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 }
 
 fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
-    let device_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("device-instances.json");
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    devices::descriptor_registry::load_persisted_cloud_descriptors(&app_data_dir);
+    let _ = devices::descriptor_registry::load_local_custom_descriptors(&app_data_dir);
+    let device_path = app_data_dir.join("device-instances.json");
     app.manage(foreground::Monitor::start(
         device_path.with_file_name("recent-applications.json"),
     )?);
@@ -2243,6 +2355,7 @@ pub fn run() {
             open_system_settings,
             set_permission_helper_mode,
             reveal_current_app,
+            open_external_url,
             open_external_page,
             request_macos_permission,
             probe_system_state,
@@ -2252,6 +2365,7 @@ pub fn run() {
             probe_windows_audio_driver,
             restart_audio_service,
             get_audio_test_state,
+            get_audio_level,
             set_audio_gain,
             set_audio_stretch_compensation,
             open_signal_monitor,
@@ -2259,6 +2373,10 @@ pub fn run() {
             export_signal_monitor,
             update_input_settings,
             device_snapshot,
+            sync_cloud_device_descriptors,
+            install_local_custom_device,
+            list_local_custom_devices,
+            open_local_custom_devices_dir,
             foreground::foreground_applications,
             foreground::resolve_application_path,
             foreground::application_icons,
@@ -2502,8 +2620,7 @@ mod tests {
         assert_eq!(blank.len(), super::devices::kivo_k18_lite::FRAME_BYTES);
         assert!(blank.iter().all(|&b| b == 0));
 
-        let rendered =
-            super::render_kivo_oled_preview("Kivo K18 Lite".into(), "悬浮终端".into());
+        let rendered = super::render_kivo_oled_preview("Kivo K18 Lite".into(), "悬浮终端".into());
         assert_eq!(rendered.len(), 512);
         assert_eq!(
             rendered.as_slice(),

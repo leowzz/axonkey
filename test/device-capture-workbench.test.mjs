@@ -150,6 +150,7 @@ function createCaptureHarness({ invokeImpl, saveDialogImpl, native = true } = {}
     './model': captureModel,
   })
   const workbenchMod = evalModule('src/devices/capture/DeviceCaptureWorkbench.tsx', {
+    '../../cloud/deviceModelCatalog': require('../src/cloud/deviceModelCatalog.ts'),
     '../generatedDescriptors': require('../src/devices/generatedDescriptors.ts'),
     './model': captureModel,
     './CaptureSvgStage': captureStage,
@@ -846,9 +847,19 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
   })
   const controls = h.evalModule('src/devices/integration/IntegrationControls.tsx')
   const battery = h.evalModule('src/components/BatteryIndicator.tsx')
+  const behaviorLibraryContext = h.evalModule('src/cloud/BehaviorLibraryContext.tsx')
+  const useDeviceModelCatalog = h.evalModule('src/cloud/useDeviceModelCatalog.ts', {
+    './deviceModelCatalog.ts': require('../src/cloud/deviceModelCatalog.ts'),
+  })
+  const modelMarkdown = h.evalModule('src/devices/integration/ModelMarkdown.tsx', {
+    '../../openExternalUrl': require('../src/openExternalUrl.ts'),
+  })
   const { DeviceHub } = h.evalModule('src/devices/integration/DeviceHub.tsx', {
+    '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
+    '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: () => null },
     './IntegrationControls': controls,
+    './ModelMarkdown': modelMarkdown,
     '../../components/BatteryIndicator': battery,
     './model': model,
     '../capture/DeviceCaptureWorkbench': {
@@ -910,11 +921,12 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
     })
     assert.equal(view.root.findAllByProps({ 'aria-label': '适配新设备工作台' }).length, 0)
 
-    // 2. IntegrationDialog footer link also opens capture workbench
+    // 2. IntegrationDialog footer link also opens capture workbench, and manual add header reads 添加设备
     const addDeviceBtn = view.root.findAllByType('button').find(btn => text(btn).includes('手动添加设备'))
     await act(async () => {
       addDeviceBtn.props.onClick()
     })
+    assert.equal(text(view.root.findByProps({ id: 'managed-integration-title' })), '添加设备')
     const modalAdaptLink = view.root.findAllByType('button').find(btn => text(btn).includes('没有找到型号？适配新设备'))
     assert.ok(modalAdaptLink)
     await act(async () => {
@@ -1356,4 +1368,184 @@ test('clearing single/all key definitions and preventing display interception du
     await act(async () => view.unmount())
   }
   assert.ok(h.invokeCalls.some(c => c.cmd === 'capture_set_workbench_active' && c.args.active === false))
+})
+
+test('Step 4 放入本机并测试 writes to local custom-devices, registers descriptor, and hands off to IntegrationDialog', async () => {
+  const activeCompiledSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="320" height="640" viewBox="0 0 320 640"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="demo-rc1"
+     data-ak-revision="1"
+     data-ak-status="active">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="demo-rc1" vendor="Demo" model="RC1" revision="1" display-name="Demo RC1" status="active">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x2E8A" pid="0xC001" usage-page="0xFF60" usage="0x01" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="6" encoding="bit-field" prefix="0x01" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="demo-rc1.mute" label="静音键" short="静音" icon="mute" kind="button" target="#key-mute" order="1" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xef" /></ak:input>
+        <ak:input id="demo-rc1.home" label="主页键" short="主页" icon="home" kind="button" target="#key-home" order="2" original="false" binding="pending" />
+        <ak:input id="demo-rc1.back" label="返回键" short="返回" icon="back" kind="button" target="#key-back" order="3" original="false" binding="pending" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="front-view" data-ak-view="front">
+    <g id="key-mute" data-ak-key="demo-rc1.mute"><circle cx="80" cy="100" r="24" fill="#222"/></g>
+    <g id="key-home" data-ak-key="demo-rc1.home"><circle cx="160" cy="100" r="24" fill="#222"/></g>
+    <g id="key-back" data-ak-key="demo-rc1.back"><circle cx="240" cy="100" r="24" fill="#222"/></g>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="demo-rc1.mute" data-ak-anchor="80 100" d="M 56 100 A 24 24 0 1 0 104 100 A 24 24 0 1 0 56 100 Z"/>
+    <path data-ak-region="demo-rc1.home" data-ak-anchor="160 100" d="M 136 100 A 24 24 0 1 0 184 100 A 24 24 0 1 0 136 100 Z"/>
+    <path data-ak-region="demo-rc1.back" data-ak-anchor="240 100" d="M 216 100 A 24 24 0 1 0 264 100 A 24 24 0 1 0 216 100 Z"/>
+  </g>
+</svg>`
+
+  const h = createCaptureHarness({
+    native: true,
+    invokeImpl: async (cmd, args) => {
+      if (cmd === 'capture_set_workbench_active') return Boolean(args.active)
+      if (cmd === 'capture_list_candidates') {
+        return [
+          {
+            targetId: 'usb-demo-rc1',
+            displayName: 'Demo RC1',
+            transport: 'usb-hid',
+            instanceId: 'USB\\VID_2E8A&PID_C001\\1',
+            vid: 0x2e8a,
+            pid: 0xc001,
+            usagePage: 0xff60,
+            usage: 0x01,
+            boundToQuarbor: false,
+            recoveryActive: false,
+            registeredKind: null,
+            safetyTier: 'safe',
+            safetyReason: null,
+            gattInfo: null,
+          },
+        ]
+      }
+      if (cmd === 'capture_parse_draft_svg') {
+        return h.captureModel.parseCaptureDraftSvgLocal(args.svgContent)
+      }
+      if (cmd === 'capture_arm_key') return true
+      if (cmd === 'capture_compile_svg') {
+        return {
+          svgContent: activeCompiledSvg,
+          markdownSummary: '# Demo RC1\n',
+          adaptedCount: 1,
+          pendingCount: 2,
+          collisions: [],
+          validated: args.targetStatus === 'active',
+        }
+      }
+      if (cmd === 'capture_set_live_preview_svg') return true
+      if (cmd === 'capture_stop_session') return true
+      if (cmd === 'install_local_custom_device') {
+        return {
+          kind: 'demoRc1',
+          deviceId: 'demo-rc1',
+          name: 'Demo RC1',
+          model: 'RC1',
+          vendor: 'Demo',
+          svg: args.svgContent,
+          filePath: '/Users/test/Library/Application Support/com.axonkey.app/custom-devices/demo-rc1.svg',
+        }
+      }
+      if (cmd === 'open_local_custom_devices_dir') {
+        return '/Users/test/Library/Application Support/com.axonkey.app/custom-devices'
+      }
+      return undefined
+    },
+  })
+
+  const catalogMod = require('../src/cloud/deviceModelCatalog.ts')
+  const realModel = require('../src/devices/integration/model.ts')
+  catalogMod.resetLocalCustomDevicesForTest()
+  realModel.resetRuntimeSupportPackages()
+
+  let handedOffKind = null
+  let view
+  try {
+    await act(async () => {
+      view = Renderer.create(
+        React.createElement(h.DeviceCaptureWorkbench, {
+          native: true,
+          onBack() {},
+          onInstalledLocalDevice: kind => {
+            handedOffKind = kind
+          },
+        }),
+      )
+    })
+
+    // Load draft SVG in Step 1
+    const fileInput = view.root.findAllByProps({ type: 'file' })[0]
+    await act(async () => {
+      await fileInput.props.onChange({
+        target: {
+          files: [{ name: 'demo-rc1.svg', text: async () => pendingDraftSvg }],
+          value: 'demo-rc1.svg',
+        },
+      })
+    })
+
+    // Go to Step 3 and capture 1 key (leaving 2 keys pending so default Step 4 status starts as draft)
+    const step3Tab = view.root.findAllByType('button').find(b => text(b).includes('采集绑定'))
+    await act(async () => {
+      await step3Tab.props.onClick()
+    })
+    await h.emitCaptureEvent({
+      kind: 'keyCaptured',
+      sample: {
+        inputId: 'demo-rc1.mute',
+        reportId: 0x01,
+        pressHex: '01 00 00 EF 00 00',
+        releaseHex: '01 00 00 00 00 00',
+        pressLength: 6,
+        releaseLength: 6,
+        holdCount: 1,
+        durationMs: 90,
+      },
+    })
+
+    // Enter Step 4 -> starts in draft mode because only 1/3 keys captured
+    const toStep4Btn = view.root.findAllByType('button').find(b => text(b).includes('进入测试与导出'))
+    await act(async () => {
+      await toStep4Btn.props.onClick()
+    })
+
+    // Verify 打开本机目录 button invokes open_local_custom_devices_dir
+    const openDirBtn = view.root.findByProps({ 'aria-label': '打开本机设备目录' })
+    await act(async () => {
+      await openDirBtn.props.onClick()
+    })
+    assert.ok(h.invokeCalls.some(c => c.cmd === 'open_local_custom_devices_dir'))
+
+    // Click 放入本机并测试 -> automatically compiles as 'active', installs to custom-devices, registers package, and hands off!
+    const installBtn = view.root.findAllByType('button').find(b => text(b).includes('放入本机并测试'))
+    assert.ok(installBtn)
+    assert.equal(installBtn.props.disabled, false)
+    await act(async () => {
+      await installBtn.props.onClick()
+    })
+
+    assert.equal(handedOffKind, 'demoRc1')
+    assert.ok(h.invokeCalls.some(c => c.cmd === 'install_local_custom_device'))
+    assert.equal(realModel.packageFor('demoRc1').name, 'Demo RC1')
+    assert.equal(realModel.packageFor('demoRc1').inputs.length, 3)
+
+    // Subsequent cloud catalog refresh does NOT overwrite or erase local custom device!
+    catalogMod.activateCatalogDeviceDescriptors(catalogMod.getBundledDeviceModelCatalog())
+    assert.equal(realModel.packageFor('demoRc1').name, 'Demo RC1')
+  } finally {
+    if (view) await act(async () => view.unmount())
+    catalogMod.resetLocalCustomDevicesForTest()
+    realModel.resetRuntimeSupportPackages()
+  }
 })

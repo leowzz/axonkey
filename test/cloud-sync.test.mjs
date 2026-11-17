@@ -718,3 +718,285 @@ test('mouse application mappings restore with the selected profile and switch st
   assert.deepEqual(restored.applicationIds, mouse.applicationIds)
   assert.deepEqual(result.backup.applicationProfileSwitching, { mouse: false })
 })
+
+test('Kivo K18 Lite display settings trigger cloud snapshot, bump profile versions, round-trip restore, and validate Relay bounds', async () => {
+  stored.clear()
+  const { annotateSnapshot } = await import('../src/cloud/cloudMetadata.ts')
+  const backup = initialBackup(createEmptyBehaviorMap())
+
+  // 1. Untouched Kivo K18 Lite (no display or default display + auto empty lines + no behaviors) does not create empty cloud documents
+  const untouched = {
+    id: 'k18-untouched',
+    kind: 'kivoK18Lite',
+    name: 'Kivo K18 Lite',
+    binding: 'usb-serial-1',
+    enabled: true,
+    activeProfileId: 'default',
+    display: { brightness: 100, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true },
+    profiles: [
+      { id: 'default', name: '默认配置', behaviors: {}, display: { mode: 'auto', line1: '', line2: '' } },
+    ],
+  }
+  assert.equal(createCloudSnapshot(backup, [untouched]).documents.length, 0)
+
+  // 2. Custom device display (even without key mappings) or custom profile display triggers cloud snapshot
+  const deviceDisplayOnly = {
+    ...structuredClone(untouched),
+    id: 'k18-bright',
+    display: { brightness: 65, sleepTimeoutSec: 0, showKeyToast: false, showProfileToast: true },
+  }
+  const snapDeviceDisplay = createCloudSnapshot(backup, [deviceDisplayOnly])
+  assert.equal(snapDeviceDisplay.documents.length, 1)
+  assert.deepEqual(snapDeviceDisplay.documents[0].config.display, {
+    brightness: 65,
+    sleepTimeoutSec: 0,
+    showKeyToast: false,
+    showProfileToast: true,
+  })
+
+  const profileDisplayOnly = {
+    ...structuredClone(untouched),
+    id: 'k18-profile-oled',
+    display: undefined,
+    profiles: [
+      {
+        id: 'default',
+        name: '剪辑方案',
+        behaviors: {},
+        display: { mode: 'custom', line1: 'DaVinci Resolve', line2: '时间线快剪' },
+      },
+    ],
+  }
+  const snapProfileDisplay = createCloudSnapshot(backup, [profileDisplayOnly])
+  assert.equal(snapProfileDisplay.documents.length, 1)
+  assert.equal('display' in snapProfileDisplay.documents[0].config, false)
+  assert.deepEqual(snapProfileDisplay.documents[0].config.profiles[0].display, {
+    mode: 'custom',
+    line1: 'DaVinci Resolve',
+    line2: '时间线快剪',
+  })
+
+  // 3. annotateSnapshot bumps app_version when profile.display changes and uploads cleanly
+  const firstAnnotated = annotateSnapshot(snapProfileDisplay, source, '1.9.9')
+  assert.equal(firstAnnotated.documents[0].config.profiles[0].app_version, '1.9.9')
+  assert.equal(annotateSnapshot(snapProfileDisplay, source, '1.10.0').documents[0].config.profiles[0].app_version, '1.9.9')
+  profileDisplayOnly.profiles[0].display.line2 = '调色面板'
+  const updatedSnap = createCloudSnapshot(backup, [profileDisplayOnly])
+  assert.equal(annotateSnapshot(updatedSnap, source, '1.10.0').documents[0].config.profiles[0].app_version, '1.10.0')
+
+  // 4. Full Kivo K18 Lite round-trip restore to new instance & existing bound instance (including 64-CJK and 64-emoji rune bounds)
+  const cjk64 = '屏'.repeat(64)
+  const emoji64 = '🎹'.repeat(64)
+  const fullKivo = {
+    id: 'k18-full',
+    kind: 'kivoK18Lite',
+    name: '桌面宏键盘',
+    binding: 'usb-serial-full',
+    enabled: true,
+    activeProfileId: 'code',
+    display: { brightness: 80, sleepTimeoutSec: 300, showKeyToast: true, showProfileToast: false },
+    profiles: [
+      {
+        id: 'code',
+        name: '编程模式',
+        behaviors: {
+          'kivo.k18Lite.k01': {
+            click: [createBehavior({ type: 'key', key: 'Ctrl', id: 'k18-ctrl' })],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
+        display: { mode: 'custom', line1: cjk64, line2: emoji64 },
+      },
+      {
+        id: 'auto-prof',
+        name: '自动标题',
+        behaviors: {},
+        display: { mode: 'auto', line1: '保留草稿', line2: '' },
+      },
+    ],
+  }
+  const kivoSnap = createCloudSnapshot(backup, [fullKivo])
+  const cloudDoc = {
+    ...remote(),
+    id: 'doc-k18',
+    model_id: 'model-kivo',
+    config: {
+      ...kivoSnap.documents[0].config,
+      profiles: kivoSnap.documents[0].config.profiles.map(p => ({ ...p, app_version: '1.9.9' })),
+    },
+  }
+  const cloud = {
+    models: [{ id: 'model-kivo', code: 'kivoK18Lite' }],
+    documents: [cloudDoc],
+    settings: null,
+  }
+
+  // Restore into a brand-new local K18 instance
+  const restoredNew = prepareCloudRestore(cloud, backup, [], {
+    devices: [{ documentId: 'doc-k18', profileIds: ['code', 'auto-prof'], targetId: 'new:k18-restored' }],
+    settings: false,
+    savedBehaviors: false,
+  })
+  assert.equal(restoredNew.instances.length, 1)
+  assert.equal(restoredNew.instances[0].kind, 'kivoK18Lite')
+  assert.deepEqual(restoredNew.instances[0].display, fullKivo.display)
+  assert.deepEqual(restoredNew.instances[0].profiles[0].display, { mode: 'custom', line1: cjk64, line2: emoji64 })
+  assert.deepEqual(restoredNew.instances[0].profiles[1].display, { mode: 'auto', line1: '保留草稿', line2: '' })
+
+  // Restore into an existing bound local K18 instance without local display settings -> adopts cloud display settings
+  const existingBound = {
+    id: 'k18-local-bound',
+    kind: 'kivoK18Lite',
+    name: '本机 K18',
+    binding: 'usb-local-serial',
+    enabled: true,
+    activeProfileId: 'local-default',
+    profiles: [{ id: 'local-default', name: '默认配置', behaviors: {} }],
+  }
+  const restoredExisting = prepareCloudRestore(cloud, backup, [existingBound], {
+    devices: [{ documentId: 'doc-k18', profileIds: ['code'], targetId: 'k18-local-bound' }],
+    settings: false,
+    savedBehaviors: false,
+  })
+  assert.equal(restoredExisting.instances[0].binding, 'usb-local-serial')
+  assert.deepEqual(restoredExisting.instances[0].display, fullKivo.display)
+  assert.equal(restoredExisting.instances[0].profiles.length, 2)
+  assert.deepEqual(restoredExisting.instances[0].profiles[1].display, { mode: 'custom', line1: cjk64, line2: emoji64 })
+
+  // 5. Reject out-of-range or malformed display payloads matching Relay ValidateConfigV2
+  const invalidConfigs = [
+    { ...cloudDoc.config, display: { brightness: -1, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 101, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 50.5, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 1, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 14, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 3601, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 60, showKeyToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 60, showKeyToast: true, showProfileToast: true, extra: 1 } },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'manual', line1: 'a', line2: 'b' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: '屏'.repeat(65), line2: '' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: '', line2: '🎹'.repeat(65) } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: 'bad\nline', line2: '' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: 'a', line2: 'b', unknown: true } }],
+    },
+  ]
+  for (const badConfig of invalidConfigs) {
+    assert.throws(
+      () =>
+        prepareCloudRestore(
+          { ...cloud, documents: [{ ...cloudDoc, config: badConfig }] },
+          backup,
+          [],
+          { devices: [{ documentId: 'doc-k18', profileIds: ['code'], targetId: 'new:bad' }], settings: false, savedBehaviors: false },
+        ),
+      /不支持或不完整/,
+    )
+  }
+})
+
+test('console-added minimal button-only device supports cloud snapshot and restore via getSupportPackages', async () => {
+  const { setRuntimeSupportPackages, resetRuntimeSupportPackages } = await import('../src/devices/integration/model.ts')
+  const { parseRuntimeDescriptorSvg } = await import('../src/devices/shared/descriptorSvg.ts')
+  const miniPadSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="240" viewBox="0 0 240 240"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="acme.mini-pad"
+     data-ak-revision="1"
+     data-ak-status="active">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="acme.mini-pad" vendor="Acme" model="MP-2" revision="1" display-name="Acme 双键小板" status="active">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x2E8A" pid="0xB002" usage-page="0xFF60" usage="0x01" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="4" encoding="bit-field" prefix="0x01" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="acme.mini-pad.k1" label="按键 1" short="K1" icon="center" kind="button" target="#k1" order="0" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x01" /></ak:input>
+        <ak:input id="acme.mini-pad.k2" label="按键 2" short="K2" icon="center" kind="button" target="#k2" order="1" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="8" equals="0x02" /></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="k1"><rect x="20" y="20" width="80" height="80" /></g>
+  <g id="k2"><rect x="140" y="20" width="80" height="80" /></g>
+  <path data-ak-region="acme.mini-pad.k1" data-ak-anchor="60 60" d="M20 20h80v80h-80z" />
+  <path data-ak-region="acme.mini-pad.k2" data-ak-anchor="180 60" d="M140 20h80v80h-80z" />
+</svg>`
+  const parsed = parseRuntimeDescriptorSvg(miniPadSvg, {
+    kind: 'consoleMiniPad',
+    name: 'Acme 双键小板',
+    model: 'MP-2',
+  })
+  setRuntimeSupportPackages([parsed.supportPackage])
+  try {
+    const backup = createDataBackup(sampleData(), '1.8.13')
+    const localInst = {
+      id: 'mini-1',
+      kind: 'consoleMiniPad',
+      name: '桌面双键板',
+      binding: 'phys-mini-1',
+      enabled: true,
+      activeProfileId: 'default',
+      profiles: [
+        {
+          id: 'default',
+          name: '默认方案',
+          behaviors: {
+            'acme.mini-pad.k1': {
+              click: [createBehavior({ type: 'key', key: 'Space', id: 'mini-space' })],
+              doubleClick: [],
+              longPress: [],
+            },
+          },
+        },
+      ],
+    }
+    const snap = createCloudSnapshot(backup, [localInst])
+    assert.equal(snap.documents.length, 3)
+    const miniDoc = snap.documents.find(d => d.kind === 'consoleMiniPad')
+    assert.ok(miniDoc)
+
+    const cloud = {
+      models: [{ id: 'model-mini', code: 'consoleMiniPad' }],
+      documents: [
+        {
+          ...remote(),
+          id: 'doc-mini',
+          model_id: 'model-mini',
+          config: {
+            ...miniDoc.config,
+            profiles: miniDoc.config.profiles.map(p => ({ ...p, app_version: '1.8.13' })),
+          },
+        },
+      ],
+      settings: null,
+    }
+    const restored = prepareCloudRestore(cloud, backup, [], {
+      devices: [{ documentId: 'doc-mini', profileIds: ['default'], targetId: 'new:mini-restored' }],
+      settings: false,
+      savedBehaviors: false,
+    })
+    assert.equal(restored.instances.length, 1)
+    assert.equal(restored.instances[0].kind, 'consoleMiniPad')
+    assert.equal(restored.instances[0].profiles[0].behaviors['acme.mini-pad.k1'].click[0].key, 'Space')
+  } finally {
+    resetRuntimeSupportPackages()
+  }
+})

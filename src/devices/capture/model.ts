@@ -139,6 +139,16 @@ export type CompiledCaptureResult = {
   validated: boolean
 }
 
+export type InstalledLocalCustomDevice = {
+  kind: string
+  deviceId: string
+  name: string
+  model: string
+  vendor: string
+  svg: string
+  filePath: string
+}
+
 export type CaptureEventPayload =
   | {
       kind: 'status'
@@ -312,6 +322,31 @@ export async function captureSaveExport(
     svgContent: params.svgContent,
     markdownPath: params.markdownPath ?? null,
     markdownContent: params.markdownContent ?? null,
+  })
+}
+
+export async function captureInstallLocalDevice(
+  params: {
+    svgContent: string
+    markdownContent?: string | null
+  },
+  native?: boolean,
+): Promise<InstalledLocalCustomDevice> {
+  if (!isTauriCaptureRuntime(native)) {
+    throw new Error('本机目录安装需在桌面应用中运行')
+  }
+  return invoke<InstalledLocalCustomDevice>('install_local_custom_device', {
+    svgContent: params.svgContent,
+    markdownContent: params.markdownContent ?? null,
+  })
+}
+
+export async function captureOpenLocalDevicesDir(highlightFile?: string | null, native?: boolean): Promise<string> {
+  if (!isTauriCaptureRuntime(native)) {
+    throw new Error('打开本机设备目录需在桌面应用中运行')
+  }
+  return invoke<string>('open_local_custom_devices_dir', {
+    highlightFile: highlightFile ?? null,
   })
 }
 

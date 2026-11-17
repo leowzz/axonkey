@@ -1,5 +1,10 @@
 use super::device_descriptor::{parse_svg, DeviceDescriptor};
-use std::sync::OnceLock;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::Path;
+use std::sync::{OnceLock, RwLock};
 
 pub(crate) const KINDS: &[&str] = &[
     "rc003",
@@ -17,11 +22,577 @@ pub(crate) const KINDS: &[&str] = &[
     "kivoK18Lite",
 ];
 
-/// Return the bundled descriptor for a discovered device kind.
+#[allow(dead_code)]
+pub(crate) const BUNDLED_KINDS: &[&str] = KINDS;
+
+const PERSISTED_DESCRIPTORS_FILE: &str = "cloud-device-descriptors.json";
+pub(crate) const CUSTOM_DEVICES_DIR: &str = "custom-devices";
+const MAX_INTERNED_KINDS: usize = 512;
+const MAX_INTERNED_DESCRIPTORS: usize = 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct CloudDescriptorSvg {
+    pub kind: String,
+    pub svg: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalCustomDeviceEntry {
+    pub kind: String,
+    pub device_id: String,
+    pub name: String,
+    pub model: String,
+    pub vendor: String,
+    pub svg: String,
+    pub file_path: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudDescriptorSyncResult {
+    pub applied: usize,
+    pub rejected: Vec<String>,
+    pub changed: bool,
+}
+
+#[derive(Default)]
+struct DynamicRegistry {
+    interned_kinds: BTreeMap<String, &'static str>,
+    interned_descriptors: BTreeMap<(String, [u8; 32]), &'static DeviceDescriptor>,
+    cloud_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    local_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    local_entries: Vec<LocalCustomDeviceEntry>,
+}
+
+fn dynamic_registry() -> &'static RwLock<DynamicRegistry> {
+    static REGISTRY: OnceLock<RwLock<DynamicRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| RwLock::new(DynamicRegistry::default()))
+}
+
+fn valid_cloud_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.len() <= 64
+        && kind != "mouse"
+        && kind.as_bytes()[0].is_ascii_alphabetic()
+        && kind
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+impl DynamicRegistry {
+    fn intern_kind(&mut self, kind: &str) -> Option<&'static str> {
+        if let Some(&bundled) = KINDS.iter().find(|&&candidate| candidate == kind) {
+            return Some(bundled);
+        }
+        if let Some(&existing) = self.interned_kinds.get(kind) {
+            return Some(existing);
+        }
+        if self.interned_kinds.len() >= MAX_INTERNED_KINDS {
+            return None;
+        }
+        let leaked: &'static str = Box::leak(kind.to_owned().into_boxed_str());
+        self.interned_kinds.insert(kind.to_owned(), leaked);
+        Some(leaked)
+    }
+
+    fn intern_descriptor(
+        &mut self,
+        kind: &str,
+        hash: [u8; 32],
+        descriptor: DeviceDescriptor,
+    ) -> Option<&'static DeviceDescriptor> {
+        let key = (kind.to_owned(), hash);
+        if let Some(&existing) = self.interned_descriptors.get(&key) {
+            return Some(existing);
+        }
+        if self.interned_descriptors.len() >= MAX_INTERNED_DESCRIPTORS {
+            return None;
+        }
+        let leaked: &'static DeviceDescriptor = Box::leak(Box::new(descriptor));
+        self.interned_descriptors.insert(key, leaked);
+        Some(leaked)
+    }
+}
+
+pub(crate) fn registered_kinds() -> Vec<&'static str> {
+    let mut kinds = KINDS.to_vec();
+    if let Ok(guard) = dynamic_registry().read() {
+        for &kind in guard.cloud_active.keys().chain(guard.local_active.keys()) {
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+    }
+    kinds
+}
+
+#[allow(dead_code)]
+pub(crate) fn sync_cloud_descriptors(
+    descriptors: &[CloudDescriptorSvg],
+) -> CloudDescriptorSyncResult {
+    sync_cloud_descriptors_with_valid(descriptors).0
+}
+
+pub(crate) fn sync_cloud_descriptors_with_valid(
+    descriptors: &[CloudDescriptorSvg],
+) -> (CloudDescriptorSyncResult, Vec<CloudDescriptorSvg>) {
+    let mut rejected = Vec::new();
+    let mut parsed_entries = Vec::new();
+    let mut seen_kinds = BTreeSet::new();
+
+    for entry in descriptors {
+        let kind = entry.kind.trim();
+        if !valid_cloud_kind(kind) {
+            let label = if kind.is_empty() { "<empty>" } else { kind };
+            log::warn!(target: "axonkey::devices", "Rejected cloud descriptor with invalid kind: {label}");
+            rejected.push(label.to_owned());
+            continue;
+        }
+        if !seen_kinds.insert(kind.to_owned()) {
+            continue;
+        }
+        let trimmed_svg = entry.svg.trim();
+        match parse_svg(trimmed_svg) {
+            Ok(descriptor) => {
+                let hash: [u8; 32] = Sha256::digest(trimmed_svg.as_bytes()).into();
+                parsed_entries.push((kind.to_owned(), trimmed_svg.to_owned(), hash, descriptor));
+            }
+            Err(error) => {
+                log::warn!(
+                    target: "axonkey::devices",
+                    "Rejected cloud SVG descriptor for kind={kind}: {error}"
+                );
+                rejected.push(kind.to_owned());
+            }
+        }
+    }
+
+    let mut guard = dynamic_registry()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut next_active = BTreeMap::new();
+    let mut valid_items = Vec::new();
+
+    for (kind, svg, hash, descriptor) in parsed_entries {
+        let Some(static_kind) = guard.intern_kind(&kind) else {
+            rejected.push(kind);
+            continue;
+        };
+        let Some(static_descriptor) = guard.intern_descriptor(static_kind, hash, descriptor) else {
+            rejected.push(kind);
+            continue;
+        };
+        next_active.insert(static_kind, (hash, static_descriptor));
+        valid_items.push(CloudDescriptorSvg { kind, svg });
+    }
+
+    let changed = guard.cloud_active.len() != next_active.len()
+        || guard.cloud_active.iter().any(|(kind, (hash, _))| {
+            next_active.get(kind).map(|(next_hash, _)| next_hash) != Some(hash)
+        });
+    let applied = next_active.len();
+    guard.cloud_active = next_active;
+    if changed {
+        warn_local_cloud_overrides(&guard);
+    }
+
+    (
+        CloudDescriptorSyncResult {
+            applied,
+            rejected,
+            changed,
+        },
+        valid_items,
+    )
+}
+
+fn collect_local_cloud_overrides(guard: &DynamicRegistry) -> Vec<(String, String, bool)> {
+    guard
+        .local_active
+        .iter()
+        .filter_map(|(&kind, (local_hash, _))| {
+            let (cloud_hash, _) = guard.cloud_active.get(kind)?;
+            let file_path = guard
+                .local_entries
+                .iter()
+                .find(|entry| entry.kind == kind)
+                .map(|entry| entry.file_path.as_str())
+                .unwrap_or("<custom-devices>");
+            Some((
+                kind.to_owned(),
+                file_path.to_owned(),
+                local_hash != cloud_hash,
+            ))
+        })
+        .collect()
+}
+
+fn warn_local_cloud_overrides(guard: &DynamicRegistry) {
+    for (kind, file_path, differs_from_cloud) in collect_local_cloud_overrides(guard) {
+        if differs_from_cloud {
+            log::warn!(
+                target: "axonkey::devices",
+                "Local custom descriptor overrides cloud descriptor with different SVG content: kind={kind}, file={file_path}; cloud updates for this device will not take effect until the local file is removed"
+            );
+        } else {
+            log::warn!(
+                target: "axonkey::devices",
+                "Local custom descriptor shadows cloud descriptor: kind={kind}, file={file_path}; future cloud updates will be overridden until the local file is removed"
+            );
+        }
+    }
+}
+
+pub(crate) fn derive_kind_from_device_id(device_id: &str) -> Option<String> {
+    let trimmed = device_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(&bundled) = BUNDLED_KINDS
+        .iter()
+        .find(|&&kind| bundled_descriptor_for_kind(kind).is_some_and(|desc| desc.id == trimmed))
+    {
+        return Some(bundled.to_owned());
+    }
+    let parts: Vec<&str> = trimmed
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut code = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index == 0 {
+            code.push_str(&part.to_ascii_lowercase());
+        } else {
+            let mut chars = part.chars();
+            if let Some(first) = chars.next() {
+                code.push(first.to_ascii_uppercase());
+                for rest in chars {
+                    code.push(rest.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    if code.as_bytes().first().is_some_and(|b| b.is_ascii_digit()) {
+        code.insert(0, 'd');
+    }
+    if code.len() > 64 {
+        code.truncate(64);
+    }
+    if code == "mouse" {
+        code = "customMouse".into();
+    }
+    valid_cloud_kind(&code).then_some(code)
+}
+
+fn sanitize_custom_device_stem(device_id: &str) -> String {
+    let mut stem: String = device_id
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    stem = stem.trim_matches(|c| c == '-' || c == '.').to_owned();
+    if stem.is_empty() {
+        stem = "custom-device".into();
+    }
+    if stem.len() > 80 {
+        stem.truncate(80);
+    }
+    stem
+}
+
+fn inspect_custom_svg_header(svg: &str) -> (bool, Option<String>) {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_str(svg);
+    reader.config_mut().trim_text(true);
+    let mut is_draft = false;
+    let mut display_name = None;
+
+    loop {
+        let Ok(event) = reader.read_event() else {
+            break;
+        };
+        match event {
+            Event::Start(element) | Event::Empty(element) => {
+                let raw_name = element.name();
+                let local = raw_name
+                    .as_ref()
+                    .rsplit(|&b| b == b':')
+                    .next()
+                    .unwrap_or(raw_name.as_ref());
+                if local.eq_ignore_ascii_case(b"svg") || local.eq_ignore_ascii_case(b"device") {
+                    for attr in element.attributes().flatten() {
+                        let key = attr.key.as_ref();
+                        let Ok(val) = attr.normalized_value(quick_xml::XmlVersion::default())
+                        else {
+                            continue;
+                        };
+                        let val_trimmed = val.trim();
+                        if (key.eq_ignore_ascii_case(b"status")
+                            || key.eq_ignore_ascii_case(b"data-ak-status"))
+                            && val_trimmed.eq_ignore_ascii_case("draft")
+                        {
+                            is_draft = true;
+                        } else if local.eq_ignore_ascii_case(b"device")
+                            && key.eq_ignore_ascii_case(b"display-name")
+                            && !val_trimmed.is_empty()
+                        {
+                            display_name = Some(val_trimmed.to_owned());
+                        }
+                    }
+                    if local.eq_ignore_ascii_case(b"device") {
+                        break;
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    (is_draft, display_name)
+}
+
+fn parse_runnable_custom_svg(
+    svg_content: &str,
+    file_path: &Path,
+) -> Result<(LocalCustomDeviceEntry, [u8; 32], DeviceDescriptor), String> {
+    let trimmed = svg_content.trim();
+    if trimmed.is_empty() {
+        return Err("SVG 内容为空。".into());
+    }
+    let (explicitly_draft, header_display_name) = inspect_custom_svg_header(trimmed);
+    if explicitly_draft {
+        return Err(
+            "当前 SVG 仍为未完成草稿（status=\"draft\"），请至少采集 1 个按键并启用正式状态后再放入本机测试。"
+                .into(),
+        );
+    }
+    let descriptor =
+        parse_svg(trimmed).map_err(|error| format!("SVG 描述符校验未通过：{error}"))?;
+    let has_real_vid_pid = descriptor.identities.iter().any(|identity| {
+        let vid_ok = identity
+            .attributes
+            .get("vid")
+            .is_some_and(|v| identity_numbers(v).any(|n| n > 0));
+        let pid_ok = identity
+            .attributes
+            .get("pid")
+            .is_some_and(|p| identity_numbers(p).any(|n| n > 0));
+        vid_ok && pid_ok
+    });
+    if !has_real_vid_pid {
+        return Err("设备 VID/PID 仍为占位值 0x0000:0x0000，请先连接真实硬件完成采集。".into());
+    }
+    if !descriptor
+        .inputs
+        .iter()
+        .any(|input| !input.pending && !input.sources.is_empty())
+    {
+        return Err("至少需要完成 1 个按键的报文采集才能放入本机测试。".into());
+    }
+    let kind = derive_kind_from_device_id(&descriptor.id)
+        .ok_or_else(|| format!("无法从设备 ID「{}」推导合法型号标识。", descriptor.id))?;
+    let name = header_display_name.unwrap_or_else(|| {
+        if descriptor.vendor.trim().is_empty()
+            || descriptor.vendor == "Unknown"
+            || descriptor.model.starts_with(&descriptor.vendor)
+        {
+            descriptor.model.clone()
+        } else {
+            format!("{} {}", descriptor.vendor, descriptor.model)
+        }
+    });
+    let hash: [u8; 32] = Sha256::digest(trimmed.as_bytes()).into();
+    let entry = LocalCustomDeviceEntry {
+        kind,
+        device_id: descriptor.id.clone(),
+        name,
+        model: descriptor.model.clone(),
+        vendor: descriptor.vendor.clone(),
+        svg: trimmed.to_owned(),
+        file_path: file_path.to_string_lossy().into_owned(),
+    };
+    Ok((entry, hash, descriptor))
+}
+
+pub(crate) fn custom_devices_dir(app_data_dir: &Path) -> std::path::PathBuf {
+    app_data_dir.join(CUSTOM_DEVICES_DIR)
+}
+
+pub(crate) fn load_local_custom_descriptors(
+    app_data_dir: &Path,
+) -> (bool, Vec<LocalCustomDeviceEntry>) {
+    let dir = custom_devices_dir(app_data_dir);
+    let mut svg_paths = Vec::new();
+    if let Ok(read_dir) = fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+            {
+                svg_paths.push(path);
+            }
+        }
+    }
+    svg_paths.sort();
+
+    let mut parsed_list = Vec::new();
+    let mut seen_kinds = BTreeSet::new();
+    for path in svg_paths {
+        let Ok(raw_svg) = fs::read_to_string(&path) else {
+            continue;
+        };
+        match parse_runnable_custom_svg(&raw_svg, &path) {
+            Ok((entry, hash, descriptor)) => {
+                if seen_kinds.insert(entry.kind.clone()) {
+                    parsed_list.push((entry, hash, descriptor));
+                }
+            }
+            Err(error) => {
+                log::warn!(
+                    target: "axonkey::devices",
+                    "Ignoring invalid local custom SVG {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let mut guard = dynamic_registry()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut next_local = BTreeMap::new();
+    let mut next_entries = Vec::new();
+
+    for (entry, hash, descriptor) in parsed_list {
+        let Some(static_kind) = guard.intern_kind(&entry.kind) else {
+            continue;
+        };
+        let Some(static_descriptor) = guard.intern_descriptor(static_kind, hash, descriptor) else {
+            continue;
+        };
+        next_local.insert(static_kind, (hash, static_descriptor));
+        next_entries.push(entry);
+    }
+
+    let changed = guard.local_active.len() != next_local.len()
+        || guard.local_active.iter().any(|(kind, (hash, _))| {
+            next_local.get(kind).map(|(next_hash, _)| next_hash) != Some(hash)
+        });
+    guard.local_active = next_local;
+    guard.local_entries = next_entries.clone();
+    if changed {
+        warn_local_cloud_overrides(&guard);
+    }
+    (changed, next_entries)
+}
+
+pub(crate) fn install_local_custom_descriptor(
+    app_data_dir: &Path,
+    svg_content: &str,
+    markdown_content: Option<&str>,
+) -> Result<(LocalCustomDeviceEntry, bool), String> {
+    let dir = custom_devices_dir(app_data_dir);
+    let preview_path = dir.join("pending.svg");
+    let (validated_entry, _, _) = parse_runnable_custom_svg(svg_content, &preview_path)?;
+    fs::create_dir_all(&dir).map_err(|error| format!("无法创建本机设备目录：{error}"))?;
+
+    let stem = sanitize_custom_device_stem(&validated_entry.device_id);
+    let svg_path = dir.join(format!("{stem}.svg"));
+    let temp_svg = dir.join(format!("{stem}.svg.tmp"));
+    fs::write(&temp_svg, validated_entry.svg.as_bytes())
+        .map_err(|error| format!("写入本机设备 SVG 失败：{error}"))?;
+    fs::rename(&temp_svg, &svg_path).map_err(|error| format!("保存本机设备 SVG 失败：{error}"))?;
+
+    if let Some(md) = markdown_content.map(str::trim).filter(|s| !s.is_empty()) {
+        let md_path = dir.join(format!("{stem}.md"));
+        let _ = fs::write(&md_path, md.as_bytes());
+    }
+
+    let (changed, entries) = load_local_custom_descriptors(app_data_dir);
+    let installed = entries
+        .into_iter()
+        .find(|item| item.kind == validated_entry.kind)
+        .unwrap_or(LocalCustomDeviceEntry {
+            file_path: svg_path.to_string_lossy().into_owned(),
+            ..validated_entry
+        });
+    Ok((installed, changed))
+}
+
+#[cfg(test)]
+pub(crate) fn clear_local_custom_descriptors_for_test() {
+    let mut guard = dynamic_registry()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.local_active.clear();
+    guard.local_entries.clear();
+}
+
+pub(crate) fn load_persisted_cloud_descriptors(directory: &Path) {
+    let path = directory.join(PERSISTED_DESCRIPTORS_FILE);
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(items) = serde_json::from_str::<Vec<CloudDescriptorSvg>>(&raw) else {
+        log::warn!(target: "axonkey::devices", "Ignoring unreadable cloud-device-descriptors.json");
+        return;
+    };
+    let _ = sync_cloud_descriptors(&items);
+}
+
+pub(crate) fn save_persisted_cloud_descriptors(
+    directory: &Path,
+    valid_items: &[CloudDescriptorSvg],
+) {
+    let path = directory.join(PERSISTED_DESCRIPTORS_FILE);
+    if valid_items.is_empty() {
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    if fs::create_dir_all(directory).is_err() {
+        return;
+    }
+    let Ok(serialized) = serde_json::to_vec(valid_items) else {
+        return;
+    };
+    let temp = path.with_extension("tmp");
+    if fs::write(&temp, serialized).is_ok() {
+        let _ = fs::rename(&temp, &path);
+    }
+}
+
+/// Return the active local custom descriptor, cloud descriptor, or bundled fallback for a device kind.
 ///
-/// Descriptors are parsed once after startup on first use. A malformed bundled
+/// Bundled descriptors are parsed once after startup on first use. A malformed
 /// file is treated as unsupported instead of falling back to a different model.
 pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescriptor> {
+    if let Ok(guard) = dynamic_registry().read() {
+        if let Some((_, descriptor)) = guard.local_active.get(kind) {
+            return Some(*descriptor);
+        }
+        if let Some((_, descriptor)) = guard.cloud_active.get(kind) {
+            return Some(*descriptor);
+        }
+    }
+    bundled_descriptor_for_kind(kind)
+}
+
+pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescriptor> {
     match kind {
         "rc003" => rc003(),
         "cmiotA15" => cmiot_a15(),
@@ -301,22 +872,60 @@ fn matches_identity_number(
 }
 
 fn identity_numbers(value: &str) -> impl Iterator<Item = u32> + '_ {
-    value.split('|').filter_map(|value| {
-        let value = value.trim();
-        if let Some(hex) = value
-            .strip_prefix("0x")
-            .or_else(|| value.strip_prefix("0X"))
-        {
-            u32::from_str_radix(hex, 16).ok()
-        } else {
-            value.parse().ok()
-        }
-    })
+    value
+        .split(|c: char| c.is_ascii_whitespace() || c == '|' || c == ',')
+        .filter(|token| !token.is_empty())
+        .filter_map(|value| {
+            let value = value.trim();
+            if let Some(hex) = value
+                .strip_prefix("0x")
+                .or_else(|| value.strip_prefix("0X"))
+            {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                value.parse().ok()
+            }
+        })
 }
+
+#[cfg(test)]
+pub(crate) static DYNAMIC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::devices::engine::DescriptorEngine;
+
+    fn custom_remote_svg(device_id: &str, vid: &str, pid: &str) -> String {
+        format!(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="520" viewBox="0 0 240 520"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="{device_id}"
+     data-ak-revision="1">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="{device_id}" vendor="Custom" model="CR-X1" revision="1" display-name="自定义遥控器 X">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="{vid}" pid="{pid}" usage-page="0x0C" usage="0x01" windows-prefix="BTHLEDEVICE" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="consumer" direction="input" report-id="0x02" length="3" encoding="le-u16-single" usage-page="0x0C" payload-offset="1" endian="little" state-group="consumer" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="{device_id}.ok" label="确认键" short="OK" icon="center" order="0" kind="button" target="#ok-btn" report="consumer" page="0x0C" usage="0x0041" original="true" />
+        <ak:input id="{device_id}.back" label="返回键" short="返回" icon="back" order="1" kind="button" target="#back-btn" report="consumer" page="0x0C" usage="0x0224" original="true" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="ok-btn"><circle cx="120" cy="180" r="36" /></g>
+  <g id="back-btn"><circle cx="120" cy="300" r="24" /></g>
+  <path data-ak-region="{device_id}.ok" data-ak-anchor="120 180" d="M84 180a36 36 0 1 0 72 0a36 36 0 1 0 -72 0" />
+  <path data-ak-region="{device_id}.back" data-ak-anchor="120 300" d="M96 300a24 24 0 1 0 48 0a24 24 0 1 0 -48 0" />
+</svg>"##
+        )
+    }
 
     #[test]
     fn identities_use_svg_hardware_interface_and_windows_node_constraints() {
@@ -439,12 +1048,256 @@ mod tests {
 
     #[test]
     fn bundled_descriptors_parse_for_every_supported_kind() {
-        for kind in KINDS {
+        for kind in BUNDLED_KINDS {
             let descriptor = descriptor_for_kind(kind)
                 .unwrap_or_else(|| panic!("bundled descriptor failed to parse: {kind}"));
             assert!(descriptor.revision >= 1, "unexpected revision for {kind}");
             assert!(!descriptor.inputs.is_empty(), "missing inputs for {kind}");
             assert!(!descriptor.reports.is_empty(), "missing reports for {kind}");
         }
+    }
+
+    #[test]
+    fn dynamic_cloud_descriptor_activates_new_kind_decodes_hid_and_interns_without_leaking() {
+        let _guard = DYNAMIC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let svg = custom_remote_svg("custom.remote.x", "0x2B00", "0x9901");
+        let first = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "customRemoteX".into(),
+            svg: svg.clone(),
+        }]);
+        assert_eq!(
+            first,
+            CloudDescriptorSyncResult {
+                applied: 1,
+                rejected: vec![],
+                changed: true,
+            }
+        );
+        assert!(registered_kinds().contains(&"customRemoteX"));
+        assert!(matches_hardware(
+            "customRemoteX",
+            0x2b00,
+            0x9901,
+            Some(0x0c),
+            Some(0x01)
+        ));
+        assert_eq!(
+            profile_key("customRemoteX", "custom.remote.x.ok"),
+            Some("custom.remote.x.ok")
+        );
+        assert_eq!(
+            original_usage("customRemoteX", "custom.remote.x.back"),
+            Some((0x0c, 0x0224))
+        );
+
+        let desc_ptr_1 = descriptor_for_kind("customRemoteX").expect("cloud descriptor registered");
+        let mut engine = DescriptorEngine::default();
+        let press = engine.accept(desc_ptr_1, &[0x02, 0x41, 0x00]);
+        assert_eq!(press, vec![("custom.remote.x.ok".to_string(), true)]);
+        let release = engine.accept(desc_ptr_1, &[0x02, 0x00, 0x00]);
+        assert_eq!(release, vec![("custom.remote.x.ok".to_string(), false)]);
+
+        // Syncing identical SVG again reports changed=false and reuses the exact interned pointer.
+        let second = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "customRemoteX".into(),
+            svg,
+        }]);
+        assert!(!second.changed);
+        let desc_ptr_2 = descriptor_for_kind("customRemoteX").unwrap();
+        assert!(std::ptr::eq(desc_ptr_1, desc_ptr_2));
+
+        let reset = sync_cloud_descriptors(&[]);
+        assert!(reset.changed);
+        assert!(descriptor_for_kind("customRemoteX").is_none());
+        assert_eq!(registered_kinds(), KINDS.to_vec());
+    }
+
+    #[test]
+    fn unsafe_or_malformed_cloud_svg_is_rejected_without_breaking_bundled_or_valid_models() {
+        let _guard = DYNAMIC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let base_svg = custom_remote_svg("custom.remote.y", "0x2B01", "0x9902");
+        let with_script = base_svg.replace("</svg>", "<script>alert(1)</script></svg>");
+        let with_foreign = base_svg.replace(
+            "</svg>",
+            "<foreignObject width=\"10\" height=\"10\"></foreignObject></svg>",
+        );
+        let with_event = base_svg.replace("<g id=\"ok-btn\">", "<g id=\"ok-btn\" onclick=\"x()\">");
+        let with_ext_image = base_svg.replace(
+            "</svg>",
+            "<image href=\"https://evil.invalid/track.svg\" width=\"1\" height=\"1\" /></svg>",
+        );
+        let broken_rc003 = base_svg.replace("report=\"consumer\"", "report=\"missing\"");
+
+        let bundled_rc003 = bundled_descriptor_for_kind("rc003").unwrap();
+        let result = sync_cloud_descriptors(&[
+            CloudDescriptorSvg {
+                kind: "badScript".into(),
+                svg: with_script,
+            },
+            CloudDescriptorSvg {
+                kind: "badForeign".into(),
+                svg: with_foreign,
+            },
+            CloudDescriptorSvg {
+                kind: "badEvent".into(),
+                svg: with_event,
+            },
+            CloudDescriptorSvg {
+                kind: "badImage".into(),
+                svg: with_ext_image,
+            },
+            CloudDescriptorSvg {
+                kind: "rc003".into(),
+                svg: broken_rc003,
+            },
+            CloudDescriptorSvg {
+                kind: "mouse".into(),
+                svg: base_svg.clone(),
+            },
+            CloudDescriptorSvg {
+                kind: "customRemoteY".into(),
+                svg: base_svg,
+            },
+        ]);
+
+        assert_eq!(result.applied, 1);
+        assert_eq!(
+            result.rejected,
+            vec![
+                "badScript",
+                "badForeign",
+                "badEvent",
+                "badImage",
+                "rc003",
+                "mouse"
+            ]
+        );
+        assert!(std::ptr::eq(
+            descriptor_for_kind("rc003").unwrap(),
+            bundled_rc003
+        ));
+        assert!(descriptor_for_kind("customRemoteY").is_some());
+
+        let _ = sync_cloud_descriptors(&[]);
+    }
+
+    #[test]
+    fn persisted_cloud_descriptors_roundtrip_and_remove_when_empty() {
+        let _guard = DYNAMIC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "axonkey-cloud-descriptors-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let svg = custom_remote_svg("custom.remote.z", "0x2B02", "0x9903");
+        let item = CloudDescriptorSvg {
+            kind: "customRemoteZ".into(),
+            svg,
+        };
+        save_persisted_cloud_descriptors(&dir, std::slice::from_ref(&item));
+        let _ = sync_cloud_descriptors(&[]);
+        assert!(descriptor_for_kind("customRemoteZ").is_none());
+
+        load_persisted_cloud_descriptors(&dir);
+        assert!(descriptor_for_kind("customRemoteZ").is_some());
+
+        save_persisted_cloud_descriptors(&dir, &[]);
+        assert!(!dir.join(PERSISTED_DESCRIPTORS_FILE).exists());
+        let _ = sync_cloud_descriptors(&[]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn local_custom_descriptors_install_persist_and_survive_cloud_refresh() {
+        let _guard = DYNAMIC_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_local_custom_descriptors_for_test();
+        let _ = sync_cloud_descriptors(&[]);
+
+        let dir = std::env::temp_dir().join(format!(
+            "axonkey-local-custom-devices-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            derive_kind_from_device_id("mini-pad-v2"),
+            Some("miniPadV2".into())
+        );
+        assert_eq!(
+            derive_kind_from_device_id("phicomm-db1-r"),
+            Some("phicommDb1R".into())
+        );
+
+        let draft_svg = custom_remote_svg("local-test-pad", "0x2E8A", "0xA099").replace(
+            "display-name=\"自定义遥控器 X\"",
+            "display-name=\"本机测试小键盘\" status=\"draft\"",
+        );
+        assert!(install_local_custom_descriptor(&dir, &draft_svg, None).is_err());
+
+        let placeholder_svg = custom_remote_svg("local-test-pad", "0x0000", "0x0000");
+        assert!(install_local_custom_descriptor(&dir, &placeholder_svg, None).is_err());
+
+        let active_svg = custom_remote_svg("local-test-pad", "0x2E8A", "0xA099");
+        let (installed, changed) =
+            install_local_custom_descriptor(&dir, &active_svg, Some("# 采集摘要\n")).unwrap();
+        assert!(changed);
+        assert_eq!(installed.kind, "localTestPad");
+        assert_eq!(installed.device_id, "local-test-pad");
+        assert_eq!(installed.name, "自定义遥控器 X");
+        assert!(Path::new(&installed.file_path).is_file());
+        assert!(dir
+            .join(CUSTOM_DEVICES_DIR)
+            .join("local-test-pad.md")
+            .is_file());
+        assert!(registered_kinds().contains(&"localTestPad"));
+        assert!(descriptor_for_kind("localTestPad").is_some());
+
+        // Cloud refresh with an empty or different model list must NOT clobber local custom devices.
+        let _ = sync_cloud_descriptors(&[]);
+        assert!(registered_kinds().contains(&"localTestPad"));
+        assert!(descriptor_for_kind("localTestPad").is_some());
+
+        // When cloud registers the same kind, local custom overrides cloud and is reported by collect_local_cloud_overrides.
+        let _ = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "localTestPad".into(),
+            svg: active_svg.clone(),
+        }]);
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert_eq!(
+                collect_local_cloud_overrides(&guard),
+                vec![("localTestPad".into(), installed.file_path.clone(), false)]
+            );
+        }
+
+        let updated_cloud_svg = active_svg.replace("自定义遥控器 X", "云端更新版遥控器");
+        let _ = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "localTestPad".into(),
+            svg: updated_cloud_svg,
+        }]);
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert_eq!(
+                collect_local_cloud_overrides(&guard),
+                vec![("localTestPad".into(), installed.file_path.clone(), true)]
+            );
+        }
+        assert_eq!(descriptor_for_kind("localTestPad").unwrap().model, "CR-X1");
+
+        // Deleting the file from custom-devices and reloading removes the local custom device cleanly.
+        fs::remove_file(&installed.file_path).unwrap();
+        let (removed_changed, remaining) = load_local_custom_descriptors(&dir);
+        assert!(removed_changed);
+        assert!(remaining.is_empty());
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert!(collect_local_cloud_overrides(&guard).is_empty());
+        }
+        assert!(descriptor_for_kind("localTestPad").is_some());
+        let _ = sync_cloud_descriptors(&[]);
+        assert!(descriptor_for_kind("localTestPad").is_none());
+
+        clear_local_custom_descriptors_for_test();
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -2,8 +2,8 @@ import { createDefaultBehaviorMap, normalizeBehavior, triggerTypes } from '../be
 import type { TriggerBehaviors } from '../behaviorModel.ts'
 import { parseDataBackupDocument } from '../dataBackup.ts'
 import type { BackupDocument } from '../dataBackup.ts'
-import { supportPackages } from '../devices/integration/model.ts'
-import type { DeviceInstance } from '../devices/integration/model.ts'
+import { defaultDeviceDisplaySettings, getSupportPackages } from '../devices/integration/model.ts'
+import type { DeviceDisplaySettings, DeviceInstance, ProfileDisplayConfig } from '../devices/integration/model.ts'
 import { profileContent, profileMetadataKey, readProfileMetadata } from './cloudMetadata.ts'
 import type { ProfileMetadata, RestoreSource } from './cloudMetadata.ts'
 import { fingerprint } from './cloudSync.ts'
@@ -23,8 +23,11 @@ export function createCloudSnapshot(
         .filter(
           instance =>
             memory[`${instance.kind}/${instance.id}`] ||
-            instance.profiles.some(profile => hasBehaviors(profile.behaviors)) ||
-            instance.applicationProfiles?.length,
+            instance.profiles.some(
+              profile => hasBehaviors(profile.behaviors) || hasCustomProfileDisplay(profile.display),
+            ) ||
+            instance.applicationProfiles?.length ||
+            hasNonDefaultDeviceDisplay(instance.display),
         )
         .map(instance => ({ key: instance.id, kind: instance.kind, config: portableInstance(instance) })),
       // Keep previously synced documents so clearing a mapping still reaches the cloud.
@@ -86,6 +89,32 @@ function hasBehaviors(behaviors: Record<string, TriggerBehaviors>): boolean {
   return Object.values(behaviors).some(triggers => triggerTypes.some(trigger => triggers[trigger].length > 0))
 }
 
+function hasNonDefaultDeviceDisplay(display: DeviceDisplaySettings | undefined): boolean {
+  if (!display) return false
+  return (
+    display.brightness !== defaultDeviceDisplaySettings.brightness ||
+    display.sleepTimeoutSec !== defaultDeviceDisplaySettings.sleepTimeoutSec ||
+    display.showKeyToast !== defaultDeviceDisplaySettings.showKeyToast ||
+    display.showProfileToast !== defaultDeviceDisplaySettings.showProfileToast
+  )
+}
+
+function hasCustomProfileDisplay(display: ProfileDisplayConfig | undefined): boolean {
+  if (!display) return false
+  return display.mode === 'custom' || display.line1.length > 0 || display.line2.length > 0
+}
+
+function isValidDisplayLine(value: string): boolean {
+  let runes = 0
+  for (const ch of value) {
+    runes += 1
+    if (runes > 64) return false
+    const code = ch.codePointAt(0)!
+    if (code <= 0x1f || code === 0x7f || (code >= 0xd800 && code <= 0xdfff)) return false
+  }
+  return true
+}
+
 function portableInstance(instance: DeviceInstance): Record<string, unknown> {
   return {
     name: instance.name,
@@ -96,6 +125,16 @@ function portableInstance(instance: DeviceInstance): Record<string, unknown> {
     ...(instance.applicationProfiles === undefined ? {} : { applicationProfiles: instance.applicationProfiles }),
     ...(instance.audioGainDb === undefined ? {} : { audioGainDb: instance.audioGainDb }),
     ...(instance.cmiotA15RecordingMode === undefined ? {} : { cmiotA15RecordingMode: instance.cmiotA15RecordingMode }),
+    ...(instance.display === undefined
+      ? {}
+      : {
+          display: {
+            brightness: instance.display.brightness,
+            sleepTimeoutSec: instance.display.sleepTimeoutSec,
+            showKeyToast: instance.display.showKeyToast,
+            showProfileToast: instance.display.showProfileToast,
+          },
+        }),
   }
 }
 
@@ -124,7 +163,7 @@ export function prepareCloudRestore(
     const legacyKind = (Object.keys(legacyKeys) as (keyof typeof legacyKeys)[]).find(
       key => selected.targetId === `legacy:${key}` && key === kind,
     )
-    const support = supportPackages.find(item => item.kind === kind)
+    const support = getSupportPackages().find(item => item.kind === kind)
     if (!support && kind !== 'mouse') throw new Error(`当前版本不支持云端设备型号 ${kind}`)
     const inputs =
       kind === 'mouse'
@@ -205,8 +244,13 @@ export function prepareCloudRestore(
       metadata[profileMetadataKey(targetKey, restored.id)].restored_content = profileContent(restored)
       profiles.push(restored)
       if (target) {
+        if (target.display === undefined && config.display !== undefined)
+          target.display = structuredClone(config.display)
         const bindings = target.applicationProfiles ?? []
-        if (config.appProfileSwitching !== undefined && config.applicationProfiles?.some(binding => binding.profileId === profile.id))
+        if (
+          config.appProfileSwitching !== undefined &&
+          config.applicationProfiles?.some(binding => binding.profileId === profile.id)
+        )
           target.appProfileSwitching = config.appProfileSwitching
         target.applicationProfiles = [
           ...bindings,
@@ -272,6 +316,26 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
     value.cmiotA15RecordingMode !== 'click'
   )
     return fail()
+  if (value.display !== undefined) {
+    if (!value.display || typeof value.display !== 'object' || Array.isArray(value.display)) return fail()
+    const display = value.display as Record<string, unknown>
+    if (
+      Object.keys(display).some(
+        key =>
+          key !== 'brightness' && key !== 'sleepTimeoutSec' && key !== 'showKeyToast' && key !== 'showProfileToast',
+      ) ||
+      typeof display.brightness !== 'number' ||
+      !Number.isInteger(display.brightness) ||
+      display.brightness < 0 ||
+      display.brightness > 100 ||
+      typeof display.sleepTimeoutSec !== 'number' ||
+      !Number.isInteger(display.sleepTimeoutSec) ||
+      (display.sleepTimeoutSec !== 0 && (display.sleepTimeoutSec < 15 || display.sleepTimeoutSec > 3600)) ||
+      typeof display.showKeyToast !== 'boolean' ||
+      typeof display.showProfileToast !== 'boolean'
+    )
+      return fail()
+  }
   const profileIds = new Set<string>()
   const applicationIds = new Set<string>()
   for (const profile of value.profiles) {
@@ -292,6 +356,19 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
       (!Array.isArray(profile.applicationIds) || profile.applicationIds.some((id: unknown) => typeof id !== 'string'))
     )
       return fail()
+    if (profile.display !== undefined) {
+      if (!profile.display || typeof profile.display !== 'object' || Array.isArray(profile.display)) return fail()
+      const pDisplay = profile.display as Record<string, unknown>
+      if (
+        Object.keys(pDisplay).some(key => key !== 'mode' && key !== 'line1' && key !== 'line2') ||
+        (pDisplay.mode !== 'auto' && pDisplay.mode !== 'custom') ||
+        typeof pDisplay.line1 !== 'string' ||
+        !isValidDisplayLine(pDisplay.line1) ||
+        typeof pDisplay.line2 !== 'string' ||
+        !isValidDisplayLine(pDisplay.line2)
+      )
+        return fail()
+    }
     profileIds.add(profile.id)
     for (const [input, triggers] of Object.entries(profile.behaviors)) {
       if (!inputs.includes(input) || !triggers || typeof triggers !== 'object' || Object.keys(triggers).length !== 3)
@@ -352,5 +429,6 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
     | 'applicationProfiles'
     | 'audioGainDb'
     | 'cmiotA15RecordingMode'
+    | 'display'
   >
 }

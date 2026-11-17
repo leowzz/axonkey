@@ -411,9 +411,7 @@ mod tests {
         assert_eq!(a, vec![0x41]); // 'A'
 
         for (input, chord) in [("k01", ctrl), ("k02", cmd), ("k03", a)] {
-            let (edges, _) = pool
-                .press("win-k18", input, chord, vec![], false)
-                .unwrap();
+            let (edges, _) = pool.press("win-k18", input, chord, vec![], false).unwrap();
             for (vk, down) in edges {
                 super::super::super::windows::send_managed_held_key(vk, down);
             }
@@ -498,16 +496,16 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                (59, true, f_ctrl),                   // K01 Ctrl down
-                (55, true, f_ctrl | f_cmd),           // K02 Cmd down
-                (0, true, f_ctrl | f_cmd),            // K03 A down
-                (56, true, f_ctrl | f_cmd | f_shift), // Gesture Shift down
-                (11, true, f_ctrl | f_cmd | f_shift), // Gesture B down
+                (59, true, f_ctrl),                    // K01 Ctrl down
+                (55, true, f_ctrl | f_cmd),            // K02 Cmd down
+                (0, true, f_ctrl | f_cmd),             // K03 A down
+                (56, true, f_ctrl | f_cmd | f_shift),  // Gesture Shift down
+                (11, true, f_ctrl | f_cmd | f_shift),  // Gesture B down
                 (11, false, f_ctrl | f_cmd | f_shift), // Gesture B up
-                (56, false, f_ctrl | f_cmd),          // Gesture Shift up (Ctrl|Cmd preserved!)
-                (0, false, f_ctrl | f_cmd),           // K03 A up
-                (59, false, f_cmd),                   // K01 Ctrl up (Cmd preserved!)
-                (55, false, 0),                       // K02 Cmd up (all cleared!)
+                (56, false, f_ctrl | f_cmd),           // Gesture Shift up (Ctrl|Cmd preserved!)
+                (0, false, f_ctrl | f_cmd),            // K03 A up
+                (59, false, f_cmd),                    // K01 Ctrl up (Cmd preserved!)
+                (55, false, 0),                        // K02 Cmd up (all cleared!)
             ]
         );
         clear_managed_held_keys_for_test();

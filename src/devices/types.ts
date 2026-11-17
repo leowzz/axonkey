@@ -27,6 +27,7 @@ export type RemoteView<Id extends string = string> = {
     manufacturerContains: string
   }[]
   voice: { engine: string; transport: string; triggerModes: readonly string[] } | null
+  usesVendorUsbHid?: boolean
   viewBox: { width: number; height: number }
   keyRegions: Record<string, RemoteKeyRegion>
   artworkUrl: string
@@ -43,7 +44,7 @@ export type RemoteButtonId =
   | OneplusRc001aRemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind =
+export type BuiltinDeviceKind =
   | 'xboxBluetooth'
   | 'rc003'
   | 'cmiotA15'
@@ -64,6 +65,8 @@ export type DeviceScreenRegion = {
   label: string
   path: string
 }
+
+export type DeviceKind = BuiltinDeviceKind | (string & {})
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

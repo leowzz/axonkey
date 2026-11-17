@@ -1,4 +1,4 @@
-import { error as writeError, info as writeInfo } from '@tauri-apps/plugin-log'
+import { error as writeError, info as writeInfo, warn as writeWarn } from '@tauri-apps/plugin-log'
 
 type LogWriter = (message: string) => Promise<void>
 
@@ -19,12 +19,21 @@ function stringifyError(value: unknown) {
 }
 
 function write(writer: LogWriter, message: string) {
-  if (!isNativeRuntime()) return
+  if (!isNativeRuntime() || typeof writer !== 'function') return
   void writer(message).catch(() => undefined)
 }
 
 export function logInfo(message: string) {
   write(writeInfo, message)
+}
+
+export function logWarn(message: string, details?: unknown) {
+  const suffix = details === undefined ? '' : `: ${stringifyError(details)}`
+  const full = `${message}${suffix}`
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    console.warn(full)
+  }
+  write(writeWarn, full)
 }
 
 export function logError(message: string, details?: unknown) {

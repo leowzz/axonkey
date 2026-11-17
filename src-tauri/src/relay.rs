@@ -150,7 +150,7 @@ pub(crate) async fn relay_request(
 }
 
 fn validate_request(method: &str, path: &str) -> Result<(), String> {
-    if valid_library_request(method, path) {
+    if valid_library_request(method, path) || valid_device_models_request(method, path) {
         return Ok(());
     }
     let resource_id = path
@@ -160,12 +160,7 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
         .strip_prefix("/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=")
         .is_some_and(|offset| !offset.is_empty() && offset.bytes().all(|c| c.is_ascii_digit()));
     if (method == "GET"
-        && (resource_id
-            || list
-            || matches!(
-                path,
-                "/v2/device-models?app_id=axonkey" | "/v2/app-settings/axonkey" | "/v2/me"
-            )))
+        && (resource_id || list || matches!(path, "/v2/app-settings/axonkey" | "/v2/me")))
         || (method == "POST" && path == "/v2/device-configs")
         || (method == "PUT" && (resource_id || path == "/v2/app-settings/axonkey"))
     {
@@ -185,10 +180,7 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
         ),
         "GET" => matches!(
             path,
-            "/auth/captcha"
-                | "/device-models?app_id=axonkey"
-                | "/device-configs?app_id=axonkey"
-                | "/app-settings/axonkey"
+            "/auth/captcha" | "/device-configs?app_id=axonkey" | "/app-settings/axonkey"
         ),
         "PUT" => {
             path == "/app-settings/axonkey"
@@ -203,6 +195,42 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
     } else {
         Err("不支持的云端请求".into())
     }
+}
+
+fn valid_device_models_request(method: &str, path: &str) -> bool {
+    if method != "GET" {
+        return false;
+    }
+    let (route, _) = path.split_once('?').unwrap_or((path, ""));
+    if !matches!(route, "/v2/device-models" | "/device-models") {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(&format!("https://relay.wleo.cn{path}")) else {
+        return false;
+    };
+    if url.fragment().is_some() {
+        return false;
+    }
+    let pairs: Vec<_> = url.query_pairs().collect();
+    let unique = pairs
+        .iter()
+        .enumerate()
+        .all(|(index, (key, _))| !pairs[..index].iter().any(|(previous, _)| previous == key));
+    if !unique
+        || !pairs
+            .iter()
+            .all(|(key, _)| matches!(key.as_ref(), "app_id" | "include_svg"))
+    {
+        return false;
+    }
+    let value = |key: &str| {
+        pairs
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_ref())
+    };
+    value("app_id") == Some("axonkey")
+        && value("include_svg").is_none_or(|flag| matches!(flag, "0" | "1" | "true" | "false"))
 }
 
 fn valid_library_request(method: &str, path: &str) -> bool {
@@ -356,6 +384,9 @@ mod tests {
     fn supports_v2_etag_resources_and_bounded_pagination_routes() {
         for (method, path) in [
             ("GET", "/v2/device-models?app_id=axonkey"),
+            ("GET", "/v2/device-models?app_id=axonkey&include_svg=1"),
+            ("GET", "/v2/device-models?include_svg=0&app_id=axonkey"),
+            ("GET", "/device-models?app_id=axonkey"),
             (
                 "GET",
                 "/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=100",
@@ -371,8 +402,12 @@ mod tests {
             "/v2/device-configs/../me",
             "/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=0&app_id=other",
             "/v2/console/device-configs",
+            "/v2/device-models?app_id=other&include_svg=1",
+            "/v2/device-models?app_id=axonkey&app_id=other",
+            "/v2/device-models?app_id=axonkey&include_svg=evil",
+            "/v2/device-models?app_id=axonkey&include_svg=1#frag",
         ] {
-            assert!(validate_request("GET", path).is_err());
+            assert!(validate_request("GET", path).is_err(), "GET {path}");
         }
         let response = RelayResponse {
             status: 200,
