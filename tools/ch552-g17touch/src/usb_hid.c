@@ -7,7 +7,7 @@ static __xdata __at(0x0000) uint8_t ep0_buf[64];
 static __xdata __at(0x0040) uint8_t ep1_buf[128]; /* [0..63] OUT, [64..127] IN */
 static __xdata uint8_t serial_str_desc[26];       /* 2 + 12*2 UTF-16LE ("G17-XXXXXXXX") */
 
-static G17Engine *s_eng = 0;
+static G17_XDATA G17Engine *s_eng = 0;
 static volatile uint8_t s_usb_config = 0U;
 static volatile uint8_t s_ep1_busy = 0U;
 static uint8_t s_usb_addr_pending = 0U;
@@ -121,7 +121,7 @@ static uint8_t copy_ep0_chunk(void) {
     return len;
 }
 
-void usb_hid_init(G17Engine *eng) {
+void usb_hid_init(G17_XDATA G17Engine *eng) {
     s_eng = eng;
     build_serial_descriptor();
 
@@ -305,11 +305,8 @@ void usb_hid_isr(void) __interrupt(8) {
                 break;
             case UIS_TOKEN_OUT | 1U:
                 if (s_eng != 0 && USB_RX_LEN >= 3U) {
-                    uint8_t rx[64];
-                    uint8_t k;
                     uint8_t n = (USB_RX_LEN > 64U) ? 64U : USB_RX_LEN;
-                    for (k = 0U; k < n; ++k) rx[k] = ep1_buf[k];
-                    g17_engine_handle_output_report(s_eng, rx, n);
+                    g17_engine_handle_output_report(s_eng, ep1_buf, n);
                 }
                 break;
             case UIS_TOKEN_SETUP | 0U:
@@ -330,11 +327,8 @@ void usb_hid_isr(void) __interrupt(8) {
                 break;
             case UIS_TOKEN_OUT | 0U:
                 if (s_setup_req == 0x09U && s_eng != 0 && USB_RX_LEN >= 3U) {
-                    uint8_t rx[64];
-                    uint8_t k;
                     uint8_t n = (USB_RX_LEN > 64U) ? 64U : USB_RX_LEN;
-                    for (k = 0U; k < n; ++k) rx[k] = ep0_buf[k];
-                    g17_engine_handle_output_report(s_eng, rx, n);
+                    g17_engine_handle_output_report(s_eng, ep0_buf, n);
                 }
                 UEP0_CTRL = UEP_R_RES_ACK | UEP_T_RES_NAK;
                 break;

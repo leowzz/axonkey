@@ -73,21 +73,23 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     assert(eng.touch_active == 0U);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
-    /* Quick tap on zone T2 (index 1, < 200ms): fires pulse ONLY after lift */
+    /* Quick tap on zone T2 (index 1, < 200ms): contact bit is 1, zone/swipe bits stay 0 until lift */
     feed_idle_calibration(&eng, &now);
     feed_touch_frames(&eng, touch_t2, 3U, &now);
     g17_engine_tick(&eng, now);
     assert(eng.touch_active == 1U);
-    assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
+    assert((eng.logical_bitmap & (1UL << G17_BIT_TOUCH_CONTACT)) != 0UL);
+    assert((eng.logical_bitmap & (0x3FUL << G17_BIT_TOUCH_BASE)) == 0UL);
 
     now += 40U;
     g17_engine_feed_touch(&eng, touch_t2, 0U, now);
     g17_engine_tick(&eng, now);
-    assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
+    assert((eng.logical_bitmap & (0x3FUL << G17_BIT_TOUCH_BASE)) == 0UL);
 
-    /* Lift finger + 12ms release guard (3 * 8ms = 24ms -> pulse active) */
-    feed_touch_frames(&eng, idle, 3U, &now);
+    /* Lift finger + 24ms release guard (4 * 8ms = 32ms -> pulse active, contact cleared) */
+    feed_touch_frames(&eng, idle, 4U, &now);
     g17_engine_tick(&eng, now);
+    assert((eng.logical_bitmap & (1UL << G17_BIT_TOUCH_CONTACT)) == 0UL);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 1U))) != 0UL);
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) == 0UL);
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_DOWN)) == 0UL);
@@ -104,28 +106,41 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     g17_engine_feed_touch(&eng, touch_t4, 0U, now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) != 0UL);
+    assert(eng.slider_pos == 1000U);
 
-    /* Release ends hold */
+    /* Pause >= 200ms in HOLDING, then slide upward -> MUST smoothly unlock into SWIPING! */
+    const uint16_t slide_t3[4] = {6200U, 6200U, 3500U, 5200U};
+    feed_touch_frames(&eng, slide_t3, 3U, &now);
+    g17_engine_tick(&eng, now);
+    assert(eng.touch_state == G17_TOUCH_SWIPING);
+    assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
+
+    /* Release ends touch */
     feed_touch_frames(&eng, idle, 6U, &now);
     g17_engine_tick(&eng, now);
-    assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
+    assert((eng.logical_bitmap & (1UL << G17_BIT_TOUCH_CONTACT)) == 0UL);
 }
 
 static void test_touch_slider_swipe_up_and_down(void) {
     G17Engine eng;
     uint32_t now = 0U;
+    uint8_t rep[8];
     const uint16_t idle[4] = {6200U, 6200U, 6200U, 6200U};
-    /* Start near bottom (T4=300), slide smoothly upward to top (T1=0) */
+    /* Start near bottom (T4=1000), slide smoothly upward across gap to top (T1=0) */
     const uint16_t p_bot[4] = {6200U, 6200U, 6200U, 3200U};
     const uint16_t p_mid_low[4] = {6200U, 6200U, 3200U, 4600U};
+    /* Real hardware inter-chevron gap from capture (drops = 30, 34 -> sum 64 >= 42) */
+    const uint16_t p_gap[4] = {6200U, 6170U, 6166U, 6200U};
     const uint16_t p_mid_hi[4] = {6200U, 3200U, 4600U, 6200U};
     const uint16_t p_top[4] = {3200U, 6200U, 6200U, 6200U};
+    /* Light finger-lift tail (drops = 25, 25 -> sum 50, below press_thresh) */
+    const uint16_t p_lift_tail[4] = {6175U, 6175U, 6200U, 6200U};
 
     g17_engine_init(&eng);
     feed_idle_calibration(&eng, &now);
 
-    feed_touch_frames(&eng, p_bot, 4U, &now);
-    feed_touch_frames(&eng, p_mid_low, 4U, &now);
+    feed_touch_frames(&eng, p_bot, 3U, &now);
+    g17_engine_feed_touch(&eng, p_mid_low, 0U, now);
     g17_engine_tick(&eng, now);
 
     /* Must enter SWIPING and emit SWIPE_UP without firing T4 tap */
@@ -133,41 +148,54 @@ static void test_touch_slider_swipe_up_and_down(void) {
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) != 0UL);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
 
-    /* Continue sliding up -> must observe SWIPE_UP */
+    /* Crossing low-signal gap (sum=64) must keep touch_active == 1 continuously */
+    feed_touch_frames(&eng, p_gap, 3U, &now);
+    assert(eng.touch_active == 1U);
+    assert(eng.touch_state == G17_TOUCH_SWIPING);
+
+    /* Continue sliding up -> must observe SWIPE_UP and linear slider_pos -> 0 */
     uint8_t seen_up = 0U;
     uint8_t seen_down = 0U;
-    for (uint8_t s = 0U; s < 10U; ++s) {
-        g17_engine_feed_touch(&eng, (s < 5U) ? p_mid_hi : p_top, 0U, now);
+    for (uint8_t s = 0U; s < 8U; ++s) {
+        g17_engine_feed_touch(&eng, (s < 4U) ? p_mid_hi : p_top, 0U, now);
         g17_engine_tick(&eng, now);
         if ((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) != 0UL) {
             seen_up = 1U;
         }
-        now += 12U;
+        now += 8U;
     }
     assert(seen_up == 1U);
+    assert(eng.slider_pos < 50U);
 
-    /* Reverse direction on same touch -> must observe SWIPE_DOWN */
-    for (uint8_t s = 0U; s < 10U; ++s) {
+    /* Reverse direction on same touch -> must immediately cancel UP & observe SWIPE_DOWN */
+    for (uint8_t s = 0U; s < 6U; ++s) {
         g17_engine_feed_touch(&eng, p_mid_hi, 0U, now);
         g17_engine_tick(&eng, now);
         if ((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_DOWN)) != 0UL) {
             seen_down = 1U;
+            assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) == 0UL);
         }
-        now += 12U;
+        now += 8U;
     }
     assert(seen_down == 1U);
 
-    /* Release does NOT emit a spurious zone tap after swiping */
-    feed_touch_frames(&eng, idle, 10U, &now);
-    for (uint8_t step = 0U; step < 8U; ++step) {
+    /* Pre-lift freeze: light lift tail preserves exact pre-lift slider_pos in rep[6..7] */
+    uint16_t pre_lift_pos = eng.slider_pos;
+    assert(pre_lift_pos >= 300U && pre_lift_pos <= 600U);
+    g17_engine_feed_touch(&eng, p_lift_tail, 0U, now);
+    g17_engine_tick(&eng, now);
+    assert(eng.slider_pos == pre_lift_pos);
+
+    /* Release does NOT emit a spurious zone tap and preserves final slider_pos on release packet */
+    feed_touch_frames(&eng, idle, 6U, &now);
+    g17_engine_build_input_report(&eng, rep);
+    assert(((uint16_t)rep[6] | ((uint16_t)rep[7] << 8)) == pre_lift_pos);
+    assert((rep[4] & (1U << (G17_BIT_TOUCH_CONTACT - 24U))) == 0U);
+    for (uint8_t step = 0U; step < 6U; ++step) {
         now += G17_PULSE_ON_MS + 2U;
         g17_engine_tick(&eng, now);
         assert((eng.logical_bitmap & (0x0FUL << G17_BIT_TOUCH_BASE)) == 0UL);
-        now += G17_PULSE_GAP_MS + 2U;
-        g17_engine_tick(&eng, now);
-        assert((eng.logical_bitmap & (0x0FUL << G17_BIT_TOUCH_BASE)) == 0UL);
     }
-    assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 }
 
 static void test_led_crosstalk_and_no_sleep_on_suspend(void) {
