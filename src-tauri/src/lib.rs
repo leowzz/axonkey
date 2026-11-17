@@ -13,6 +13,7 @@ mod legacy_driver;
 mod library_usage;
 mod onboarding;
 mod profile_switch_overlay;
+mod quick_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -2273,6 +2274,7 @@ pub fn run() {
             start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
+            quick_overlay::initialize(app.handle());
             #[cfg(not(any(target_os = "macos", windows)))]
             if let Err(error) = profile_switch_overlay::initialize(app.handle()) {
                 log::warn!(target: "axonkey::profile_overlay", "Cannot initialize profile switch overlay: {error}");
@@ -2341,6 +2343,11 @@ pub fn run() {
             profile_switch_overlay::get_profile_switch_overlay,
             profile_switch_overlay::reveal_profile_switch_overlay,
             profile_switch_overlay::hide_profile_switch_overlay,
+            quick_overlay::get_quick_overlay,
+            quick_overlay::reveal_quick_overlay,
+            quick_overlay::dismiss_quick_overlay,
+            quick_overlay::preview_quick_overlay,
+            quick_overlay::trigger_quick_overlay_input,
             ping,
             get_platform,
             get_log_info,

@@ -931,6 +931,10 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     let mut ble_monitor = BleLinkMonitor::start(&target, Arc::clone(&shared.driver_gate));
     context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
+    if let Some(instance_id) = shared.instance_id.as_deref() {
+        let kind = context.device_kind.as_deref().unwrap_or("rc003");
+        actions.set_source(instance_id, kind, kind);
+    }
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
         if shared.driver_gate.load(Ordering::Acquire) {
@@ -1827,7 +1831,9 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
             *direction,
             *wrap,
         ),
-        NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
+        NativeBehavior::Delay { .. }
+        | NativeBehavior::QuickOverlay { .. }
+        | NativeBehavior::Disabled { .. } => {}
     }
 }
 
@@ -1958,6 +1964,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
+        | NativeBehavior::QuickOverlay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }
@@ -2179,7 +2186,12 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
 }
 
 pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
-    for (button, triggers) in &settings.behaviors {
+    for (button, triggers) in settings.behaviors.iter().chain(
+        settings
+            .quick_profiles
+            .values()
+            .flat_map(|profile| profile.behaviors.iter()),
+    ) {
         for behavior in triggers.iter() {
             if !behavior.enabled() {
                 continue;
@@ -2194,6 +2206,9 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
                         || behavior_hid_chord(behavior).is_none() =>
                 {
                     return Err(format!("{button}: shortcut contains an unsupported key"));
+                }
+                NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
+                    return Err(format!("{button}: quickOverlay requires a target profileId"));
                 }
                 _ => {}
             }

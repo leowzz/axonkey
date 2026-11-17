@@ -3,7 +3,7 @@
 mod a15;
 mod app_profiles;
 mod device_info;
-mod gesture;
+pub(crate) mod gesture;
 mod hold;
 pub(crate) mod paired;
 #[cfg(target_os = "macos")]
@@ -121,11 +121,17 @@ impl Default for DeviceDisplaySettings {
     }
 }
 
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quick: bool,
     pub behaviors: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display: Option<ProfileDisplayConfig>,
@@ -620,10 +626,11 @@ fn validate(store: &Store) -> Result<(), String> {
         }
         if instance.profiles.is_empty()
             || instance.profiles.len() > 64
+            || !instance.profiles.iter().any(|p| !p.quick)
             || !instance
                 .profiles
                 .iter()
-                .any(|p| p.id == instance.active_profile_id)
+                .any(|p| !p.quick && p.id == instance.active_profile_id)
         {
             return Err("设备配置文件无效".into());
         }
@@ -671,6 +678,13 @@ fn validate(store: &Store) -> Result<(), String> {
                 };
                 if mapping.iter().count() > 256 {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
+                }
+                for behavior in mapping.iter() {
+                    if let NativeBehavior::QuickOverlay { profile_id, .. } = behavior {
+                        if profile_id.trim().is_empty() {
+                            return Err("请选择快捷交互窗关联的配置文件".into());
+                        }
+                    }
                 }
                 if !inputs.insert(key) {
                     return Err(format!("同一输入重复配置：{input}"));
@@ -1174,6 +1188,9 @@ struct Reader {
     engine: crate::devices::engine::DescriptorEngine,
     gestures: Gestures,
     maps: HashMap<String, TriggerBehaviors>,
+    quick_profiles: HashMap<String, super::QuickProfileConfig>,
+    quick_mode: Arc<Mutex<super::quick_mode::QuickMode>>,
+    local_pressed: HashSet<String>,
     actions: SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)>,
     reports: u64,
 }
@@ -1214,18 +1231,28 @@ impl Reader {
                 }
             }
             InputReader::Hid(_) => {
-                if self.maps != settings.behaviors || profile_changed {
+                if self.maps != settings.behaviors
+                    || self.quick_profiles != settings.quick_profiles
+                    || profile_changed
+                {
                     self.gestures = Gestures::default();
                     self.holds.release_instance(&instance.id);
+                    self.quick_mode.lock().unwrap().reset();
                     self.maps = settings.behaviors;
+                    self.quick_profiles = settings.quick_profiles;
                 }
             }
             #[cfg(test)]
             InputReader::Test => {
-                if self.maps != settings.behaviors || profile_changed {
+                if self.maps != settings.behaviors
+                    || self.quick_profiles != settings.quick_profiles
+                    || profile_changed
+                {
                     self.gestures = Gestures::default();
                     self.holds.release_instance(&instance.id);
+                    self.quick_mode.lock().unwrap().reset();
                     self.maps = settings.behaviors;
+                    self.quick_profiles = settings.quick_profiles;
                 }
             }
         }
@@ -1252,6 +1279,34 @@ impl Reader {
         now: u64,
         sequence: &mut Vec<gesture::Execution>,
     ) {
+        if down {
+            self.local_pressed.insert(key.to_owned());
+        } else {
+            self.local_pressed.remove(key);
+        }
+        let intercept = self.quick_mode.lock().unwrap().edge(key, down, now);
+        match intercept {
+            super::quick_mode::Intercept::PassThrough => {}
+            super::quick_mode::Intercept::Swallow => return,
+            super::quick_mode::Intercept::Exited => {
+                if let Some(oled) = &self.oled {
+                    let active_name = self
+                        .config
+                        .instance
+                        .profiles
+                        .iter()
+                        .find(|p| p.id == self.config.instance.active_profile_id)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default();
+                    oled.show_profile_toast("退出快捷窗".into(), active_name);
+                }
+                return;
+            }
+            super::quick_mode::Intercept::Execute(execs) => {
+                sequence.extend(execs);
+                return;
+            }
+        }
         let empty_mapping = TriggerBehaviors::default();
         let mapping = self.maps.get(key).unwrap_or(&empty_mapping);
         match self
@@ -1282,6 +1337,49 @@ impl Reader {
         }
     }
 
+    fn absorb_quick_overlay_triggers(&mut self, sequence: &mut Vec<gesture::Execution>) {
+        sequence.retain(|exec| {
+            let Some(first_enabled) = exec.behaviors.iter().find(|b| b.enabled()) else {
+                return true;
+            };
+            let NativeBehavior::QuickOverlay { profile_id, .. } = first_enabled else {
+                return true;
+            };
+            let target_id = profile_id.trim();
+            if target_id.is_empty() {
+                return false;
+            }
+            if !exec.sources.is_empty() {
+                crate::library_usage::record_trigger(
+                    &format!("{}:{}", self.config.instance.id, exec.input),
+                    &exec.sources,
+                );
+            }
+            self.holds.release_instance(&self.config.instance.id);
+            let still_down = self.local_pressed.contains(&exec.input);
+            let entered = self.quick_mode.lock().unwrap().enter_with_profiles(
+                &self.config.instance.id,
+                &self.config.instance.kind,
+                &self.config.instance.name,
+                target_id,
+                &exec.input,
+                still_down,
+                &self.quick_profiles,
+            );
+            if entered {
+                if let Some(oled) = &self.oled {
+                    let name = self
+                        .quick_profiles
+                        .get(target_id)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_else(|| "快捷交互窗".into());
+                    oled.show_profile_toast("快捷交互窗".into(), name);
+                }
+            }
+            false
+        });
+    }
+
     fn flush_oled_toasts(&self, sequence: &[gesture::Execution]) {
         let Some(oled) = &self.oled else {
             return;
@@ -1305,6 +1403,7 @@ impl Drop for Reader {
     fn drop(&mut self) {
         self.config.cancel.store(true, Ordering::Release);
         self.holds.release_instance(&self.config.instance.id);
+        self.quick_mode.lock().unwrap().reset();
         if let (Some(oled), InputReader::Hid(device)) = (self.oled.take(), &self.device) {
             oled.shutdown_and_release(device);
         }
@@ -1384,10 +1483,37 @@ fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
         .unwrap_or_default()
 }
 
+fn instance_quick_profiles(instance: &Instance) -> HashMap<String, super::QuickProfileConfig> {
+    let mut out = HashMap::with_capacity(instance.profiles.len());
+    for profile in &instance.profiles {
+        let raw_behaviors = if profile.behaviors.is_object() {
+            profile.behaviors.clone()
+        } else {
+            serde_json::json!({})
+        };
+        let parsed: HashMap<String, TriggerBehaviors> =
+            serde_json::from_value(raw_behaviors.clone()).unwrap_or_default();
+        let behaviors = super::normalize_behavior_map(parsed).unwrap_or_default();
+        out.insert(
+            profile.id.clone(),
+            super::QuickProfileConfig {
+                id: profile.id.clone(),
+                name: profile.name.clone(),
+                device_id: Some(instance.kind.clone()),
+                device_name: Some(instance.name.clone()),
+                behaviors,
+                raw_behaviors,
+            },
+        );
+    }
+    out
+}
+
 fn input_settings(instance: &Instance) -> NativeSettings {
     NativeSettings {
         enabled: true,
         behaviors: active_mappings(instance),
+        quick_profiles: instance_quick_profiles(instance),
         cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
         ..Default::default()
     }
@@ -2232,7 +2358,20 @@ fn run(shared: Arc<Shared>) {
                                 }
                                 _ => None,
                             };
-                            let actions = spawn_action_worker(shared.clone(), instance.id.clone());
+                            let quick_profiles = if cfg!(target_os = "macos")
+                                && (instance.kind == "rc003" || uses_hid_voice(&instance.kind))
+                            {
+                                HashMap::new()
+                            } else {
+                                instance_quick_profiles(instance)
+                            };
+                            let quick_mode =
+                                Arc::new(Mutex::new(super::quick_mode::QuickMode::default()));
+                            let actions = spawn_action_worker(
+                                shared.clone(),
+                                instance.id.clone(),
+                                Arc::clone(&quick_mode),
+                            );
                             readers.insert(
                                 instance.id.clone(),
                                 Reader {
@@ -2245,6 +2384,9 @@ fn run(shared: Arc<Shared>) {
                                     engine,
                                     gestures: Gestures::default(),
                                     maps,
+                                    quick_profiles,
+                                    quick_mode,
+                                    local_pressed: HashSet::new(),
                                     actions,
                                     reports: 0,
                                 },
@@ -2264,7 +2406,11 @@ fn run(shared: Arc<Shared>) {
             if let Some(reader) = readers.get_mut(&instance.id) {
                 status.state = "exclusive".into();
                 let now = start.elapsed().as_millis() as u64;
-                let mut sequence = reader.gestures.tick(now, &reader.maps);
+                let mut sequence = Vec::new();
+                if let Some(quick_execs) = reader.quick_mode.lock().unwrap().tick(now) {
+                    sequence.extend(quick_execs);
+                }
+                sequence.extend(reader.gestures.tick(now, &reader.maps));
                 let mut failed = false;
                 let execute_locally = !(cfg!(target_os = "macos")
                     && (instance.kind == "rc003" || uses_hid_voice(&instance.kind)));
@@ -2319,6 +2465,7 @@ fn run(shared: Arc<Shared>) {
                 }
                 status.reports = reader.reports;
                 if !failed {
+                    reader.absorb_quick_overlay_triggers(&mut sequence);
                     reader.flush_oled_toasts(&sequence);
                     if let Some(oled) = &reader.oled {
                         if let InputReader::Hid(hid) = &reader.device {
@@ -2554,6 +2701,7 @@ fn accept_direct_pointer_report(kind: &str, bytes: &[u8]) -> bool {
 fn spawn_action_worker(
     shared: Arc<Shared>,
     id: String,
+    quick_mode: Arc<Mutex<super::quick_mode::QuickMode>>,
 ) -> SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)> {
     let (tx, rx) = sync_channel::<(Arc<ReaderConfig>, Vec<gesture::Execution>)>(32);
     thread::spawn(move || {
@@ -2588,6 +2736,20 @@ fn spawn_action_worker(
                             direction, wrap, ..
                         } => {
                             switch_profile(&shared, &id, direction, wrap);
+                            break;
+                        }
+                        NativeBehavior::QuickOverlay { profile_id, .. } => {
+                            shared.holds.release_instance(&id);
+                            let profiles = instance_quick_profiles(&config.instance);
+                            let _ = quick_mode.lock().unwrap().enter_with_profiles(
+                                &id,
+                                &config.instance.kind,
+                                &config.instance.name,
+                                profile_id.trim(),
+                                &execution.input,
+                                false,
+                                &profiles,
+                            );
                             break;
                         }
                         _ => {
@@ -2662,34 +2824,44 @@ fn save_profile_switch_for_app(
         return None;
     };
     let effective = effective_instance(instance, app_id);
-    let current = instance
+    let regular_indices: Vec<usize> = instance
         .profiles
         .iter()
-        .position(|p| p.id == effective.active_profile_id)
+        .enumerate()
+        .filter_map(|(idx, p)| (!p.quick).then_some(idx))
+        .collect();
+    if regular_indices.len() < 2 {
+        return None;
+    }
+    let pos = regular_indices
+        .iter()
+        .position(|&idx| instance.profiles[idx].id == effective.active_profile_id)
         .unwrap_or(0);
-    let target = match direction {
+    let next_pos = match direction {
         ProfileDirection::Next => {
-            if current + 1 < instance.profiles.len() {
-                current + 1
+            if pos + 1 < regular_indices.len() {
+                pos + 1
             } else if wrap {
                 0
             } else {
-                current
+                pos
             }
         }
         ProfileDirection::Previous => {
-            if current > 0 {
-                current - 1
+            if pos > 0 {
+                pos - 1
             } else if wrap {
-                instance.profiles.len() - 1
+                regular_indices.len() - 1
             } else {
-                current
+                pos
             }
         }
     };
-    if target == current {
+    if next_pos == pos {
         return None;
     }
+    let current = regular_indices[pos];
+    let target = regular_indices[next_pos];
     let app_binding = application_binding(instance, app_id);
     let names = (
         app_binding
@@ -2754,6 +2926,7 @@ mod tests {
             profiles: vec![Profile {
                 id: "default".into(),
                 name: "默认".into(),
+                quick: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             }],
@@ -3959,6 +4132,7 @@ mod tests {
         device.profiles.push(Profile {
             id: "game".into(),
             name: "游戏".into(),
+            quick: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -4008,12 +4182,14 @@ mod tests {
             Profile {
                 id: "browser".into(),
                 name: "浏览器".into(),
+                quick: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             },
             Profile {
                 id: "editor".into(),
                 name: "编辑器".into(),
+                quick: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             },
@@ -4434,6 +4610,7 @@ mod tests {
         left.profiles.push(Profile {
             id: "term".into(),
             name: "悬浮终端".into(),
+            quick: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -4593,6 +4770,7 @@ mod tests {
         dev.profiles.push(Profile {
             id: "code".into(),
             name: "编程配置".into(),
+            quick: false,
             behaviors: serde_json::json!({}),
             display: Some(ProfileDisplayConfig {
                 mode: ProfileDisplayMode::Custom,
@@ -4650,6 +4828,7 @@ mod tests {
         dev.profiles.push(Profile {
             id: "alt".into(),
             name: "备用".into(),
+            quick: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -4666,6 +4845,7 @@ mod tests {
             .expect("kivoK18Lite descriptor");
         let (actions, _rx) = sync_channel(4);
         let maps = active_mappings(&dev);
+        let quick_profiles = instance_quick_profiles(&dev);
         let mut reader = Reader {
             config: Arc::new(ReaderConfig::new(&dev)),
             holds: Arc::clone(&manager.shared.holds),
@@ -4676,6 +4856,9 @@ mod tests {
             engine: crate::devices::engine::DescriptorEngine::default(),
             gestures: Gestures::default(),
             maps,
+            quick_profiles,
+            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            local_pressed: HashSet::new(),
             actions,
             reports: 0,
         };
@@ -4794,6 +4977,7 @@ mod tests {
             .expect("kivoK18Lite descriptor");
         let (actions, _rx) = sync_channel(4);
         let maps = active_mappings(&dev);
+        let quick_profiles = instance_quick_profiles(&dev);
         let mut reader = Reader {
             config: Arc::new(ReaderConfig::new(&dev)),
             holds: Arc::clone(&manager.shared.holds),
@@ -4804,6 +4988,9 @@ mod tests {
             engine: crate::devices::engine::DescriptorEngine::default(),
             gestures: Gestures::default(),
             maps,
+            quick_profiles,
+            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            local_pressed: HashSet::new(),
             actions,
             reports: 0,
         };
@@ -5076,6 +5263,9 @@ mod tests {
             engine: crate::devices::engine::DescriptorEngine::default(),
             gestures: Gestures::default(),
             maps: active_mappings(integrated),
+            quick_profiles: instance_quick_profiles(integrated),
+            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            local_pressed: HashSet::new(),
             actions: actions_tx,
             reports: 0,
         };
@@ -5144,6 +5334,108 @@ mod tests {
         assert_eq!(sequence[0].behaviors.len(), 1);
 
         let _ = crate::devices::descriptor_registry::sync_cloud_descriptors(&[]);
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn quick_profiles_stay_isolated_from_profile_switch_and_execute_via_hid_reader() {
+        let mut dev = instance("k18-quick", "phys-k18-quick");
+        dev.kind = "kivoK18Lite".into();
+        dev.name = "桌面小键盘".into();
+        dev.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k01": { "click": [{ "type": "quickOverlay", "profileId": "quick-ai" }] },
+            "kivo.k18Lite.k02": { "click": [{ "type": "key", "key": "A" }] }
+        });
+        dev.profiles.push(Profile {
+            id: "quick-ai".into(),
+            name: "AI 提示词".into(),
+            quick: true,
+            behaviors: serde_json::json!({
+                "kivo.k18Lite.k02": { "click": [{ "type": "paste", "text": "帮我检查这段代码的边界条件" }] }
+            }),
+            display: None,
+        });
+        dev.profiles.push(Profile {
+            id: "work".into(),
+            name: "日常办公".into(),
+            quick: false,
+            behaviors: serde_json::json!({}),
+            display: None,
+        });
+
+        let mut bad = dev.clone();
+        bad.active_profile_id = "quick-ai".into();
+        assert!(validate(&Store {
+            instances: vec![bad],
+            ..Store::default()
+        })
+        .is_err());
+
+        let manager = offline_manager(vec![dev.clone()]);
+        // Cycling profiles skips `quick-ai` and jumps directly from `default` to `work`.
+        assert_eq!(
+            save_profile_switch(&manager.shared, "k18-quick", ProfileDirection::Next, true),
+            Some(("桌面小键盘".into(), "默认".into(), "日常办公".into()))
+        );
+        assert_eq!(
+            save_profile_switch(&manager.shared, "k18-quick", ProfileDirection::Next, true),
+            Some(("桌面小键盘".into(), "日常办公".into(), "默认".into()))
+        );
+
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("kivoK18Lite")
+            .expect("kivoK18Lite descriptor");
+        let (actions_tx, _actions_rx) = sync_channel(4);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(&dev)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: None,
+            path: CString::new("test-k18-quick").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps: active_mappings(&dev),
+            quick_profiles: instance_quick_profiles(&dev),
+            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            local_pressed: HashSet::new(),
+            actions: actions_tx,
+            reports: 0,
+        };
+
+        let mut sequence = Vec::new();
+        // Tap K01 -> enters Quick Mode (absorbed without dispatching to OS action worker).
+        reader.handle_local_edge("kivo.k18Lite.k01", true, 10, &mut sequence);
+        reader.handle_local_edge("kivo.k18Lite.k01", false, 30, &mut sequence);
+        reader.absorb_quick_overlay_triggers(&mut sequence);
+        assert!(sequence.is_empty());
+        assert!(reader.quick_mode.lock().unwrap().is_active());
+
+        // Press K01 again -> exits Quick Mode directly without executing anything.
+        reader.handle_local_edge("kivo.k18Lite.k01", true, 60, &mut sequence);
+        assert!(!reader.quick_mode.lock().unwrap().is_active());
+        reader.handle_local_edge("kivo.k18Lite.k01", false, 80, &mut sequence);
+        assert!(sequence.is_empty());
+
+        // Tap K01 again -> re-enters Quick Mode; tap K02 -> executes Quick Profile paste instead of base Key("A") and exits.
+        reader.handle_local_edge("kivo.k18Lite.k01", true, 110, &mut sequence);
+        reader.handle_local_edge("kivo.k18Lite.k01", false, 130, &mut sequence);
+        reader.absorb_quick_overlay_triggers(&mut sequence);
+        assert!(reader.quick_mode.lock().unwrap().is_active());
+
+        reader.handle_local_edge("kivo.k18Lite.k02", true, 160, &mut sequence);
+        reader.handle_local_edge("kivo.k18Lite.k02", false, 190, &mut sequence);
+        reader.absorb_quick_overlay_triggers(&mut sequence);
+        assert!(!reader.quick_mode.lock().unwrap().is_active());
+        assert_eq!(sequence.len(), 1);
+        assert_eq!(
+            sequence[0].behaviors,
+            vec![NativeBehavior::Paste {
+                enabled: true,
+                text: "帮我检查这段代码的边界条件".into()
+            }]
+        );
+
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

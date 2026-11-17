@@ -5,6 +5,7 @@ pub(crate) mod launch;
 pub mod managed;
 pub mod mouse;
 mod profile_switch;
+pub(crate) mod quick_mode;
 pub(crate) mod text_output;
 
 #[cfg(windows)]
@@ -64,6 +65,22 @@ pub struct NativeSettings {
     pub(super) mouse_ignore_scroll_acceleration: bool,
     #[serde(default, deserialize_with = "deserialize_behaviors")]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
+    #[serde(
+        rename = "quickProfiles",
+        default,
+        deserialize_with = "deserialize_quick_profiles"
+    )]
+    pub(super) quick_profiles: HashMap<String, QuickProfileConfig>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+pub(crate) struct QuickProfileConfig {
+    pub id: String,
+    pub name: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
+    pub behaviors: HashMap<String, TriggerBehaviors>,
+    pub raw_behaviors: serde_json::Value,
 }
 
 impl NativeSettings {
@@ -71,6 +88,7 @@ impl NativeSettings {
         self.enabled != next.enabled
             || self.cmiot_a15_recording_mode != next.cmiot_a15_recording_mode
             || self.device_behaviors_changed(next, false)
+            || self.quick_profiles_changed(next, false)
     }
 
     pub(super) fn mouse_settings_changed(&self, next: &Self) -> bool {
@@ -83,6 +101,20 @@ impl NativeSettings {
             || self.mouse_scroll_sensitivity != next.mouse_scroll_sensitivity
             || self.mouse_ignore_scroll_acceleration != next.mouse_ignore_scroll_acceleration
             || self.device_behaviors_changed(next, true)
+            || self.quick_profiles_changed(next, true)
+    }
+
+    fn quick_profiles_changed(&self, next: &Self, mouse: bool) -> bool {
+        let is_mouse_profile =
+            |p: &QuickProfileConfig| p.device_id.as_deref() == Some("mouse");
+        self.quick_profiles
+            .keys()
+            .chain(next.quick_profiles.keys())
+            .any(|id| {
+                let left = self.quick_profiles.get(id).filter(|p| is_mouse_profile(p) == mouse);
+                let right = next.quick_profiles.get(id).filter(|p| is_mouse_profile(p) == mouse);
+                left != right
+            })
     }
 
     fn device_behaviors_changed(&self, next: &Self, mouse: bool) -> bool {
@@ -100,14 +132,10 @@ impl NativeSettings {
     }
 }
 
-fn deserialize_behaviors<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, TriggerBehaviors>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
+pub(crate) fn normalize_behavior_map(
+    behaviors: HashMap<String, TriggerBehaviors>,
+) -> Result<HashMap<String, TriggerBehaviors>, String> {
     use crate::devices::descriptor_registry::{profile_key, registered_kinds};
-    let behaviors = HashMap::<String, TriggerBehaviors>::deserialize(deserializer)?;
     let kinds = registered_kinds();
     let mut normalized = HashMap::with_capacity(behaviors.len());
     for (key, triggers) in behaviors {
@@ -116,12 +144,82 @@ where
             .find_map(|kind| profile_key(kind, &key))
             .unwrap_or(&key);
         if normalized.insert(canonical.to_owned(), triggers).is_some() {
-            return Err(serde::de::Error::custom(format!(
-                "duplicate mapping for input '{canonical}'"
-            )));
+            return Err(format!("duplicate mapping for input '{canonical}'"));
         }
     }
     Ok(normalized)
+}
+
+fn deserialize_behaviors<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, TriggerBehaviors>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let behaviors = HashMap::<String, TriggerBehaviors>::deserialize(deserializer)?;
+    normalize_behavior_map(behaviors).map_err(serde::de::Error::custom)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawQuickProfile {
+    id: String,
+    name: String,
+    #[serde(default)]
+    device_id: Option<String>,
+    #[serde(default)]
+    device_name: Option<String>,
+    #[serde(default)]
+    behaviors: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawQuickProfiles {
+    Map(HashMap<String, RawQuickProfile>),
+    List(Vec<RawQuickProfile>),
+}
+
+fn deserialize_quick_profiles<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, QuickProfileConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(raw) = Option::<RawQuickProfiles>::deserialize(deserializer)? else {
+        return Ok(HashMap::new());
+    };
+    let entries: Vec<RawQuickProfile> = match raw {
+        RawQuickProfiles::Map(map) => map.into_values().collect(),
+        RawQuickProfiles::List(list) => list,
+    };
+    let mut out = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        let id = entry.id.trim().to_owned();
+        if id.is_empty() {
+            continue;
+        }
+        let raw_behaviors = if entry.behaviors.is_object() {
+            entry.behaviors
+        } else {
+            serde_json::json!({})
+        };
+        let parsed: HashMap<String, TriggerBehaviors> =
+            serde_json::from_value(raw_behaviors.clone()).map_err(serde::de::Error::custom)?;
+        let behaviors = normalize_behavior_map(parsed).map_err(serde::de::Error::custom)?;
+        out.insert(
+            id.clone(),
+            QuickProfileConfig {
+                id,
+                name: entry.name,
+                device_id: entry.device_id,
+                device_name: entry.device_name,
+                behaviors,
+                raw_behaviors,
+            },
+        );
+    }
+    Ok(out)
 }
 
 fn default_mouse_key_hold_ms() -> u64 {
@@ -232,7 +330,7 @@ impl TriggerBehaviors {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum NativeBehavior {
     Wheel {
@@ -301,6 +399,12 @@ pub(super) enum NativeBehavior {
         direction: ProfileDirection,
         #[serde(default = "enabled_by_default")]
         wrap: bool,
+    },
+    QuickOverlay {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        #[serde(rename = "profileId")]
+        profile_id: String,
     },
     Disabled {
         #[serde(default = "enabled_by_default")]
@@ -399,9 +503,18 @@ impl NativeBehavior {
             | Self::OpenApp { enabled, .. }
             | Self::OpenWebsite { enabled, .. }
             | Self::SwitchProfile { enabled, .. }
+            | Self::QuickOverlay { enabled, .. }
             | Self::Disabled { enabled } => *enabled,
         }
     }
+}
+
+#[cfg(any(target_os = "macos", windows))]
+pub(crate) fn execute_quick_overlay_behavior(behavior: &NativeBehavior) {
+    #[cfg(target_os = "macos")]
+    macos::execute_behaviors(std::slice::from_ref(behavior));
+    #[cfg(windows)]
+    windows::execute_mouse_behavior(behavior, 10);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]

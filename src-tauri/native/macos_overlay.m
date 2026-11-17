@@ -114,3 +114,53 @@ unsigned int axonkey_show_profile_switch_overlay(const char *device, const char 
     });
     return (panel.visible ? 1u : 0u) | (panel.onActiveSpace ? 2u : 0u);
 }
+
+void axonkey_configure_quick_overlay_window(void *window_ptr) {
+    NSCAssert(NSThread.isMainThread, @"Quick overlay configuration requires AppKit's main thread");
+    if (!window_ptr) return;
+    NSWindow *window = (__bridge NSWindow *)window_ptr;
+    window.collectionBehavior = NSWindowCollectionBehaviorMoveToActiveSpace
+        | NSWindowCollectionBehaviorCanJoinAllApplications
+        | NSWindowCollectionBehaviorFullScreenAuxiliary
+        | NSWindowCollectionBehaviorStationary
+        | NSWindowCollectionBehaviorIgnoresCycle;
+    window.hidesOnDeactivate = NO;
+    window.level = NSStatusWindowLevel;
+    window.opaque = NO;
+    window.backgroundColor = NSColor.clearColor;
+    window.hasShadow = NO;
+    window.animationBehavior = NSWindowAnimationBehaviorNone;
+}
+
+unsigned int axonkey_show_quick_overlay_window(void *window_ptr, double width, double height) {
+    NSCAssert(NSThread.isMainThread, @"Quick overlay presentation requires AppKit's main thread");
+    if (!window_ptr) return 0;
+    axonkey_configure_quick_overlay_window(window_ptr);
+    NSWindow *window = (__bridge NSWindow *)window_ptr;
+    NSPoint mouse = NSEvent.mouseLocation;
+    NSScreen *screen = NSScreen.screens.firstObject;
+    for (NSScreen *candidate in NSScreen.screens) {
+        if (NSPointInRect(mouse, candidate.frame)) { screen = candidate; break; }
+    }
+    if (screen) {
+        NSRect area = screen.visibleFrame;
+        CGFloat w = MIN((CGFloat)width, NSWidth(area) - 32.0);
+        CGFloat h = MIN((CGFloat)height, NSHeight(area) - 32.0);
+        NSRect frame = NSMakeRect(
+            NSMidX(area) - w / 2.0,
+            NSMidY(area) - h / 2.0 + 12.0,
+            w,
+            h
+        );
+        [window setFrame:frame display:YES];
+    }
+    [window orderFrontRegardless];
+    return (window.visible ? 1u : 0u) | (window.onActiveSpace ? 2u : 0u);
+}
+
+void axonkey_hide_quick_overlay_window(void *window_ptr) {
+    NSCAssert(NSThread.isMainThread, @"Quick overlay dismissal requires AppKit's main thread");
+    if (!window_ptr) return;
+    NSWindow *window = (__bridge NSWindow *)window_ptr;
+    [window orderOut:nil];
+}

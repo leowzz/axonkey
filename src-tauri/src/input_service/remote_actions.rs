@@ -51,6 +51,13 @@ pub(super) enum Output<K = HidKey> {
 pub(super) struct RemoteActions<K = HidKey> {
     revision: u64,
     enabled: bool,
+    source_id: String,
+    device_kind: String,
+    device_name: String,
+    epoch: Option<Instant>,
+    quick_profiles: std::sync::Arc<HashMap<String, super::QuickProfileConfig>>,
+    quick_mode: super::quick_mode::QuickMode,
+    button_refs: HashMap<String, &'static str>,
     held: HashMap<K, usize>,
     held_order: Vec<K>,
     releases: Vec<Output<K>>,
@@ -144,9 +151,19 @@ fn schedule<K: RemoteKey>(
             } => {
                 queue.push((due, Output::SwitchProfile(*direction, *wrap)));
             }
-            NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
         }
     }
+}
+
+fn find_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
+    actions.iter().find_map(|action| match action {
+        NativeBehavior::QuickOverlay {
+            enabled: true,
+            profile_id,
+        } if !profile_id.trim().is_empty() => Some(profile_id.trim()),
+        _ => None,
+    })
 }
 
 fn repeat_output<K>(action: RepeatableClick) -> Output<K> {
@@ -181,7 +198,97 @@ fn schedule_click<K: RemoteKey>(
 }
 
 impl<K: RemoteKey> RemoteActions<K> {
+    pub fn set_source(
+        &mut self,
+        source_id: impl Into<String>,
+        device_kind: impl Into<String>,
+        device_name: impl Into<String>,
+    ) {
+        self.source_id = source_id.into();
+        self.device_kind = device_kind.into();
+        self.device_name = device_name.into();
+    }
+
+    fn elapsed_ms(&mut self, now: Instant) -> u64 {
+        let base = *self.epoch.get_or_insert(now);
+        now.saturating_duration_since(base).as_millis() as u64
+    }
+
+    fn source_meta(&self) -> (&str, &str, &str) {
+        let id = if self.source_id.is_empty() {
+            "legacy-rc003"
+        } else {
+            &self.source_id
+        };
+        let kind = if self.device_kind.is_empty() {
+            "rc003"
+        } else {
+            &self.device_kind
+        };
+        let name = if self.device_name.is_empty() {
+            "遥控器"
+        } else {
+            &self.device_name
+        };
+        (id, kind, name)
+    }
+
+    fn try_enter_quick_overlay(
+        &mut self,
+        actions: &[NativeBehavior],
+        button: &'static str,
+        still_down: bool,
+    ) -> bool {
+        let Some(profile_id) = find_quick_overlay_profile_id(actions) else {
+            return false;
+        };
+        let (id, kind, name) = (
+            self.source_meta().0.to_owned(),
+            self.source_meta().1.to_owned(),
+            self.source_meta().2.to_owned(),
+        );
+        self.quick_mode.enter_with_profiles(
+            &id,
+            &kind,
+            &name,
+            profile_id,
+            button,
+            still_down,
+            &self.quick_profiles,
+        )
+    }
+
+    fn apply_quick_executions(
+        &mut self,
+        executions: Vec<super::managed::gesture::Execution>,
+        now: Instant,
+    ) {
+        for exec in executions {
+            let button = self
+                .button_refs
+                .get(&exec.input)
+                .copied()
+                .unwrap_or("unknown");
+            let still_down = self
+                .buttons
+                .get(button)
+                .and_then(|s| s.press.as_ref())
+                .is_some();
+            if self.try_enter_quick_overlay(&exec.behaviors, button, still_down) {
+                continue;
+            }
+            schedule(
+                &mut self.scheduled,
+                &exec.behaviors,
+                Some(&exec.sources),
+                button,
+                now,
+            );
+        }
+    }
+
     pub fn cancel(&mut self) {
+        self.quick_mode.reset();
         self.releases.extend(
             self.held_order
                 .drain(..)
@@ -208,6 +315,25 @@ impl<K: RemoteKey> RemoteActions<K> {
         settings: &NativeSettings,
         now: Instant,
     ) {
+        self.button_refs.entry(button.to_owned()).or_insert(button);
+        if self.quick_profiles.as_ref() != &settings.quick_profiles {
+            self.quick_profiles = std::sync::Arc::new(settings.quick_profiles.clone());
+        }
+        if settings.enabled {
+            let now_ms = self.elapsed_ms(now);
+            match self.quick_mode.edge(button, down, now_ms) {
+                super::quick_mode::Intercept::PassThrough => {}
+                super::quick_mode::Intercept::Swallow | super::quick_mode::Intercept::Exited => {
+                    return;
+                }
+                super::quick_mode::Intercept::Execute(executions) => {
+                    self.apply_quick_executions(executions, now);
+                    return;
+                }
+            }
+        } else {
+            self.quick_mode.reset();
+        }
         let defaults = TriggerBehaviors::default();
         let triggers = settings.behaviors.get(button).unwrap_or(&defaults);
         let custom = enabled(&triggers.click)
@@ -256,9 +382,10 @@ impl<K: RemoteKey> RemoteActions<K> {
                 });
                 return;
             }
+            let mut pending_due_actions = None;
             let second = match state.pending.take() {
                 Some((due, actions, sources)) if now >= due => {
-                    schedule_click(&mut self.scheduled, &actions, button, &sources, now);
+                    pending_due_actions = Some((actions, sources));
                     false
                 }
                 Some(_) => true,
@@ -283,7 +410,14 @@ impl<K: RemoteKey> RemoteActions<K> {
                 next_repeat: now + Duration::from_millis(400),
                 held: Vec::new(),
             });
-        } else if let Some(press) = state.press.take() {
+            if let Some((actions, sources)) = pending_due_actions {
+                if self.try_enter_quick_overlay(&actions, button, true) {
+                    self.buttons.remove(button);
+                } else {
+                    schedule_click(&mut self.scheduled, &actions, button, &sources, now);
+                }
+            }
+        } else if let Some(press) = self.buttons.get_mut(button).and_then(|s| s.press.take()) {
             if !press.held.is_empty() {
                 self.scheduled.extend(
                     press
@@ -301,28 +435,32 @@ impl<K: RemoteKey> RemoteActions<K> {
             if enabled(&press.triggers.long_press)
                 && now.duration_since(press.started) >= LONG_PRESS
             {
-                schedule(
-                    &mut self.scheduled,
-                    &press.triggers.long_press,
-                    Some(&press.triggers.long_press_sources),
-                    button,
-                    now,
-                );
+                if !self.try_enter_quick_overlay(&press.triggers.long_press, button, false) {
+                    schedule(
+                        &mut self.scheduled,
+                        &press.triggers.long_press,
+                        Some(&press.triggers.long_press_sources),
+                        button,
+                        now,
+                    );
+                }
             } else if press.second {
-                schedule(
-                    &mut self.scheduled,
-                    &press.triggers.double_click,
-                    Some(&press.triggers.double_click_sources),
-                    button,
-                    now,
-                );
+                if !self.try_enter_quick_overlay(&press.triggers.double_click, button, false) {
+                    schedule(
+                        &mut self.scheduled,
+                        &press.triggers.double_click,
+                        Some(&press.triggers.double_click_sources),
+                        button,
+                        now,
+                    );
+                }
             } else if enabled(&press.triggers.double_click) {
-                state.pending = Some((
+                self.buttons.entry(button).or_default().pending = Some((
                     now + DOUBLE_CLICK,
                     press.triggers.click,
                     press.triggers.click_sources,
                 ));
-            } else {
+            } else if !self.try_enter_quick_overlay(&press.triggers.click, button, false) {
                 schedule_click(
                     &mut self.scheduled,
                     &press.triggers.click,
@@ -335,7 +473,12 @@ impl<K: RemoteKey> RemoteActions<K> {
     }
 
     pub fn tick(&mut self, now: Instant, mut emit: impl FnMut(Output<K>)) {
-        for (button, state) in &mut self.buttons {
+        let now_ms = self.elapsed_ms(now);
+        if let Some(executions) = self.quick_mode.tick(now_ms) {
+            self.apply_quick_executions(executions, now);
+        }
+        let mut quick_entries: Vec<(&'static str, String, bool)> = Vec::new();
+        for (&button, state) in &mut self.buttons {
             if let Some(press) = state.press.as_mut() {
                 if !press.held.is_empty() {
                     continue;
@@ -347,16 +490,26 @@ impl<K: RemoteKey> RemoteActions<K> {
                     }
                 } else if enabled(&press.triggers.long_press) {
                     if !press.long_fired && now.duration_since(press.started) >= LONG_PRESS {
-                        schedule(
-                            &mut self.scheduled,
-                            &press.triggers.long_press,
-                            Some(&press.triggers.long_press_sources),
-                            button,
-                            now,
-                        );
-                        press.long_fired = true;
-                        press.next_repeat = now + Duration::from_millis(350);
-                    } else if press.long_fired && now >= press.next_repeat {
+                        if let Some(profile_id) =
+                            find_quick_overlay_profile_id(&press.triggers.long_press)
+                        {
+                            press.long_fired = true;
+                            quick_entries.push((button, profile_id.to_owned(), true));
+                        } else {
+                            schedule(
+                                &mut self.scheduled,
+                                &press.triggers.long_press,
+                                Some(&press.triggers.long_press_sources),
+                                button,
+                                now,
+                            );
+                            press.long_fired = true;
+                            press.next_repeat = now + Duration::from_millis(350);
+                        }
+                    } else if press.long_fired
+                        && find_quick_overlay_profile_id(&press.triggers.long_press).is_none()
+                        && now >= press.next_repeat
+                    {
                         schedule(
                             &mut self.scheduled,
                             &press.triggers.long_press,
@@ -374,8 +527,28 @@ impl<K: RemoteKey> RemoteActions<K> {
                 .is_some_and(|(due, _, _)| now >= *due)
             {
                 let (_, actions, sources) = state.pending.take().unwrap();
-                schedule_click(&mut self.scheduled, &actions, button, &sources, now);
+                if let Some(profile_id) = find_quick_overlay_profile_id(&actions) {
+                    quick_entries.push((button, profile_id.to_owned(), false));
+                } else {
+                    schedule_click(&mut self.scheduled, &actions, button, &sources, now);
+                }
             }
+        }
+        for (button, profile_id, still_down) in quick_entries {
+            let (id, kind, name) = (
+                self.source_meta().0.to_owned(),
+                self.source_meta().1.to_owned(),
+                self.source_meta().2.to_owned(),
+            );
+            let _ = self.quick_mode.enter_with_profiles(
+                &id,
+                &kind,
+                &name,
+                &profile_id,
+                button,
+                still_down,
+                &self.quick_profiles,
+            );
         }
         for release in self.releases.drain(..) {
             emit(release);
@@ -935,5 +1108,60 @@ mod tests {
         actions.edge("up", false, &config, now + Duration::from_secs(1));
         actions.synchronize(2, true);
         assert!(outputs(&mut actions, now + Duration::from_secs(2)).is_empty());
+    }
+
+    #[test]
+    fn quick_overlay_switches_remote_actions_to_independent_profile_and_exits_after_one_use_or_repeat_trigger(
+    ) {
+        let config: NativeSettings = serde_json::from_value(json!({
+            "enabled": true,
+            "behaviors": {
+                "menu": { "click": [{ "type": "quickOverlay", "profileId": "q-prompts" }] },
+                "up": { "click": [{ "type": "key", "key": "B" }] }
+            },
+            "quickProfiles": {
+                "q-prompts": {
+                    "id": "q-prompts",
+                    "name": "语音提示词",
+                    "deviceId": "rc003",
+                    "deviceName": "遥控器",
+                    "behaviors": {
+                        "up": { "click": [{ "type": "paste", "text": "润色这段文字" }] }
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.set_source("rc-1", "rc003", "客厅遥控器");
+        actions.synchronize(1, true);
+
+        // 1. Tap `menu` -> enters Quick Mode without emitting any output.
+        actions.edge("menu", true, &config, now);
+        actions.edge("menu", false, &config, now + Duration::from_millis(20));
+        assert!(outputs(&mut actions, now + Duration::from_millis(20)).is_empty());
+
+        // 2. Press `menu` again -> exits Quick Mode cleanly without executing anything.
+        actions.edge("menu", true, &config, now + Duration::from_millis(50));
+        actions.edge("menu", false, &config, now + Duration::from_millis(70));
+        assert!(outputs(&mut actions, now + Duration::from_millis(70)).is_empty());
+
+        // 3. Tap `menu` to re-enter, then tap `up` -> executes Quick Profile paste and exits back to base profile!
+        actions.edge("menu", true, &config, now + Duration::from_millis(100));
+        actions.edge("menu", false, &config, now + Duration::from_millis(120));
+        actions.edge("up", true, &config, now + Duration::from_millis(150));
+        actions.edge("up", false, &config, now + Duration::from_millis(170));
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(170)),
+            [Output::Paste("润色这段文字".into())]
+        );
+
+        // 4. Subsequent `up` press runs the base profile (`Key("B")`, usage 0x05 on page 0x07).
+        actions.edge("up", true, &config, now + Duration::from_millis(220));
+        assert_eq!(
+            keys(&mut actions, now + Duration::from_millis(220)),
+            vec![(7, 5, true)]
+        );
     }
 }

@@ -16,7 +16,12 @@ pub(super) fn effective_instance<'a>(
 ) -> Cow<'a, Instance> {
     if let Some(index) = application_binding(instance, app_id) {
         let profile_id = &instance.application_profiles[index].profile_id;
-        if profile_id != &instance.active_profile_id {
+        if profile_id != &instance.active_profile_id
+            && instance
+                .profiles
+                .iter()
+                .any(|profile| !profile.quick && &profile.id == profile_id)
+        {
             let mut effective = instance.clone();
             effective.active_profile_id = profile_id.clone();
             return Cow::Owned(effective);
@@ -52,7 +57,7 @@ pub(super) fn validate(instance: &Instance) -> Result<(), String> {
             || !instance
                 .profiles
                 .iter()
-                .any(|profile| profile.id == binding.profile_id)
+                .any(|profile| !profile.quick && profile.id == binding.profile_id)
         {
             return Err("应用关联的配置文件或应用信息无效".into());
         }
@@ -69,6 +74,7 @@ mod tests {
         first.profiles.push(super::super::Profile {
             id: "browser".into(),
             name: "浏览器".into(),
+            quick: false,
             behaviors: serde_json::json!({"xbox.a": {"click": [{"type": "key", "key": "A"}]}}),
             display: None,
         });
