@@ -126,7 +126,7 @@ void usb_hid_init(G17Engine *eng) {
     UDEV_CTRL = bUD_PD_DIS;
     USB_DEV_AD = 0x00U;
 
-    UEP4_1_MOD = bUEP1_TX_EN | bUEP1_RX_EN | bUEP1_BUF_MOD;
+    UEP4_1_MOD = bUEP1_TX_EN | bUEP1_RX_EN;
     UEP0_DMA_L = (uint8_t)((uint16_t)ep0_buf & 0xFFU);
     UEP0_DMA_H = (uint8_t)((uint16_t)ep0_buf >> 8);
     UEP1_DMA_L = (uint8_t)((uint16_t)ep1_buf & 0xFFU);
@@ -220,6 +220,9 @@ static void handle_ep0_setup(void) {
                     break;
                 case 0x09U: /* SET_CONFIGURATION */
                     s_usb_config = s_setup_val_l;
+                    UEP1_CTRL = bUEP_AUTO_TOG | UEP_R_RES_ACK | UEP_T_RES_NAK;
+                    UEP1_T_LEN = 0U;
+                    s_ep1_busy = 0U;
                     len = 0U;
                     break;
                 case 0x00U: /* GET_STATUS */
