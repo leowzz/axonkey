@@ -358,7 +358,7 @@ export const deviceDescriptors = {
     ],
     "voice": null,
     "viewBox": {
-      "width": 610,
+      "width": 524,
       "height": 520
     },
     "inputs": [
@@ -644,10 +644,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 17,
-        "path": "M 436 24 H 566 A 10 10 0 0 1 576 34 V 70 A 10 10 0 0 1 566 80 H 436 A 10 10 0 0 1 426 70 V 34 A 10 10 0 0 1 436 24 Z",
+        "path": "M 434 24 H 488 A 10 10 0 0 1 498 34 V 68 A 10 10 0 0 1 488 78 H 434 A 10 10 0 0 1 424 68 V 34 A 10 10 0 0 1 434 24 Z",
         "anchor": {
-          "x": 501,
-          "y": 52
+          "x": 461,
+          "y": 51
         }
       },
       {
@@ -660,10 +660,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 18,
-        "path": "M 436 88 H 566 A 10 10 0 0 1 576 98 V 160 A 10 10 0 0 1 566 170 H 436 A 10 10 0 0 1 426 160 V 98 A 10 10 0 0 1 436 88 Z",
+        "path": "M 434 90 H 488 A 10 10 0 0 1 498 100 V 160 A 10 10 0 0 1 488 170 H 434 A 10 10 0 0 1 424 160 V 100 A 10 10 0 0 1 434 90 Z",
         "anchor": {
-          "x": 501,
-          "y": 129
+          "x": 461,
+          "y": 130
         }
       },
       {
@@ -676,10 +676,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 19,
-        "path": "M 436 176 H 566 A 10 10 0 0 1 576 186 V 248 A 10 10 0 0 1 566 258 H 436 A 10 10 0 0 1 426 248 V 186 A 10 10 0 0 1 436 176 Z",
+        "path": "M 434 176 H 488 A 10 10 0 0 1 498 186 V 246 A 10 10 0 0 1 488 256 H 434 A 10 10 0 0 1 424 246 V 186 A 10 10 0 0 1 434 176 Z",
         "anchor": {
-          "x": 501,
-          "y": 217
+          "x": 461,
+          "y": 216
         }
       },
       {
@@ -692,10 +692,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 20,
-        "path": "M 436 264 H 566 A 10 10 0 0 1 576 274 V 336 A 10 10 0 0 1 566 346 H 436 A 10 10 0 0 1 426 336 V 274 A 10 10 0 0 1 436 264 Z",
+        "path": "M 434 262 H 488 A 10 10 0 0 1 498 272 V 332 A 10 10 0 0 1 488 342 H 434 A 10 10 0 0 1 424 332 V 272 A 10 10 0 0 1 434 262 Z",
         "anchor": {
-          "x": 501,
-          "y": 305
+          "x": 461,
+          "y": 302
         }
       },
       {
@@ -708,10 +708,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 21,
-        "path": "M 436 352 H 566 A 10 10 0 0 1 576 362 V 424 A 10 10 0 0 1 566 434 H 436 A 10 10 0 0 1 426 424 V 362 A 10 10 0 0 1 436 352 Z",
+        "path": "M 434 348 H 488 A 10 10 0 0 1 498 358 V 418 A 10 10 0 0 1 488 428 H 434 A 10 10 0 0 1 424 418 V 358 A 10 10 0 0 1 434 348 Z",
         "anchor": {
-          "x": 501,
-          "y": 393
+          "x": 461,
+          "y": 388
         }
       },
       {
@@ -724,10 +724,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 22,
-        "path": "M 436 440 H 566 A 10 10 0 0 1 576 450 V 486 A 10 10 0 0 1 566 496 H 436 A 10 10 0 0 1 426 486 V 450 A 10 10 0 0 1 436 440 Z",
+        "path": "M 434 442 H 488 A 10 10 0 0 1 498 452 V 486 A 10 10 0 0 1 488 496 H 434 A 10 10 0 0 1 424 486 V 452 A 10 10 0 0 1 434 442 Z",
         "anchor": {
-          "x": 501,
-          "y": 468
+          "x": 461,
+          "y": 469
         }
       }
     ]

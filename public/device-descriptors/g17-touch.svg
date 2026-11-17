@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:ak="urn:axonkey:device:1"
-     width="610" height="520" viewBox="0 0 610 520" fill="none"
+     width="524" height="520" viewBox="0 0 524 520" fill="none"
      class="g17-keypad"
      role="img" aria-labelledby="g17-touch-title g17-touch-description"
      data-ak-schema="axonkey.device/1"
@@ -222,7 +222,7 @@ svg.g17-keypad {
     </ak:device>
   </metadata>
   <defs>
-    <linearGradient id="g17-pcb-fill" x1="305" y1="10" x2="305" y2="510" gradientUnits="userSpaceOnUse">
+    <linearGradient id="g17-pcb-fill" x1="262" y1="10" x2="262" y2="510" gradientUnits="userSpaceOnUse">
       <stop stop-color="#1b2332" />
       <stop offset="1" stop-color="#111722" />
     </linearGradient>
@@ -239,14 +239,12 @@ svg.g17-keypad {
   </defs>
 
   <g id="g17-touch-shell" aria-hidden="true">
-    <rect x="10" y="10" width="590" height="500" rx="16" fill="url(#g17-pcb-fill)" stroke="#2c374b" stroke-width="1.8" />
+    <rect x="10" y="10" width="504" height="500" rx="16" fill="url(#g17-pcb-fill)" stroke="#2c374b" stroke-width="1.8" />
     <rect x="18" y="18" width="390" height="484" rx="12" fill="#0f1520" stroke="#232d3f" stroke-width="1.2" />
-    <rect x="416" y="18" width="170" height="484" rx="12" fill="#101722" stroke="#283548" stroke-width="1.2" />
+    <rect x="416" y="18" width="90" height="484" rx="12" fill="#101722" stroke="#283548" stroke-width="1.2" />
     <!-- Brass mounting screws matching physical touch strip -->
-    <circle cx="424" cy="84" r="5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
-    <circle cx="578" cy="84" r="5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
-    <circle cx="424" cy="436" r="5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
-    <circle cx="578" cy="436" r="5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
+    <circle cx="461" cy="84" r="3.5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
+    <circle cx="461" cy="435" r="3.5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
   </g>
 
   <g id="g17-touch-keys" data-ak-view="front">
@@ -404,40 +402,40 @@ svg.g17-keypad {
       <circle class="mapped-dot" cx="295" cy="419" r="5" />
     </g>
     <g id="touch-swipeUp" class="key touch-zone gesture" data-ak-key="g17.touch.swipeUp" data-ak-role="input" aria-label="滑条上滑" tabindex="0" role="button">
-      <rect class="halo" x="424" y="22" width="154" height="60" rx="12" />
-      <rect class="hit touch-hit" x="426" y="24" width="150" height="56" rx="10" />
-      <path class="gesture-arrow" d="M 492 53 L 501 43 L 510 53" /><text class="gesture-label" x="501" y="67">上滑</text>
-      <circle class="mapped-dot" cx="565" cy="35" r="5" />
+      <rect class="halo" x="422" y="22" width="78" height="58" rx="12" />
+      <rect class="hit touch-hit" x="424" y="24" width="74" height="54" rx="10" />
+      <path class="gesture-arrow" d="M 453 49 L 461 40 L 469 49" /><text class="gesture-label" x="461" y="63">上滑</text>
+      <circle class="mapped-dot" cx="488" cy="34" r="4.5" />
     </g>
     <g id="touch-t1" class="key touch-zone zone" data-ak-key="g17.touch.t1" data-ak-role="input" aria-label="触控 1 (顶)" tabindex="0" role="button">
-      <rect class="halo" x="424" y="86" width="154" height="86" rx="12" />
-      <rect class="hit touch-hit" x="426" y="88" width="150" height="82" rx="10" />
-      <path class="chevron" d="M 450 139 L 501 117 L 552 139" /><path class="chevron-sub" d="M 460 147 L 501 129 L 542 147" /><text class="touch-label" x="444" y="106">T1</text>
-      <circle class="mapped-dot" cx="565" cy="99" r="5" />
+      <rect class="halo" x="422" y="88" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="90" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 138 L 461 120 L 483 138" /><path class="chevron-sub" d="M 445 145 L 461 131 L 477 145" /><text class="touch-label" x="437" y="106">T1</text>
+      <circle class="mapped-dot" cx="488" cy="100" r="4.5" />
     </g>
     <g id="touch-t2" class="key touch-zone zone" data-ak-key="g17.touch.t2" data-ak-role="input" aria-label="触控 2" tabindex="0" role="button">
-      <rect class="halo" x="424" y="174" width="154" height="86" rx="12" />
-      <rect class="hit touch-hit" x="426" y="176" width="150" height="82" rx="10" />
-      <path class="chevron" d="M 450 227 L 501 205 L 552 227" /><path class="chevron-sub" d="M 460 235 L 501 217 L 542 235" /><text class="touch-label" x="444" y="194">T2</text>
-      <circle class="mapped-dot" cx="565" cy="187" r="5" />
+      <rect class="halo" x="422" y="174" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="176" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 224 L 461 206 L 483 224" /><path class="chevron-sub" d="M 445 231 L 461 217 L 477 231" /><text class="touch-label" x="437" y="192">T2</text>
+      <circle class="mapped-dot" cx="488" cy="186" r="4.5" />
     </g>
     <g id="touch-t3" class="key touch-zone zone" data-ak-key="g17.touch.t3" data-ak-role="input" aria-label="触控 3" tabindex="0" role="button">
-      <rect class="halo" x="424" y="262" width="154" height="86" rx="12" />
-      <rect class="hit touch-hit" x="426" y="264" width="150" height="82" rx="10" />
-      <path class="chevron" d="M 450 315 L 501 293 L 552 315" /><path class="chevron-sub" d="M 460 323 L 501 305 L 542 323" /><text class="touch-label" x="444" y="282">T3</text>
-      <circle class="mapped-dot" cx="565" cy="275" r="5" />
+      <rect class="halo" x="422" y="260" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="262" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 310 L 461 292 L 483 310" /><path class="chevron-sub" d="M 445 317 L 461 303 L 477 317" /><text class="touch-label" x="437" y="278">T3</text>
+      <circle class="mapped-dot" cx="488" cy="272" r="4.5" />
     </g>
     <g id="touch-t4" class="key touch-zone zone" data-ak-key="g17.touch.t4" data-ak-role="input" aria-label="触控 4 (底)" tabindex="0" role="button">
-      <rect class="halo" x="424" y="350" width="154" height="86" rx="12" />
-      <rect class="hit touch-hit" x="426" y="352" width="150" height="82" rx="10" />
-      <path class="chevron" d="M 450 403 L 501 381 L 552 403" /><path class="chevron-sub" d="M 460 411 L 501 393 L 542 411" /><text class="touch-label" x="444" y="370">T4</text>
-      <circle class="mapped-dot" cx="565" cy="363" r="5" />
+      <rect class="halo" x="422" y="346" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="348" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 396 L 461 378 L 483 396" /><path class="chevron-sub" d="M 445 403 L 461 389 L 477 403" /><text class="touch-label" x="437" y="364">T4</text>
+      <circle class="mapped-dot" cx="488" cy="358" r="4.5" />
     </g>
     <g id="touch-swipeDown" class="key touch-zone gesture" data-ak-key="g17.touch.swipeDown" data-ak-role="input" aria-label="滑条下滑" tabindex="0" role="button">
-      <rect class="halo" x="424" y="438" width="154" height="60" rx="12" />
-      <rect class="hit touch-hit" x="426" y="440" width="150" height="56" rx="10" />
-      <path class="gesture-arrow" d="M 492 458 L 501 468 L 510 458" /><text class="gesture-label" x="501" y="483">下滑</text>
-      <circle class="mapped-dot" cx="565" cy="451" r="5" />
+      <rect class="halo" x="422" y="440" width="78" height="58" rx="12" />
+      <rect class="hit touch-hit" x="424" y="442" width="74" height="54" rx="10" />
+      <path class="gesture-arrow" d="M 453 460 L 461 469 L 469 460" /><text class="gesture-label" x="461" y="481">下滑</text>
+      <circle class="mapped-dot" cx="488" cy="452" r="4.5" />
     </g>
   </g>
 
@@ -459,11 +457,11 @@ svg.g17-keypad {
     <path data-ak-region="g17.touch.enter" data-ak-anchor="358 404" d="M 326 312 H 390 A 12 12 0 0 1 402 324 V 484 A 12 12 0 0 1 390 496 H 326 A 12 12 0 0 1 314 484 V 324 A 12 12 0 0 1 326 312 Z" />
     <path data-ak-region="g17.touch.k0" data-ak-anchor="118 452" d="M 38 408 H 198 A 12 12 0 0 1 210 420 V 484 A 12 12 0 0 1 198 496 H 38 A 12 12 0 0 1 26 484 V 420 A 12 12 0 0 1 38 408 Z" />
     <path data-ak-region="g17.touch.dot" data-ak-anchor="262 452" d="M 230 408 H 294 A 12 12 0 0 1 306 420 V 484 A 12 12 0 0 1 294 496 H 230 A 12 12 0 0 1 218 484 V 420 A 12 12 0 0 1 230 408 Z" />
-    <path data-ak-region="g17.touch.swipeUp" data-ak-anchor="501 52" d="M 436 24 H 566 A 10 10 0 0 1 576 34 V 70 A 10 10 0 0 1 566 80 H 436 A 10 10 0 0 1 426 70 V 34 A 10 10 0 0 1 436 24 Z" />
-    <path data-ak-region="g17.touch.t1" data-ak-anchor="501 129" d="M 436 88 H 566 A 10 10 0 0 1 576 98 V 160 A 10 10 0 0 1 566 170 H 436 A 10 10 0 0 1 426 160 V 98 A 10 10 0 0 1 436 88 Z" />
-    <path data-ak-region="g17.touch.t2" data-ak-anchor="501 217" d="M 436 176 H 566 A 10 10 0 0 1 576 186 V 248 A 10 10 0 0 1 566 258 H 436 A 10 10 0 0 1 426 248 V 186 A 10 10 0 0 1 436 176 Z" />
-    <path data-ak-region="g17.touch.t3" data-ak-anchor="501 305" d="M 436 264 H 566 A 10 10 0 0 1 576 274 V 336 A 10 10 0 0 1 566 346 H 436 A 10 10 0 0 1 426 336 V 274 A 10 10 0 0 1 436 264 Z" />
-    <path data-ak-region="g17.touch.t4" data-ak-anchor="501 393" d="M 436 352 H 566 A 10 10 0 0 1 576 362 V 424 A 10 10 0 0 1 566 434 H 436 A 10 10 0 0 1 426 424 V 362 A 10 10 0 0 1 436 352 Z" />
-    <path data-ak-region="g17.touch.swipeDown" data-ak-anchor="501 468" d="M 436 440 H 566 A 10 10 0 0 1 576 450 V 486 A 10 10 0 0 1 566 496 H 436 A 10 10 0 0 1 426 486 V 450 A 10 10 0 0 1 436 440 Z" />
+    <path data-ak-region="g17.touch.swipeUp" data-ak-anchor="461 51" d="M 434 24 H 488 A 10 10 0 0 1 498 34 V 68 A 10 10 0 0 1 488 78 H 434 A 10 10 0 0 1 424 68 V 34 A 10 10 0 0 1 434 24 Z" />
+    <path data-ak-region="g17.touch.t1" data-ak-anchor="461 130" d="M 434 90 H 488 A 10 10 0 0 1 498 100 V 160 A 10 10 0 0 1 488 170 H 434 A 10 10 0 0 1 424 160 V 100 A 10 10 0 0 1 434 90 Z" />
+    <path data-ak-region="g17.touch.t2" data-ak-anchor="461 216" d="M 434 176 H 488 A 10 10 0 0 1 498 186 V 246 A 10 10 0 0 1 488 256 H 434 A 10 10 0 0 1 424 246 V 186 A 10 10 0 0 1 434 176 Z" />
+    <path data-ak-region="g17.touch.t3" data-ak-anchor="461 302" d="M 434 262 H 488 A 10 10 0 0 1 498 272 V 332 A 10 10 0 0 1 488 342 H 434 A 10 10 0 0 1 424 332 V 272 A 10 10 0 0 1 434 262 Z" />
+    <path data-ak-region="g17.touch.t4" data-ak-anchor="461 388" d="M 434 348 H 488 A 10 10 0 0 1 498 358 V 418 A 10 10 0 0 1 488 428 H 434 A 10 10 0 0 1 424 418 V 358 A 10 10 0 0 1 434 348 Z" />
+    <path data-ak-region="g17.touch.swipeDown" data-ak-anchor="461 469" d="M 434 442 H 488 A 10 10 0 0 1 498 452 V 486 A 10 10 0 0 1 488 496 H 434 A 10 10 0 0 1 424 486 V 452 A 10 10 0 0 1 434 442 Z" />
   </g>
 </svg>
