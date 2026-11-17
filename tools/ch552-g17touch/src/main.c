@@ -59,7 +59,7 @@ void main(void) {
 
         /* 3. Advance gesture pulses & send HID report on change */
         g17_engine_tick(&s_engine, now);
-        if (usb_hid_is_configured() != 0U && g17_engine_has_pending_input(&s_engine) != 0U) {
+        if (usb_hid_ep1_ready() != 0U && g17_engine_has_pending_input(&s_engine) != 0U) {
             uint8_t report[8];
             g17_engine_build_input_report(&s_engine, report);
             usb_hid_send_input_report(report);

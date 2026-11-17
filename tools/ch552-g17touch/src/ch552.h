@@ -43,8 +43,8 @@ __sfr __at(0xC5) TKEY_DATH;
 
 /* USB Device SFRs (CH552) */
 __sfr __at(0xD1) UDEV_CTRL;
-__sfr __at(0xD4) UEP1_CTRL;
-__sfr __at(0xD5) UEP1_T_LEN;
+__sfr __at(0xD2) UEP1_CTRL;
+__sfr __at(0xD3) UEP1_T_LEN;
 __sfr __at(0xD8) USB_INT_FG;
 __sbit __at(0xD8) UIF_BUS_RST;
 __sbit __at(0xD9) UIF_TRANSFER;

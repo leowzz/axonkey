@@ -147,6 +147,10 @@ uint8_t usb_hid_is_configured(void) {
     return (s_usb_config != 0U) ? 1U : 0U;
 }
 
+uint8_t usb_hid_ep1_ready(void) {
+    return (s_usb_config != 0U && s_ep1_busy == 0U) ? 1U : 0U;
+}
+
 uint8_t usb_hid_send_input_report(const uint8_t report[8]) {
     uint8_t i;
     if (s_usb_config == 0U || s_ep1_busy != 0U) {
