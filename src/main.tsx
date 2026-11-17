@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { ProfileSwitchOverlay } from './components/ProfileSwitchOverlay'
+import { QuickOverlay } from './components/QuickOverlay'
 import './styles.css'
 import { installRuntimeLogging, logInfo } from './runtimeLogging'
 import { initializeTencentRum } from './telemetry'
@@ -34,10 +35,15 @@ installRuntimeLogging()
 logInfo('Frontend runtime initialized')
 
 const root = createRoot(document.getElementById('root')!)
-const isProfileSwitchOverlay = new URLSearchParams(window.location.search).get('view') === 'profile-switch-overlay'
+const overlayView = new URLSearchParams(window.location.search).get('view')
+const isProfileSwitchOverlay = overlayView === 'profile-switch-overlay'
+const isQuickOverlay = overlayView === 'quick-overlay'
 if (isProfileSwitchOverlay) document.documentElement.classList.add('profile-switch-overlay-window')
+if (isQuickOverlay) document.documentElement.classList.add('quick-overlay-window')
 root.render(
   <StrictMode>
-    <AppErrorBoundary>{isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : <App />}</AppErrorBoundary>
+    <AppErrorBoundary>
+      {isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : isQuickOverlay ? <QuickOverlay /> : <App />}
+    </AppErrorBoundary>
   </StrictMode>,
 )

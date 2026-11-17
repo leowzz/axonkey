@@ -1,0 +1,412 @@
+html.quick-overlay-window,
+.quick-overlay-window body,
+.quick-overlay-window #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.quick-overlay-window #root {
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.quick-overlay-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 16px 16px;
+  box-sizing: border-box;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 18px;
+  color: #f4f7fb;
+  background: linear-gradient(165deg, rgb(22 27 36 / 92%), rgb(17 21 29 / 95%));
+  box-shadow:
+    0 18px 42px rgb(0 0 0 / 38%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+  user-select: none;
+}
+
+.quick-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.quick-overlay-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.quick-overlay-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #9dc3ff;
+  background: rgb(59 130 246 / 20%);
+  border: 1px solid rgb(96 165 250 / 28%);
+  flex: 0 0 auto;
+}
+
+.quick-overlay-mode-pill.is-preview {
+  color: #fcd34d;
+  background: rgb(245 158 11 / 18%);
+  border-color: rgb(251 191 36 / 28%);
+}
+
+.quick-overlay-profile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 650;
+  color: #fff;
+}
+
+.quick-overlay-device-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: rgb(226 232 240 / 64%);
+}
+
+.quick-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.quick-overlay-exit-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  color: rgb(226 232 240 / 82%);
+  background: rgb(255 255 255 / 7%);
+}
+
+.quick-overlay-exit-hint kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fde68a;
+  background: rgb(245 158 11 / 22%);
+  border: 1px solid rgb(251 191 36 / 32%);
+}
+
+.quick-overlay-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 8px;
+  color: rgb(226 232 240 / 76%);
+  background: rgb(255 255 255 / 6%);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.quick-overlay-close:hover,
+.quick-overlay-close:focus-visible {
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+  outline: none;
+}
+
+.quick-overlay-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.quick-overlay-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 4.5%);
+  border: 1px solid rgb(255 255 255 / 8%);
+  overflow: hidden;
+}
+
+.quick-overlay-remote-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.quick-overlay-remote-wrap .remote-control-view {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-overlay-remote-wrap .remote-control {
+  width: auto;
+  height: auto;
+  max-width: 196px;
+  max-height: 386px;
+}
+
+.quick-overlay-remote-wrap .remote-hint {
+  display: none;
+}
+
+.quick-overlay-diagram .remote-key.quick-trigger-key .remote-key-outline {
+  stroke: #fbbf24;
+  stroke-width: 2.4;
+  opacity: 0.95;
+}
+
+.quick-overlay-diagram .remote-key.quick-trigger-key .remote-key-halo {
+  stroke: rgb(251 191 36 / 34%);
+  stroke-width: 6;
+  opacity: 1;
+}
+
+.quick-overlay-mouse-wrap {
+  width: 100%;
+  color: #e2e8f0;
+}
+
+.quick-overlay-mouse-wrap .mouse-model-title {
+  display: none;
+}
+
+.quick-overlay-mouse-wrap .mouse-model-selection {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.quick-overlay-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 9px;
+  min-height: 0;
+  min-width: 0;
+  padding-right: 2px;
+  overflow-y: auto;
+}
+
+.quick-overlay-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 5.5%);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.quick-overlay-card:hover,
+.quick-overlay-card:focus-visible,
+.quick-overlay-card.is-active {
+  background: rgb(59 130 246 / 15%);
+  border-color: rgb(96 165 250 / 45%);
+  outline: none;
+}
+
+.quick-overlay-card.is-pressed {
+  background: rgb(16 185 129 / 20%);
+  border-color: rgb(52 211 153 / 62%);
+}
+
+.quick-overlay-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quick-overlay-keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #dbeafe;
+  background: rgb(59 130 246 / 24%);
+  border: 1px solid rgb(96 165 250 / 30%);
+  flex: 0 0 auto;
+}
+
+.quick-overlay-key-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.quick-overlay-card-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.quick-overlay-kind-tag {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #93c5fd;
+  background: rgb(59 130 246 / 18%);
+}
+
+.quick-overlay-trigger-tag {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgb(226 232 240 / 74%);
+  background: rgb(255 255 255 / 9%);
+  flex: 0 0 auto;
+}
+
+.quick-overlay-card-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.quick-overlay-detail-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.48;
+  color: rgb(241 245 249 / 90%);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.quick-overlay-card-detail.is-action .quick-overlay-detail-text {
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.quick-overlay-steps-chain {
+  font-size: 11px;
+  color: rgb(148 163 184 / 88%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-multi-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.quick-overlay-trigger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.quick-overlay-trigger-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quick-overlay-trigger-row .quick-overlay-detail-text {
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+}
+
+.quick-overlay-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 220px;
+  padding: 24px;
+  border-radius: 12px;
+  text-align: center;
+  background: rgb(255 255 255 / 3.5%);
+}
+
+.quick-overlay-empty p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.quick-overlay-empty span {
+  font-size: 12.5px;
+  color: rgb(148 163 184 / 92%);
+}
