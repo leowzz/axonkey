@@ -13,18 +13,18 @@
  *   15: 0, 16: .
  */
 static uint8_t s_matrix_map[G17_MATRIX_SLOTS] = {
-    /* drv=K1 (P3.0): K2, K3, K4, K5 */
+    /* drv=K1 (P3.0): K2(Num), K3(/), K4, K5(*) */
     0U, 1U, 0xFFU, 2U,
-    /* drv=K2 (P3.1): K1, K3(7), K4, K5(9) */
+    /* drv=K2 (P3.1): K1(-), K3(7), K4, K5(9) */
     3U, 4U, 0xFFU, 6U,
     /* drv=K3 (P3.2): K1(+), K2(1), K4, K5(3) */
     7U, 11U, 0xFFU, 13U,
-    /* drv=K4 (P3.4): K1, K2, K3, K5(Enter) */
-    0xFFU, 0xFFU, 0xFFU, 14U,
-    /* drv=K5 (P3.3): K1, K2(0), K3(.), K4(5) */
-    0xFFU, 15U, 16U, 9U,
-    /* idle-low lines in K1..K5 order: K1(8), K2(4), K3(6), K4, K5(2) */
-    5U, 8U, 10U, 0xFFU, 12U
+    /* drv=K4 (P3.4): unused on production PCB */
+    0xFFU, 0xFFU, 0xFFU, 0xFFU,
+    /* drv=K5 (P3.3): K1(Enter), K2(0), K3(.), K4 */
+    14U, 15U, 16U, 0xFFU,
+    /* direct switches: K1->GND(8), K2->GND(4), K3->GND(6), RST->VCC(5), K5->GND(2) */
+    5U, 8U, 10U, 9U, 12U
 };
 
 static uint16_t abs_diff_u16(uint16_t a, uint16_t b) {
@@ -101,6 +101,7 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
     uint32_t weighted_sum = 0U;
     uint32_t delta_sum = 0U;
     uint16_t max_delta = 0U;
+    uint16_t raw_max_delta = 0U;
     uint8_t max_zone = 0U;
     uint16_t pos = 0U;
     uint8_t pressed_now;
@@ -131,10 +132,14 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
 
     for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
         uint16_t filt =
-            (uint16_t)(((uint32_t)eng->touch_filt[i] * 3U + (uint32_t)raw_counts[i] + 2U) >> 2);
+            (uint16_t)(((uint32_t)eng->touch_filt[i] + (uint32_t)raw_counts[i] + 1U) >> 1);
         uint16_t base = eng->touch_baseline[i];
+        uint16_t raw_d = (base > raw_counts[i]) ? (uint16_t)(base - raw_counts[i]) : 0U;
         uint16_t d;
         eng->touch_filt[i] = filt;
+        if (raw_d > raw_max_delta) {
+            raw_max_delta = raw_d;
+        }
         d = (base > filt) ? (uint16_t)(base - filt) : 0U;
         deltas[i] = d;
         if (d > max_delta) {
@@ -149,8 +154,8 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
     }
 
     if (eng->touch_active != 0U) {
-        pressed_now = (max_delta >= eng->touch_release_thresh) ? 1U : 0U;
-    } else if (max_delta >= eng->touch_press_thresh) {
+        pressed_now = (raw_max_delta >= eng->touch_release_thresh) ? 1U : 0U;
+    } else if (raw_max_delta >= eng->touch_press_thresh) {
         if (eng->touch_arm_hits < 255U) {
             eng->touch_arm_hits++;
         }
@@ -209,18 +214,20 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
                 eng->touch_state = G17_TOUCH_IDLE;
             }
         } else {
-            /* Idle: slowly track environmental capacitance drift (frozen during touch). */
+            /* Idle: recover fast if finger was held during power-on cal, else track drift slowly. */
+            for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
+                if (eng->touch_filt[i] > eng->touch_baseline[i] + 32U) {
+                    eng->touch_baseline[i] +=
+                        (uint16_t)((eng->touch_filt[i] - eng->touch_baseline[i]) >> 2);
+                }
+            }
             eng->touch_drift_div++;
             if (eng->touch_drift_div >= 8U) {
                 eng->touch_drift_div = 0U;
                 for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
-                    if (raw_counts[i] > eng->touch_baseline[i]) {
+                    if (eng->touch_filt[i] > eng->touch_baseline[i]) {
                         eng->touch_baseline[i]++;
-                    } else if (raw_counts[i] + (eng->touch_release_thresh / 2U) <
-                               eng->touch_baseline[i]) {
-                        /* Only drift down when well below touch threshold (or gentle drift). */
-                        eng->touch_baseline[i]--;
-                    } else if (raw_counts[i] < eng->touch_baseline[i] &&
+                    } else if (eng->touch_filt[i] < eng->touch_baseline[i] &&
                                deltas[i] < (eng->touch_release_thresh / 2U)) {
                         eng->touch_baseline[i]--;
                     }
@@ -392,7 +399,7 @@ void g17_engine_handle_output_report(G17Engine *eng, const uint8_t *buf, uint8_t
         eng->flags |= G17_FLAG_LED_HOST_CTRL;
     } else if (op == 0x02U && len >= 5U) {
         /* Tune touch thresholds: [0x02, 0x02, press_thresh, release_thresh, swipe_step] */
-        if (buf[2] >= 12U && buf[2] <= 200U) {
+        if (buf[2] >= 12U && buf[2] <= 250U) {
             eng->touch_press_thresh = buf[2];
         }
         if (buf[3] >= 6U && buf[3] < eng->touch_press_thresh) {

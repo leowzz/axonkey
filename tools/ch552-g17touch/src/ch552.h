@@ -72,6 +72,7 @@ __sfr __at(0xEF) UEP1_DMA_H;
 __sfr __at(0xFF) WDOG_COUNT;
 
 /* Register bit masks */
+#define bRST         0x08U
 #define bTKC_IF      0x80U
 #define bTKC_2MS     0x10U
 

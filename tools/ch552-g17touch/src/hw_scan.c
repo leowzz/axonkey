@@ -4,14 +4,14 @@
 #define LED_COUNT 17U
 
 /*
- * CH552 TouchKey channels wired on H1 (top to bottom along slider):
- *   TIN1 = P1.1 -> channel 2
- *   TIN2 = P1.4 -> channel 3
- *   TIN4 = P1.6 -> channel 5
- *   TIN5 = P1.7 -> channel 6
+ * CH552 TouchKey channels wired on H1 in physical top-to-bottom order (T1..T4):
+ *   T1 (top)    = H1 pin 1 = TIN2 (P1.4) -> channel 3
+ *   T2 (upper)  = H1 pin 2 = TIN4 (P1.6) -> channel 5
+ *   T3 (lower)  = H1 pin 3 = TIN5 (P1.7) -> channel 6
+ *   T4 (bottom) = H1 pin 5 = TIN1 (P1.1) -> channel 2
  */
-static const __code uint8_t s_touch_ch[G17_TOUCH_CHANNELS] = {2U, 3U, 5U, 6U};
-static const __code uint8_t s_touch_pu_mask[G17_TOUCH_CHANNELS] = {0x02U, 0x10U, 0x40U, 0x80U};
+static const __code uint8_t s_touch_ch[G17_TOUCH_CHANNELS] = {3U, 5U, 6U, 2U};
+static const __code uint8_t s_touch_pu_mask[G17_TOUCH_CHANNELS] = {0x10U, 0x40U, 0x80U, 0x02U};
 static uint8_t s_touch_idx = 0U;
 static uint8_t s_touch_started = 0U;
 static uint8_t s_touch_chg_skips = 0U;
@@ -85,12 +85,18 @@ uint32_t hw_scan_matrix_20(void) {
 
     P3 |= 0x1FU;
     delay_short();
-    s_diag_idle_p3 = (uint8_t)(P3 & 0x1FU);
+    s_diag_idle_p3 = (uint8_t)((P3 & 0x1FU) | ((CLOCK_CFG & bRST) ? 0x20U : 0U));
     for (sns = 0U; sns < 5U; ++sns) {
+        if (sns == 3U) {
+            continue; /* Slot 23 is reserved for S21 (key 5 on RST -> VCC). */
+        }
         if (read_k_line(sns) == 0U) {
             idle_mask |= (uint8_t)(1U << sns);
             mask |= (1UL << (20U + sns));
         }
+    }
+    if ((CLOCK_CFG & bRST) != 0U) {
+        mask |= (1UL << 23U);
     }
 
     for (drv = 0U; drv < 5U; ++drv) {
@@ -143,8 +149,16 @@ uint8_t hw_poll_touch_4ch(uint16_t out_counts[G17_TOUCH_CHANNELS]) {
         TKEY_CTRL = (uint8_t)(bTKC_2MS | s_touch_ch[s_touch_idx]);
         return 0U;
     }
-
-    s_touch_buf[s_touch_idx] = (uint16_t)lo | ((uint16_t)(hi & 0x3FU) << 8);
+    {
+        uint16_t sample = (uint16_t)lo | ((uint16_t)(hi & 0x3FU) << 8);
+        /* Reject sporadic 0/1 hardware glitch reads (valid baseline is ~6000..6800). */
+        if (sample < 1500U) {
+            s_touch_chg_skips++;
+            TKEY_CTRL = (uint8_t)(bTKC_2MS | s_touch_ch[s_touch_idx]);
+            return 0U;
+        }
+        s_touch_buf[s_touch_idx] = sample;
+    }
     P1_DIR_PU |= 0xD2U;
 
     s_touch_idx++;

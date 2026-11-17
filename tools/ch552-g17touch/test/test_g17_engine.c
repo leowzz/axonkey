@@ -4,15 +4,15 @@
 #include <string.h>
 
 static void feed_idle_calibration(G17Engine *eng, uint32_t *now_ms) {
-    const uint16_t idle[G17_TOUCH_CHANNELS] = {1000U, 1000U, 1000U, 1000U};
+    const uint16_t idle[G17_TOUCH_CHANNELS] = {6200U, 6200U, 6200U, 6200U};
     uint8_t i;
     for (i = 0U; i < G17_TOUCH_CAL_SAMPLES; ++i) {
         g17_engine_feed_touch(eng, idle, 0U, *now_ms);
         *now_ms += 5U;
     }
     assert(eng->touch_calibrated == 1U);
-    assert(eng->touch_baseline[0] == 1000U);
-    assert(eng->touch_baseline[3] == 1000U);
+    assert(eng->touch_baseline[0] == 6200U);
+    assert(eng->touch_baseline[3] == 6200U);
 }
 
 static void test_matrix_nkro_and_debounce(void) {
@@ -21,32 +21,34 @@ static void test_matrix_nkro_and_debounce(void) {
     uint8_t rep[8];
     g17_engine_init(&eng);
 
-    /* Simultaneous 3-key chord: slot 0 -> Num(bit0), slot 5 -> 7(bit4), slot 20 -> 8(bit5) */
-    g17_engine_poll_matrix(&eng, (1UL << 0) | (1UL << 5) | (1UL << 20), now);
+    /* Simultaneous chord: slot 0 -> Num(0), slot 16 -> Enter(14), slot 23 -> 5(9) */
+    g17_engine_poll_matrix(&eng, (1UL << 0) | (1UL << 16) | (1UL << 23), now);
     g17_engine_tick(&eng, now);
     assert(g17_engine_has_pending_input(&eng) == 1U);
     g17_engine_build_input_report(&eng, rep);
     assert(rep[0] == G17_INPUT_REPORT_ID);
-    assert(rep[1] == ((1U << 0) | (1U << 4) | (1U << 5)));
+    assert(rep[1] == (1U << 0));
+    assert(rep[2] == ((1U << 1) | (1U << 6))); /* bit 9 (5) + bit 14 (Enter) */
 
     /* Release key 0 for 5ms (< 10ms debounce): still held */
     now += 5U;
-    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 20), now);
+    g17_engine_poll_matrix(&eng, (1UL << 16) | (1UL << 23), now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << 0)) != 0UL);
 
-    /* Steady release >= 10ms: releases cleanly while keys 7 & 8 remain pressed */
+    /* Steady release >= 10ms: releases cleanly while keys 5 & Enter remain pressed */
     now += 10U;
-    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 20), now);
+    g17_engine_poll_matrix(&eng, (1UL << 16) | (1UL << 23), now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << 0)) == 0UL);
-    assert((eng.logical_bitmap & (1UL << 4)) != 0UL);
-    assert((eng.logical_bitmap & (1UL << 5)) != 0UL);
+    assert((eng.logical_bitmap & (1UL << 9)) != 0UL);
+    assert((eng.logical_bitmap & (1UL << 14)) != 0UL);
 }
 
 static void feed_touch_frames(G17Engine *eng, const uint16_t counts[4], uint8_t n, uint32_t *now) {
     for (uint8_t i = 0U; i < n; ++i) {
         g17_engine_feed_touch(eng, counts, 0U, *now);
+        g17_engine_tick(eng, *now);
         *now += 8U;
     }
 }
@@ -54,9 +56,9 @@ static void feed_touch_frames(G17Engine *eng, const uint16_t counts[4], uint8_t 
 static void test_touch_tap_and_hold_disambiguation(void) {
     G17Engine eng;
     uint32_t now = 0U;
-    const uint16_t idle[4] = {1000U, 1000U, 1000U, 1000U};
-    const uint16_t glitch[4] = {1000U, 800U, 1000U, 1000U};
-    const uint16_t touch_t2[4] = {1000U, 800U, 1000U, 1000U};
+    const uint16_t idle[4] = {6200U, 6200U, 6200U, 6200U};
+    const uint16_t glitch[4] = {6200U, 3500U, 6200U, 6200U};
+    const uint16_t touch_t2[4] = {6200U, 3500U, 6200U, 6200U};
 
     g17_engine_init(&eng);
     feed_idle_calibration(&eng, &now);
@@ -71,9 +73,9 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     assert(eng.touch_active == 0U);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
-    /* Quick tap on zone T2 (index 1, < 180ms): fires pulse ONLY after lift */
+    /* Quick tap on zone T2 (index 1, < 200ms): fires pulse ONLY after lift */
     feed_idle_calibration(&eng, &now);
-    feed_touch_frames(&eng, touch_t2, 4U, &now);
+    feed_touch_frames(&eng, touch_t2, 3U, &now);
     g17_engine_tick(&eng, now);
     assert(eng.touch_active == 1U);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
@@ -83,8 +85,8 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
-    /* Lift finger + 12ms release guard */
-    feed_touch_frames(&eng, idle, 8U, &now);
+    /* Lift finger + 12ms release guard (3 * 8ms = 24ms -> pulse active) */
+    feed_touch_frames(&eng, idle, 3U, &now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 1U))) != 0UL);
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) == 0UL);
@@ -95,16 +97,16 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
-    /* Long press / hold on zone T4 (index 3, >= 180ms): commits continuous hold */
-    const uint16_t touch_t4[4] = {1000U, 1000U, 1000U, 800U};
-    feed_touch_frames(&eng, touch_t4, 4U, &now);
+    /* Long press / hold on zone T4 (index 3, >= 200ms): commits continuous hold */
+    const uint16_t touch_t4[4] = {6200U, 6200U, 6200U, 3500U};
+    feed_touch_frames(&eng, touch_t4, 3U, &now);
     now += G17_TOUCH_HOLD_COMMIT_MS + 5U;
     g17_engine_feed_touch(&eng, touch_t4, 0U, now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) != 0UL);
 
     /* Release ends hold */
-    feed_touch_frames(&eng, idle, 10U, &now);
+    feed_touch_frames(&eng, idle, 6U, &now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
 }
@@ -112,12 +114,12 @@ static void test_touch_tap_and_hold_disambiguation(void) {
 static void test_touch_slider_swipe_up_and_down(void) {
     G17Engine eng;
     uint32_t now = 0U;
-    const uint16_t idle[4] = {1000U, 1000U, 1000U, 1000U};
+    const uint16_t idle[4] = {6200U, 6200U, 6200U, 6200U};
     /* Start near bottom (T4=300), slide smoothly upward to top (T1=0) */
-    const uint16_t p_bot[4] = {1000U, 1000U, 1000U, 780U};
-    const uint16_t p_mid_low[4] = {1000U, 1000U, 780U, 900U};
-    const uint16_t p_mid_hi[4] = {1000U, 780U, 900U, 1000U};
-    const uint16_t p_top[4] = {780U, 1000U, 1000U, 1000U};
+    const uint16_t p_bot[4] = {6200U, 6200U, 6200U, 3200U};
+    const uint16_t p_mid_low[4] = {6200U, 6200U, 3200U, 4600U};
+    const uint16_t p_mid_hi[4] = {6200U, 3200U, 4600U, 6200U};
+    const uint16_t p_top[4] = {3200U, 6200U, 6200U, 6200U};
 
     g17_engine_init(&eng);
     feed_idle_calibration(&eng, &now);
