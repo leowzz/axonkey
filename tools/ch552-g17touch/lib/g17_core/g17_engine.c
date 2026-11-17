@@ -2,7 +2,9 @@
 #include <string.h>
 
 /*
- * Default matrix slot -> logical key index (0..16 for K01..K17, 17..19 for spare slots).
+ * Matrix slot -> logical key index (0..16 for K01..K17, 0xFF if unmapped).
+ * Slots 0..19 are charlieplex (drv, sns) in K1..K5 order (P3.0, P3.1, P3.2, P3.4, P3.3);
+ * slots 20..24 are idle-low switches on K1..K5 directly.
  * Physical numpad order (left-to-right, top-to-bottom):
  *   0: Num, 1: /, 2: *, 3: -,
  *   4: 7,   5: 8, 6: 9, 7: +,
@@ -11,11 +13,18 @@
  *   15: 0, 16: .
  */
 static uint8_t s_matrix_map[G17_MATRIX_SLOTS] = {
-    0U, 1U, 2U, 3U,
-    4U, 5U, 6U, 7U,
-    8U, 9U, 10U, 11U,
-    12U, 13U, 14U, 15U,
-    16U, 17U, 18U, 19U
+    /* drv=K1 (P3.0): K2, K3, K4, K5 */
+    0U, 1U, 0xFFU, 2U,
+    /* drv=K2 (P3.1): K1, K3(7), K4, K5(9) */
+    3U, 4U, 0xFFU, 6U,
+    /* drv=K3 (P3.2): K1(+), K2(1), K4, K5(3) */
+    7U, 11U, 0xFFU, 13U,
+    /* drv=K4 (P3.4): K1, K2, K3, K5(Enter) */
+    0xFFU, 0xFFU, 0xFFU, 14U,
+    /* drv=K5 (P3.3): K1, K2(0), K3(.), K4(5) */
+    0xFFU, 15U, 16U, 9U,
+    /* idle-low lines in K1..K5 order: K1(8), K2(4), K3(6), K4, K5(2) */
+    5U, 8U, 10U, 0xFFU, 12U
 };
 
 static uint16_t abs_diff_u16(uint16_t a, uint16_t b) {
@@ -96,6 +105,10 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
     uint16_t pos = 0U;
     uint8_t pressed_now;
 
+    for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
+        eng->diag_touch_raw[i] = raw_counts[i];
+    }
+
     if (led_busy != 0U) {
         return;
     }
@@ -107,8 +120,9 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
         eng->touch_cal_count++;
         if (eng->touch_cal_count >= G17_TOUCH_CAL_SAMPLES) {
             for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
-                eng->touch_baseline[i] =
-                    (uint16_t)(eng->touch_cal_acc[i] / G17_TOUCH_CAL_SAMPLES);
+                uint16_t base = (uint16_t)(eng->touch_cal_acc[i] / G17_TOUCH_CAL_SAMPLES);
+                eng->touch_baseline[i] = base;
+                eng->touch_filt[i] = base;
             }
             eng->touch_calibrated = 1U;
         }
@@ -116,9 +130,12 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
     }
 
     for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
+        uint16_t filt =
+            (uint16_t)(((uint32_t)eng->touch_filt[i] * 3U + (uint32_t)raw_counts[i] + 2U) >> 2);
         uint16_t base = eng->touch_baseline[i];
-        uint16_t cur = raw_counts[i];
-        uint16_t d = (base > cur) ? (uint16_t)(base - cur) : 0U;
+        uint16_t d;
+        eng->touch_filt[i] = filt;
+        d = (base > filt) ? (uint16_t)(base - filt) : 0U;
         deltas[i] = d;
         if (d > max_delta) {
             max_delta = d;
@@ -133,8 +150,14 @@ void g17_engine_feed_touch(G17Engine *eng, const uint16_t raw_counts[G17_TOUCH_C
 
     if (eng->touch_active != 0U) {
         pressed_now = (max_delta >= eng->touch_release_thresh) ? 1U : 0U;
+    } else if (max_delta >= eng->touch_press_thresh) {
+        if (eng->touch_arm_hits < 255U) {
+            eng->touch_arm_hits++;
+        }
+        pressed_now = (eng->touch_arm_hits >= G17_TOUCH_ARM_CONFIRM_FRAMES) ? 1U : 0U;
     } else {
-        pressed_now = (max_delta >= eng->touch_press_thresh) ? 1U : 0U;
+        eng->touch_arm_hits = 0U;
+        pressed_now = 0U;
     }
 
     if (pressed_now != 0U) {
@@ -325,6 +348,31 @@ void g17_engine_build_state_feature(const G17Engine *eng, uint8_t out_buf[8]) {
     out_buf[5] = eng->flags;
     out_buf[6] = eng->seq;
     out_buf[7] = 0U;
+}
+
+void g17_engine_build_diag_feature(const G17Engine *eng, uint8_t out_buf[32]) {
+    uint8_t i;
+    memset(out_buf, 0, 32U);
+    out_buf[0] = G17_FEATURE_DIAG_ID;
+    out_buf[1] = eng->diag_idle_p3;
+    for (i = 0U; i < 5U; ++i) {
+        out_buf[2U + i] = eng->diag_drv_p3[i];
+    }
+    out_buf[7] = (uint8_t)(eng->matrix_stable & 0xFFU);
+    out_buf[8] = (uint8_t)((eng->matrix_stable >> 8) & 0xFFU);
+    out_buf[9] = (uint8_t)((eng->matrix_stable >> 16) & 0xFFU);
+    out_buf[10] = (uint8_t)((eng->matrix_stable >> 24) & 0xFFU);
+    for (i = 0U; i < G17_TOUCH_CHANNELS; ++i) {
+        out_buf[11U + i * 2U] = (uint8_t)(eng->diag_touch_raw[i] & 0xFFU);
+        out_buf[12U + i * 2U] = (uint8_t)((eng->diag_touch_raw[i] >> 8) & 0xFFU);
+        out_buf[19U + i * 2U] = (uint8_t)(eng->touch_baseline[i] & 0xFFU);
+        out_buf[20U + i * 2U] = (uint8_t)((eng->touch_baseline[i] >> 8) & 0xFFU);
+    }
+    out_buf[27] = eng->diag_touch_chg_skips;
+    out_buf[28] = (uint8_t)eng->touch_state;
+    out_buf[29] = eng->flags;
+    out_buf[30] = eng->seq;
+    out_buf[31] = eng->touch_calibrated;
 }
 
 void g17_engine_handle_output_report(G17Engine *eng, const uint8_t *buf, uint8_t len) {

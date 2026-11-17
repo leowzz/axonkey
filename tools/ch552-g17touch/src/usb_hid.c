@@ -48,6 +48,11 @@ static const __code uint8_t s_hid_report_desc[] = {
     0x09, 0x11,       /*   Usage (0x11) */
     0x95, 0x07,       /*   Report Count (7) */
     0xB1, 0x02,       /*   Feature (Data,Var,Abs) */
+    /* Feature Report 0x12: 31-byte raw hardware diagnostics (32 bytes on wire) */
+    0x85, 0x12,       /*   Report ID (0x12) */
+    0x09, 0x12,       /*   Usage (0x12) */
+    0x95, 0x1F,       /*   Report Count (31) */
+    0xB1, 0x02,       /*   Feature (Data,Var,Abs) */
     0xC0              /* End Collection */
 };
 
@@ -256,6 +261,12 @@ static void handle_ep0_setup(void) {
                     g17_engine_build_state_feature(s_eng, tmp);
                     for (k = 0U; k < 8U; ++k) ep0_buf[k] = tmp[k];
                     len = 8U;
+                } else if (s_setup_val_l == G17_FEATURE_DIAG_ID) {
+                    uint8_t tmp[32];
+                    uint8_t k;
+                    g17_engine_build_diag_feature(s_eng, tmp);
+                    for (k = 0U; k < 32U; ++k) ep0_buf[k] = tmp[k];
+                    len = 32U;
                 }
             } else if (s_setup_req == 0x09U || s_setup_req == 0x0AU) {
                 /* SET_REPORT or SET_IDLE */

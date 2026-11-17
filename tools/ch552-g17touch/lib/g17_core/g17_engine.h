@@ -9,7 +9,7 @@ extern "C" {
 
 /* Logical input bit assignments in the 32-bit key_bitmap */
 #define G17_MECH_KEY_COUNT 17U
-#define G17_MATRIX_SLOTS 20U
+#define G17_MATRIX_SLOTS 25U
 #define G17_TOUCH_CHANNELS 4U
 
 #define G17_BIT_TOUCH_BASE 20U   /* bits 20..23: T1..T4 (top to bottom) */
@@ -20,6 +20,7 @@ extern "C" {
 #define G17_OUTPUT_REPORT_ID 0x02U
 #define G17_FEATURE_CAPS_ID 0x10U
 #define G17_FEATURE_STATE_ID 0x11U
+#define G17_FEATURE_DIAG_ID 0x12U
 
 #define G17_FLAG_TOUCH_ACTIVE 0x01U
 #define G17_FLAG_USB_SUSPENDED 0x02U
@@ -27,11 +28,12 @@ extern "C" {
 
 #define G17_DEBOUNCE_MS 10U
 #define G17_TOUCH_CAL_SAMPLES 16U
-#define G17_TOUCH_DEFAULT_PRESS_THRESH 40U
-#define G17_TOUCH_DEFAULT_RELEASE_THRESH 22U
+#define G17_TOUCH_DEFAULT_PRESS_THRESH 48U
+#define G17_TOUCH_DEFAULT_RELEASE_THRESH 24U
 #define G17_TOUCH_SLIDE_ENTER_DELTA 45U
 #define G17_TOUCH_DEFAULT_SWIPE_STEP 36U
 #define G17_TOUCH_HOLD_COMMIT_MS 180U
+#define G17_TOUCH_ARM_CONFIRM_FRAMES 2U
 #define G17_PULSE_ON_MS 32U
 #define G17_PULSE_GAP_MS 16U
 
@@ -59,6 +61,7 @@ typedef struct {
 
     /* 4 capacitive touch channels (TIN1, TIN2, TIN4, TIN5) */
     uint16_t touch_baseline[G17_TOUCH_CHANNELS];
+    uint16_t touch_filt[G17_TOUCH_CHANNELS];
     uint32_t touch_cal_acc[G17_TOUCH_CHANNELS];
     uint8_t touch_cal_count;
     uint8_t touch_calibrated;
@@ -66,6 +69,7 @@ typedef struct {
     uint16_t touch_release_thresh;
     uint16_t touch_swipe_step;
     uint8_t touch_drift_div;
+    uint8_t touch_arm_hits;
 
     /* Touch slider state machine */
     G17TouchState touch_state;
@@ -89,6 +93,12 @@ typedef struct {
     uint8_t last_sent_flags;
     uint8_t seq;
     uint8_t report_pending;
+
+    /* Raw hardware diagnostics for Feature 0x12 */
+    uint8_t diag_idle_p3;
+    uint8_t diag_drv_p3[5];
+    uint8_t diag_touch_chg_skips;
+    uint16_t diag_touch_raw[G17_TOUCH_CHANNELS];
 
     G17LedConfig led;
 } G17Engine;
@@ -117,6 +127,7 @@ uint8_t g17_engine_has_pending_input(const G17Engine *eng);
 void g17_engine_build_input_report(G17Engine *eng, uint8_t out_buf[8]);
 void g17_engine_build_caps_feature(const G17Engine *eng, uint8_t out_buf[16]);
 void g17_engine_build_state_feature(const G17Engine *eng, uint8_t out_buf[8]);
+void g17_engine_build_diag_feature(const G17Engine *eng, uint8_t out_buf[32]);
 void g17_engine_handle_output_report(G17Engine *eng, const uint8_t *buf, uint8_t len);
 
 #ifdef __cplusplus

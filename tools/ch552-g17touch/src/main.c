@@ -47,8 +47,10 @@ void main(void) {
 
         WDOG_COUNT = 0x00U; /* Feed watchdog */
 
-        /* 1. Scan 5x4 mechanical matrix */
+        /* 1. Scan 5x4 mechanical matrix (+ idle-GND switches) */
         raw_matrix = hw_scan_matrix_20();
+        hw_get_matrix_diag(&s_engine.diag_idle_p3, s_engine.diag_drv_p3);
+        s_engine.diag_touch_chg_skips = hw_get_touch_chg_skips();
         g17_engine_poll_matrix(&s_engine, raw_matrix, now);
 
         /* 2. Poll 4-chevron capacitive touch slider (skip during/just after WS2812 TX) */

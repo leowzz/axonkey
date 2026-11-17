@@ -14,6 +14,9 @@ static const __code uint8_t s_touch_ch[G17_TOUCH_CHANNELS] = {2U, 3U, 5U, 6U};
 static const __code uint8_t s_touch_pu_mask[G17_TOUCH_CHANNELS] = {0x02U, 0x10U, 0x40U, 0x80U};
 static uint8_t s_touch_idx = 0U;
 static uint8_t s_touch_started = 0U;
+static uint8_t s_touch_chg_skips = 0U;
+static uint8_t s_diag_idle_p3 = 0x1FU;
+static uint8_t s_diag_drv_p3[5] = {0x1FU, 0x1FU, 0x1FU, 0x1FU, 0x1FU};
 static uint16_t s_touch_buf[G17_TOUCH_CHANNELS];
 
 static void delay_short(void) {
@@ -47,6 +50,7 @@ void hw_init_gpio_and_clock(void) {
     P1_DIR_PU |= 0x20U;
     P1_5 = 0;
 
+    P1 |= 0xD2U;
     P1_MOD_OC &= (uint8_t)~0xD2U;
     P1_DIR_PU |= 0xD2U;
 }
@@ -75,18 +79,29 @@ static void write_k_line(uint8_t idx, uint8_t val) {
 uint32_t hw_scan_matrix_20(void) {
     uint32_t mask = 0UL;
     uint8_t slot = 0U;
+    uint8_t idle_mask = 0U;
     uint8_t drv;
     uint8_t sns;
 
     P3 |= 0x1FU;
+    delay_short();
+    s_diag_idle_p3 = (uint8_t)(P3 & 0x1FU);
+    for (sns = 0U; sns < 5U; ++sns) {
+        if (read_k_line(sns) == 0U) {
+            idle_mask |= (uint8_t)(1U << sns);
+            mask |= (1UL << (20U + sns));
+        }
+    }
+
     for (drv = 0U; drv < 5U; ++drv) {
         write_k_line(drv, 0U);
         delay_short();
+        s_diag_drv_p3[drv] = (uint8_t)(P3 & 0x1FU);
         for (sns = 0U; sns < 5U; ++sns) {
             if (sns == drv) {
                 continue;
             }
-            if (read_k_line(sns) == 0U) {
+            if (read_k_line(sns) == 0U && (idle_mask & (uint8_t)(1U << sns)) == 0U) {
                 mask |= (1UL << slot);
             }
             slot++;
@@ -96,8 +111,18 @@ uint32_t hw_scan_matrix_20(void) {
     return mask;
 }
 
+void hw_get_matrix_diag(uint8_t *out_idle_p3, uint8_t out_drv_p3[5]) {
+    uint8_t i;
+    *out_idle_p3 = s_diag_idle_p3;
+    for (i = 0U; i < 5U; ++i) {
+        out_drv_p3[i] = s_diag_drv_p3[i];
+    }
+}
+
 uint8_t hw_poll_touch_4ch(uint16_t out_counts[G17_TOUCH_CHANNELS]) {
     uint8_t i;
+    uint8_t lo;
+    uint8_t hi;
     if (s_touch_started == 0U) {
         P1_DIR_PU |= 0xD2U;
         P1_DIR_PU &= (uint8_t)~s_touch_pu_mask[0];
@@ -111,7 +136,15 @@ uint8_t hw_poll_touch_4ch(uint16_t out_counts[G17_TOUCH_CHANNELS]) {
         return 0U;
     }
 
-    s_touch_buf[s_touch_idx] = (uint16_t)TKEY_DATL | ((uint16_t)TKEY_DATH << 8);
+    lo = TKEY_DATL;
+    hi = TKEY_DATH;
+    if ((hi & 0x80U) != 0U) {
+        s_touch_chg_skips++;
+        TKEY_CTRL = (uint8_t)(bTKC_2MS | s_touch_ch[s_touch_idx]);
+        return 0U;
+    }
+
+    s_touch_buf[s_touch_idx] = (uint16_t)lo | ((uint16_t)(hi & 0x3FU) << 8);
     P1_DIR_PU |= 0xD2U;
 
     s_touch_idx++;
@@ -128,6 +161,10 @@ uint8_t hw_poll_touch_4ch(uint16_t out_counts[G17_TOUCH_CHANNELS]) {
     P1_DIR_PU &= (uint8_t)~s_touch_pu_mask[s_touch_idx];
     TKEY_CTRL = (uint8_t)(bTKC_2MS | s_touch_ch[s_touch_idx]);
     return 0U;
+}
+
+uint8_t hw_get_touch_chg_skips(void) {
+    return s_touch_chg_skips;
 }
 
 static void ws2812_send_byte(uint8_t val) {

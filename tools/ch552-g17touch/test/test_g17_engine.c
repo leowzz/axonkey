@@ -21,54 +21,70 @@ static void test_matrix_nkro_and_debounce(void) {
     uint8_t rep[8];
     g17_engine_init(&eng);
 
-    /* Simultaneous 3-key chord: zero-latency press */
-    g17_engine_poll_matrix(&eng, (1UL << 0) | (1UL << 5) | (1UL << 16), now);
+    /* Simultaneous 3-key chord: slot 0 -> Num(bit0), slot 5 -> 7(bit4), slot 20 -> 8(bit5) */
+    g17_engine_poll_matrix(&eng, (1UL << 0) | (1UL << 5) | (1UL << 20), now);
     g17_engine_tick(&eng, now);
     assert(g17_engine_has_pending_input(&eng) == 1U);
     g17_engine_build_input_report(&eng, rep);
     assert(rep[0] == G17_INPUT_REPORT_ID);
-    assert(rep[1] == ((1U << 0) | (1U << 5)));
-    assert(rep[3] == (1U << 0)); /* bit 16 -> b2 bit 0 */
+    assert(rep[1] == ((1U << 0) | (1U << 4) | (1U << 5)));
 
     /* Release key 0 for 5ms (< 10ms debounce): still held */
     now += 5U;
-    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 16), now);
+    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 20), now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << 0)) != 0UL);
 
-    /* Steady release >= 10ms: releases cleanly while keys 5 & 16 remain pressed */
+    /* Steady release >= 10ms: releases cleanly while keys 7 & 8 remain pressed */
     now += 10U;
-    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 16), now);
+    g17_engine_poll_matrix(&eng, (1UL << 5) | (1UL << 20), now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << 0)) == 0UL);
+    assert((eng.logical_bitmap & (1UL << 4)) != 0UL);
     assert((eng.logical_bitmap & (1UL << 5)) != 0UL);
-    assert((eng.logical_bitmap & (1UL << 16)) != 0UL);
+}
+
+static void feed_touch_frames(G17Engine *eng, const uint16_t counts[4], uint8_t n, uint32_t *now) {
+    for (uint8_t i = 0U; i < n; ++i) {
+        g17_engine_feed_touch(eng, counts, 0U, *now);
+        *now += 8U;
+    }
 }
 
 static void test_touch_tap_and_hold_disambiguation(void) {
     G17Engine eng;
     uint32_t now = 0U;
     const uint16_t idle[4] = {1000U, 1000U, 1000U, 1000U};
-    const uint16_t touch_t2[4] = {1000U, 880U, 1000U, 1000U};
+    const uint16_t glitch[4] = {1000U, 800U, 1000U, 1000U};
+    const uint16_t touch_t2[4] = {1000U, 800U, 1000U, 1000U};
 
     g17_engine_init(&eng);
     feed_idle_calibration(&eng, &now);
 
-    /* Quick tap on zone T2 (index 1, < 180ms): fires pulse ONLY after lift */
-    g17_engine_feed_touch(&eng, touch_t2, 0U, now);
+    /* Single-frame spike must NOT arm touch or fire a spurious flash */
+    g17_engine_feed_touch(&eng, glitch, 0U, now);
+    now += 8U;
+    g17_engine_feed_touch(&eng, idle, 0U, now);
+    now += 20U;
+    g17_engine_feed_touch(&eng, idle, 0U, now);
     g17_engine_tick(&eng, now);
+    assert(eng.touch_active == 0U);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
-    now += 60U;
+    /* Quick tap on zone T2 (index 1, < 180ms): fires pulse ONLY after lift */
+    feed_idle_calibration(&eng, &now);
+    feed_touch_frames(&eng, touch_t2, 4U, &now);
+    g17_engine_tick(&eng, now);
+    assert(eng.touch_active == 1U);
+    assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
+
+    now += 40U;
     g17_engine_feed_touch(&eng, touch_t2, 0U, now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
     /* Lift finger + 12ms release guard */
-    now += 10U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
-    now += 15U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
+    feed_touch_frames(&eng, idle, 8U, &now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 1U))) != 0UL);
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) == 0UL);
@@ -80,18 +96,15 @@ static void test_touch_tap_and_hold_disambiguation(void) {
     assert((eng.logical_bitmap >> G17_BIT_TOUCH_BASE) == 0UL);
 
     /* Long press / hold on zone T4 (index 3, >= 180ms): commits continuous hold */
-    const uint16_t touch_t4[4] = {1000U, 1000U, 1000U, 870U};
-    g17_engine_feed_touch(&eng, touch_t4, 0U, now);
+    const uint16_t touch_t4[4] = {1000U, 1000U, 1000U, 800U};
+    feed_touch_frames(&eng, touch_t4, 4U, &now);
     now += G17_TOUCH_HOLD_COMMIT_MS + 5U;
     g17_engine_feed_touch(&eng, touch_t4, 0U, now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) != 0UL);
 
     /* Release ends hold */
-    now += 20U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
-    now += 15U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
+    feed_touch_frames(&eng, idle, 10U, &now);
     g17_engine_tick(&eng, now);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
 }
@@ -101,17 +114,16 @@ static void test_touch_slider_swipe_up_and_down(void) {
     uint32_t now = 0U;
     const uint16_t idle[4] = {1000U, 1000U, 1000U, 1000U};
     /* Start near bottom (T4=300), slide smoothly upward to top (T1=0) */
-    const uint16_t p_bot[4] = {1000U, 1000U, 1000U, 850U};
-    const uint16_t p_mid_low[4] = {1000U, 1000U, 880U, 920U};
-    const uint16_t p_mid_hi[4] = {1000U, 880U, 920U, 1000U};
-    const uint16_t p_top[4] = {850U, 1000U, 1000U, 1000U};
+    const uint16_t p_bot[4] = {1000U, 1000U, 1000U, 780U};
+    const uint16_t p_mid_low[4] = {1000U, 1000U, 780U, 900U};
+    const uint16_t p_mid_hi[4] = {1000U, 780U, 900U, 1000U};
+    const uint16_t p_top[4] = {780U, 1000U, 1000U, 1000U};
 
     g17_engine_init(&eng);
     feed_idle_calibration(&eng, &now);
 
-    g17_engine_feed_touch(&eng, p_bot, 0U, now);
-    now += 20U;
-    g17_engine_feed_touch(&eng, p_mid_low, 0U, now);
+    feed_touch_frames(&eng, p_bot, 4U, &now);
+    feed_touch_frames(&eng, p_mid_low, 4U, &now);
     g17_engine_tick(&eng, now);
 
     /* Must enter SWIPING and emit SWIPE_UP without firing T4 tap */
@@ -119,32 +131,32 @@ static void test_touch_slider_swipe_up_and_down(void) {
     assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) != 0UL);
     assert((eng.logical_bitmap & (1UL << (G17_BIT_TOUCH_BASE + 3U))) == 0UL);
 
-    /* Finish first pulse, continue sliding up */
-    now += G17_PULSE_ON_MS + 2U;
-    g17_engine_tick(&eng, now);
-    now += G17_PULSE_GAP_MS + 2U;
-    g17_engine_feed_touch(&eng, p_mid_hi, 0U, now);
-    g17_engine_tick(&eng, now);
-    now += G17_PULSE_ON_MS + 2U;
-    g17_engine_tick(&eng, now);
-    now += G17_PULSE_GAP_MS + 2U;
-    g17_engine_feed_touch(&eng, p_top, 0U, now);
-    g17_engine_tick(&eng, now);
-    assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) != 0UL);
+    /* Continue sliding up -> must observe SWIPE_UP */
+    uint8_t seen_up = 0U;
+    uint8_t seen_down = 0U;
+    for (uint8_t s = 0U; s < 10U; ++s) {
+        g17_engine_feed_touch(&eng, (s < 5U) ? p_mid_hi : p_top, 0U, now);
+        g17_engine_tick(&eng, now);
+        if ((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_UP)) != 0UL) {
+            seen_up = 1U;
+        }
+        now += 12U;
+    }
+    assert(seen_up == 1U);
 
-    /* Reverse direction on same touch -> emits SWIPE_DOWN */
-    now += G17_PULSE_ON_MS + 2U;
-    g17_engine_tick(&eng, now);
-    now += G17_PULSE_GAP_MS + 2U;
-    g17_engine_feed_touch(&eng, p_mid_hi, 0U, now);
-    g17_engine_tick(&eng, now);
-    assert((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_DOWN)) != 0UL);
+    /* Reverse direction on same touch -> must observe SWIPE_DOWN */
+    for (uint8_t s = 0U; s < 10U; ++s) {
+        g17_engine_feed_touch(&eng, p_mid_hi, 0U, now);
+        g17_engine_tick(&eng, now);
+        if ((eng.logical_bitmap & (1UL << G17_BIT_SWIPE_DOWN)) != 0UL) {
+            seen_down = 1U;
+        }
+        now += 12U;
+    }
+    assert(seen_down == 1U);
 
     /* Release does NOT emit a spurious zone tap after swiping */
-    now += 15U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
-    now += 15U;
-    g17_engine_feed_touch(&eng, idle, 0U, now);
+    feed_touch_frames(&eng, idle, 10U, &now);
     for (uint8_t step = 0U; step < 8U; ++step) {
         now += G17_PULSE_ON_MS + 2U;
         g17_engine_tick(&eng, now);
@@ -175,9 +187,9 @@ static void test_led_crosstalk_and_no_sleep_on_suspend(void) {
     g17_engine_set_usb_suspended(&eng, 1U);
     assert((eng.flags & G17_FLAG_USB_SUSPENDED) != 0U);
     assert(eng.led.dirty == 1U);
-    g17_engine_poll_matrix(&eng, (1UL << 2), now + 20U);
+    g17_engine_poll_matrix(&eng, (1UL << 5), now + 20U);
     g17_engine_tick(&eng, now + 20U);
-    assert((eng.logical_bitmap & (1UL << 2)) != 0UL);
+    assert((eng.logical_bitmap & (1UL << 4)) != 0UL);
 
     /* Output report updates LED color and touch sensitivity */
     memset(out_pkt, 0, sizeof(out_pkt));
