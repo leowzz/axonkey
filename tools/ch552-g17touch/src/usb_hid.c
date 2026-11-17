@@ -121,6 +121,7 @@ void usb_hid_init(G17Engine *eng) {
     build_serial_descriptor();
 
     IE_USB = 0;
+    USB_CTRL = bUC_RESET_SIE | bUC_CLR_ALL;
     USB_CTRL = 0x00U;
     UDEV_CTRL = bUD_PD_DIS;
     USB_DEV_AD = 0x00U;
@@ -197,6 +198,9 @@ static void handle_ep0_setup(void) {
                             s_xram_ptr = serial_str_desc;
                             len = sizeof(serial_str_desc);
                         }
+                    } else if (s_setup_val_h == 0x21U) {
+                        s_descr_ptr = &s_cfg_desc[18];
+                        len = 9U;
                     } else if (s_setup_val_h == 0x22U) {
                         s_descr_ptr = s_hid_report_desc;
                         len = sizeof(s_hid_report_desc);

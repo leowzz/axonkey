@@ -24,6 +24,7 @@ static void delay_short(void) {
 }
 
 void hw_init_gpio_and_clock(void) {
+    uint16_t settle;
     /* Configure 24 MHz internal oscillator and enable watchdog (~1.5s at 24MHz). */
     SAFE_MOD = 0x55U;
     SAFE_MOD = 0xAAU;
@@ -31,6 +32,10 @@ void hw_init_gpio_and_clock(void) {
     WAKE_CTRL = 0x00U; /* Power-Down sleep is never entered */
     GLOBAL_CFG |= 0x01U; /* Enable WDOG reset */
     SAFE_MOD = 0x00U;
+
+    for (settle = 0U; settle < 1200U; ++settle) {
+        __asm__("nop");
+    }
 
     /* Matrix K1..K5 (P3.0..P3.4): open-drain with pull-ups (external 1k R6..R10). */
     P3_MOD_OC |= 0x1FU;

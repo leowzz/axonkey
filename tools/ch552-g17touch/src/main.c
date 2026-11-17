@@ -65,8 +65,9 @@ void main(void) {
             usb_hid_send_input_report(report);
         }
 
-        /* 4. Refresh WS2812 RGB strip only when dirty, guarding TouchKey against crosstalk */
-        if (s_engine.led.dirty != 0U) {
+        /* 4. Refresh WS2812 RGB strip only when dirty (after initial USB settle),
+         *    guarding TouchKey against crosstalk. */
+        if (s_engine.led.dirty != 0U && (usb_hid_is_configured() != 0U || now >= 200UL)) {
             uint8_t bri = ((s_engine.flags & G17_FLAG_USB_SUSPENDED) != 0U || s_engine.led.mode == 0U)
                               ? 0U
                               : s_engine.led.brightness;

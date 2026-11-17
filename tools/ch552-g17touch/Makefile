@@ -8,7 +8,7 @@ SRC_MCU := src/main.c src/usb_hid.c src/hw_scan.c
 REL := $(BUILD_DIR)/g17_engine.rel $(BUILD_DIR)/main.rel $(BUILD_DIR)/usb_hid.rel $(BUILD_DIR)/hw_scan.rel
 
 CFLAGS_SDCC := -mmcs51 --model-large --std-c99 --opt-code-speed -DFREQ_SYS=24000000 -Ilib/g17_core -Isrc
-LFLAGS_SDCC := -mmcs51 --model-large --xram-size 0x0400 --xram-loc 0x0000 --code-size 0x3800
+LFLAGS_SDCC := -mmcs51 --model-large --xram-size 0x0300 --xram-loc 0x0100 --code-size 0x3800
 
 .PHONY: all test clean
 
