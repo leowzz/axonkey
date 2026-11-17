@@ -55,6 +55,7 @@ export type BuiltinDeviceKind =
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
   | 'kivoK18Lite'
+  | 'g17Touch'
 
 export type WorkspaceLayout = 'multi-lane' | 'single-lane'
 

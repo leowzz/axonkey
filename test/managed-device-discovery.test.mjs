@@ -42,6 +42,7 @@ const modelImports = {
   '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
   '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
   '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
+  '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -455,6 +456,7 @@ test('bundled capabilities retain recording defaults and platform support for al
     ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
     ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
     ['kivoK18Lite', 'click', false, false, true],
+    ['g17Touch', 'click', false, false, true],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -891,6 +893,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
       ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
       ['kivoK18Lite', false, false, false, false],
+      ['g17Touch', false, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }

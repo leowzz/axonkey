@@ -19,6 +19,7 @@ pub(crate) const KINDS: &[&str] = &[
     "phicommDb1R",
     "xboxBluetooth",
     "kivoK18Lite",
+    "g17Touch",
 ];
 
 #[allow(dead_code)]
@@ -605,6 +606,7 @@ pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceD
         "phicommDb1R" => crate::devices::phicomm_db1_r::descriptor(),
         "xboxBluetooth" => xbox(),
         "kivoK18Lite" => crate::devices::kivo_k18_lite::descriptor(),
+        "g17Touch" => g17_touch(),
         _ => None,
     }
 }
@@ -660,6 +662,14 @@ fn xbox() -> Option<&'static DeviceDescriptor> {
     static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
     load(
         include_str!("../../../public/device-descriptors/xbox.svg"),
+        &DESCRIPTOR,
+    )
+}
+
+fn g17_touch() -> Option<&'static DeviceDescriptor> {
+    static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
+    load(
+        include_str!("../../../public/device-descriptors/g17-touch.svg"),
         &DESCRIPTOR,
     )
 }
@@ -1007,10 +1017,61 @@ mod tests {
             Some(0x01),
             Some(0x06)
         ));
+        assert!(matches_hardware(
+            "g17Touch",
+            0x1209,
+            0xa017,
+            Some(0xff60),
+            Some(0x01)
+        ));
+        assert!(!matches_hardware(
+            "g17Touch",
+            0x1209,
+            0xa017,
+            Some(0x01),
+            Some(0x06)
+        ));
         assert!(uses_vendor_usb_hid("kivoK18Lite"));
+        assert!(uses_vendor_usb_hid("g17Touch"));
         assert!(!uses_vendor_usb_hid("xboxBluetooth"));
         assert!(!uses_vendor_usb_hid("rc003"));
         assert!(!uses_vendor_usb_hid("unknown"));
+    }
+
+    #[test]
+    fn g17_touch_decodes_mechanical_keys_touch_zones_and_slider_swipes() {
+        let descriptor = descriptor_for_kind("g17Touch").expect("g17Touch descriptor must parse");
+        assert_eq!(descriptor.inputs.len(), 23);
+
+        let mut engine = crate::devices::engine::DescriptorEngine::default();
+        // Press Num (b0 bit0), Enter (b1 bit6), T2 (b2 bit5), and SwipeUp (b3 bit0)
+        let events = engine.accept(
+            descriptor,
+            &[0x01, 0x01, 0x40, 0x20, 0x01, 0x01, 0x01, 0x00],
+        );
+        assert_eq!(
+            events,
+            vec![
+                ("g17.touch.num".to_string(), true),
+                ("g17.touch.enter".to_string(), true),
+                ("g17.touch.t2".to_string(), true),
+                ("g17.touch.swipeUp".to_string(), true),
+            ]
+        );
+
+        let release = engine.accept(
+            descriptor,
+            &[0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00],
+        );
+        assert_eq!(
+            release,
+            vec![
+                ("g17.touch.num".to_string(), false),
+                ("g17.touch.enter".to_string(), false),
+                ("g17.touch.t2".to_string(), false),
+                ("g17.touch.swipeUp".to_string(), false),
+            ]
+        );
     }
 
     #[test]

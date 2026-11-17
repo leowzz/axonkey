@@ -842,6 +842,7 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
     '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
     '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
+    '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
   })
   const controls = h.evalModule('src/devices/integration/IntegrationControls.tsx')
