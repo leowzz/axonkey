@@ -64,10 +64,12 @@ const mouseOverlayInputs: MappingInput<string>[] = mouseInputIds.map(id => {
 
 function coerceBehaviorList(raw: unknown): Behavior[] {
   if (!Array.isArray(raw)) return []
-  return raw.filter((item): item is Behavior => Boolean(item && typeof item === 'object' && 'type' in item)).map(item => ({
-    ...item,
-    enabled: item.enabled !== false,
-  }))
+  return raw
+    .filter((item): item is Behavior => Boolean(item && typeof item === 'object' && 'type' in item))
+    .map(item => ({
+      ...item,
+      enabled: item.enabled !== false,
+    }))
 }
 
 function coerceTriggerBehaviors(raw: unknown): TriggerBehaviors {
@@ -174,10 +176,7 @@ export function summarizeQuickTrigger(
   }
 }
 
-export function buildQuickOverlayView(
-  session: QuickOverlaySessionPayload,
-  platform: Platform,
-): QuickOverlayViewModel {
+export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platform: Platform): QuickOverlayViewModel {
   const isMouse = session.deviceKind === 'mouse'
   const pkg = isMouse ? null : packageFor(session.deviceKind)
   const inputs: readonly MappingInput<string>[] = isMouse ? mouseOverlayInputs : (pkg?.inputs ?? [])

@@ -269,8 +269,7 @@ export async function processInstanceCliRequest(
     throw new InstanceCliError('invalid_behavior', '切换配置必须是该触发方式的唯一行为，并会应用到设备全部配置')
   const quickBehavior = behaviors.find(behavior => behavior.type === 'quickOverlay')
   if (quickBehavior) {
-    if (behaviors.length !== 1)
-      throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是该触发方式的唯一行为')
+    if (behaviors.length !== 1) throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是该触发方式的唯一行为')
     const targetProfile = resolveProfile(instance, quickBehavior.profileId)
     quickBehavior.profileId = targetProfile.id
   }

@@ -57,14 +57,14 @@ impl SessionState {
     fn clear_if_revision(&mut self, revision: u64) -> Option<QuickOverlaySession> {
         #[cfg(test)]
         let removed_test = TEST_ACTIVE_REVISIONS.lock().unwrap().remove(&revision);
-        if self.current.as_ref().is_some_and(|s| s.revision == revision) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|s| s.revision == revision)
+        {
             let taken = self.current.take();
-            let _ = ACTIVE_REVISION.compare_exchange(
-                revision,
-                0,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
+            let _ =
+                ACTIVE_REVISION.compare_exchange(revision, 0, Ordering::AcqRel, Ordering::Acquire);
             return taken;
         }
         #[cfg(test)]
@@ -75,7 +75,9 @@ impl SessionState {
     }
 
     fn is_current(&self, revision: u64) -> bool {
-        self.current.as_ref().is_some_and(|s| s.revision == revision)
+        self.current
+            .as_ref()
+            .is_some_and(|s| s.revision == revision)
     }
 }
 
@@ -313,7 +315,8 @@ fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), 
                             height: f64,
                         ) -> u32;
                     }
-                    let status = unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT) };
+                    let status =
+                        unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT) };
                     log::info!(
                         target: "axonkey::quick_overlay",
                         "macOS quick overlay shown: visible={} active_space={}",
@@ -387,7 +390,8 @@ fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), 
             let scale = monitor.scale_factor();
             window
                 .set_position(tauri::PhysicalPosition::new(
-                    area.position.x + ((area.size.width as f64 - WIDTH * scale) / 2.0).round() as i32,
+                    area.position.x
+                        + ((area.size.width as f64 - WIDTH * scale) / 2.0).round() as i32,
                     area.position.y
                         + ((area.size.height as f64 - HEIGHT * scale) / 2.0).round() as i32,
                 ))
@@ -478,21 +482,20 @@ pub async fn trigger_quick_overlay_input(
     if session.trigger_input == input_id {
         return Ok(());
     }
-    let settings: crate::input_service::NativeSettings = serde_json::from_value(
-        serde_json::json!({ "behaviors": session.behaviors }),
-    )
-    .map_err(|e| format!("快捷配置行为解析失败：{e}"))?;
-    let canonical = crate::devices::descriptor_registry::profile_key(
-        &session.device_kind,
-        &input_id,
-    )
-    .or_else(|| {
-        crate::devices::descriptor_registry::registered_kinds()
-            .iter()
-            .find_map(|kind| crate::devices::descriptor_registry::profile_key(kind, &input_id))
-    })
-    .unwrap_or(&input_id)
-    .to_owned();
+    let settings: crate::input_service::NativeSettings =
+        serde_json::from_value(serde_json::json!({ "behaviors": session.behaviors }))
+            .map_err(|e| format!("快捷配置行为解析失败：{e}"))?;
+    let canonical =
+        crate::devices::descriptor_registry::profile_key(&session.device_kind, &input_id)
+            .or_else(|| {
+                crate::devices::descriptor_registry::registered_kinds()
+                    .iter()
+                    .find_map(|kind| {
+                        crate::devices::descriptor_registry::profile_key(kind, &input_id)
+                    })
+            })
+            .unwrap_or(&input_id)
+            .to_owned();
     let Some(triggers) = settings.behaviors.get(&canonical) else {
         return Ok(());
     };

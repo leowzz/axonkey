@@ -105,14 +105,19 @@ impl NativeSettings {
     }
 
     fn quick_profiles_changed(&self, next: &Self, mouse: bool) -> bool {
-        let is_mouse_profile =
-            |p: &QuickProfileConfig| p.device_id.as_deref() == Some("mouse");
+        let is_mouse_profile = |p: &QuickProfileConfig| p.device_id.as_deref() == Some("mouse");
         self.quick_profiles
             .keys()
             .chain(next.quick_profiles.keys())
             .any(|id| {
-                let left = self.quick_profiles.get(id).filter(|p| is_mouse_profile(p) == mouse);
-                let right = next.quick_profiles.get(id).filter(|p| is_mouse_profile(p) == mouse);
+                let left = self
+                    .quick_profiles
+                    .get(id)
+                    .filter(|p| is_mouse_profile(p) == mouse);
+                let right = next
+                    .quick_profiles
+                    .get(id)
+                    .filter(|p| is_mouse_profile(p) == mouse);
                 left != right
             })
     }

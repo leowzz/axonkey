@@ -5527,3 +5527,54 @@ html.macos-vibrancy,
   background: #dc2626;
   box-shadow: 0 0 0 4px rgb(220 38 38 / 12%);
 }
+
+.quick-profile-editing-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 9px 13px;
+  border-radius: 11px;
+  background: rgb(239 246 255 / 78%);
+  border: 1px solid rgb(59 130 246 / 24%);
+}
+
+.quick-profile-editing-info {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.quick-profile-editing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgb(59 130 246 / 14%);
+}
+
+.quick-profile-editing-info strong {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.quick-profile-editing-trigger {
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.quick-profile-editing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}

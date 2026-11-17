@@ -36,6 +36,9 @@ export function MappingFlowPage({
   showMouseKeyGrid,
   behaviorEditorProps,
   remoteView,
+  quickOverlayContext,
+  isEditingQuickProfile,
+  quickProfileBanner,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
@@ -84,6 +87,7 @@ export function MappingFlowPage({
         </aside>
 
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射流程图工作区">
+          {quickProfileBanner}
           <WorkflowAxonkey
             header={
               <>
@@ -133,6 +137,8 @@ export function MappingFlowPage({
             onRequestProfileSwitch={onRequestProfileSwitch}
             toolboxCategory={toolboxCategory}
             onToolboxCategoryChange={setToolboxCategory}
+            quickOverlayContext={quickOverlayContext}
+            isEditingQuickProfile={isEditingQuickProfile}
           />
         </section>
       </div>

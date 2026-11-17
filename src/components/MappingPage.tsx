@@ -12,7 +12,7 @@ import type { RemoteView } from '../devices/types.ts'
 import { devices, type DeviceId } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
-import { BehaviorEditor } from './BehaviorEditor'
+import { BehaviorEditor, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../devices/shared/DeviceWorkspaceHeader'
@@ -52,6 +52,9 @@ export type MappingPageProps = {
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
   remoteView?: RemoteView
+  quickOverlayContext?: QuickOverlayEditorContext
+  isEditingQuickProfile?: boolean
+  quickProfileBanner?: ReactNode
 }
 
 export function MappingPage({
@@ -80,6 +83,7 @@ export function MappingPage({
   rowRefs,
   behaviorEditorProps,
   remoteView,
+  quickProfileBanner,
 }: MappingPageProps) {
   return (
     <div className="mapping-page">
@@ -126,6 +130,7 @@ export function MappingPage({
         </aside>
 
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
+          {quickProfileBanner}
           <section className="key-picker" aria-labelledby="key-picker-title">
             <div className="key-picker-head">
               <div className="key-picker-heading">

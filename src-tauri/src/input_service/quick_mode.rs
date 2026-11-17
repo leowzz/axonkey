@@ -304,7 +304,10 @@ mod tests {
         assert!(!mode.is_active());
         // Paired release is swallowed so the base profile does not see an orphan key-up.
         assert!(matches!(mode.edge("menu", false, 150), Intercept::Swallow));
-        assert!(matches!(mode.edge("menu", true, 200), Intercept::PassThrough));
+        assert!(matches!(
+            mode.edge("menu", true, 200),
+            Intercept::PassThrough
+        ));
     }
 
     #[test]

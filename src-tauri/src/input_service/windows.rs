@@ -2208,7 +2208,9 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
                 NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
-                    return Err(format!("{button}: quickOverlay requires a target profileId"));
+                    return Err(format!(
+                        "{button}: quickOverlay requires a target profileId"
+                    ));
                 }
                 _ => {}
             }

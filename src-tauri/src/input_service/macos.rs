@@ -1187,7 +1187,9 @@ impl MacInputState {
                         super::quick_mode::Intercept::Swallow
                         | super::quick_mode::Intercept::Exited => continue,
                         super::quick_mode::Intercept::Execute(execs) => {
-                            self.execute_quick_executions(shared, &settings, execs, source.id, true);
+                            self.execute_quick_executions(
+                                shared, &settings, execs, source.id, true,
+                            );
                             continue;
                         }
                     }
@@ -1230,7 +1232,9 @@ impl MacInputState {
                         super::quick_mode::Intercept::Swallow
                         | super::quick_mode::Intercept::Exited => continue,
                         super::quick_mode::Intercept::Execute(execs) => {
-                            self.execute_quick_executions(shared, &settings, execs, source.id, false);
+                            self.execute_quick_executions(
+                                shared, &settings, execs, source.id, false,
+                            );
                             continue;
                         }
                     }
@@ -1261,16 +1265,13 @@ impl MacInputState {
             return;
         }
         let now = Instant::now();
-        let pending_due = self
-            .button_states
-            .get_mut(source.id)
-            .and_then(|state| {
-                state
-                    .pending_click
-                    .as_ref()
-                    .is_some_and(|pending| now >= pending.due_at)
-                    .then(|| state.pending_click.take().unwrap())
-            });
+        let pending_due = self.button_states.get_mut(source.id).and_then(|state| {
+            state
+                .pending_click
+                .as_ref()
+                .is_some_and(|pending| now >= pending.due_at)
+                .then(|| state.pending_click.take().unwrap())
+        });
         if let Some(pending) = pending_due {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=next_press", source.id);
             if self.try_enter_quick_mode(shared, &settings, source.id, &triggers.click, true) {
@@ -1739,12 +1740,7 @@ fn key_used_in_reachable_quick_profile(settings: &NativeSettings, key: &str) -> 
             } => settings.quick_profiles.get(profile_id.trim()),
             _ => None,
         })
-        .any(|profile| {
-            profile
-                .behaviors
-                .get(key)
-                .is_some_and(has_custom_behavior)
-        })
+        .any(|profile| profile.behaviors.get(key).is_some_and(has_custom_behavior))
 }
 
 fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
@@ -2211,7 +2207,9 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
                 NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
-                    return Err(format!("{button}: quickOverlay requires a target profileId"));
+                    return Err(format!(
+                        "{button}: quickOverlay requires a target profileId"
+                    ));
                 }
                 _ => {}
             }

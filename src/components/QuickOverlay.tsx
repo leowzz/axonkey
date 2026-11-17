@@ -87,9 +87,7 @@ export function QuickOverlay() {
   useEffect(() => {
     if (!revision) return
     setHoveredInputId('')
-    void invoke('reveal_quick_overlay', { revision }).catch(error =>
-      logError('Failed to reveal quick overlay', error),
-    )
+    void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
   useEffect(() => {
@@ -169,12 +167,7 @@ export function QuickOverlay() {
           ) : (
             <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
           )}
-          <button
-            type="button"
-            className="quick-overlay-close"
-            aria-label="关闭快捷交互窗"
-            onClick={dismiss}
-          >
+          <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={dismiss}>
             <X size={15} aria-hidden="true" />
           </button>
         </div>
@@ -211,10 +204,7 @@ export function QuickOverlay() {
             </div>
           ) : (
             view.items.map(item => {
-              const glyph = railKeyGlyphText(
-                { id: item.inputId, label: item.label, icon: item.icon },
-                item.short,
-              )
+              const glyph = railKeyGlyphText({ id: item.inputId, label: item.label, icon: item.icon }, item.short)
               const isActive = activeInputId === item.inputId
               const isPressed = view.pressedIds.includes(item.inputId)
               const single = item.triggers.length === 1 ? item.triggers[0] : null
@@ -250,9 +240,7 @@ export function QuickOverlay() {
                   {single ? (
                     <div className={`quick-overlay-card-detail is-${single.kind}`}>
                       <p className="quick-overlay-detail-text">{single.text}</p>
-                      {single.stepsSummary && (
-                        <span className="quick-overlay-steps-chain">{single.stepsSummary}</span>
-                      )}
+                      {single.stepsSummary && <span className="quick-overlay-steps-chain">{single.stepsSummary}</span>}
                     </div>
                   ) : (
                     <div className="quick-overlay-multi-triggers">

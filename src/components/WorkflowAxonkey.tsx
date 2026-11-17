@@ -13,7 +13,7 @@ import { writeClipboardText } from '../clipboard'
 import { macosShortcutPresets } from '../macosShortcutPresets'
 import { createSavedSequence, parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
 import type { SavedSequence } from '../savedSequences'
-import { SequencePasteDialog } from './BehaviorEditor'
+import { SequencePasteDialog, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
 import { createTriggerRootExtension, defaultWorkflowTriggers, isTriggerRoot } from './WorkflowTriggerRoot'
 import {
@@ -77,11 +77,19 @@ type WorkflowAxonkeyProps<Id extends string> = {
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
   onToolboxCategoryChange: (category: string) => void
+  quickOverlayContext?: QuickOverlayEditorContext
+  isEditingQuickProfile?: boolean
 }
 
 type WorkflowAction = {
   preset:
-    CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | 'switchProfile' | WorkflowActionChoicePreset
+    | CommonBehaviorPreset
+    | AdvancedBehaviorType
+    | 'wheel'
+    | 'cursorMove'
+    | 'switchProfile'
+    | 'quickOverlay'
+    | WorkflowActionChoicePreset
   name: string
   description?: string
 }
@@ -98,6 +106,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   onRequestProfileSwitch,
   toolboxCategory,
   onToolboxCategoryChange,
+  quickOverlayContext,
+  isEditingQuickProfile = false,
 }: WorkflowAxonkeyProps<Id>) {
   const triggers = button.triggerLabel
     ? [{ id: 'click' as const, label: button.triggerLabel }]
@@ -140,6 +150,15 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const [dialogStep, setDialogStep] = useState<WorkflowStepEdit | null>(null)
   const [designerApi, setDesignerApi] = useState<DesignerApi | null>(null)
   const iconUrls = useMemo(() => createWorkflowActionIconUrls(platform), [platform])
+  const profileNamesMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of quickOverlayContext?.profiles ?? []) {
+      map.set(item.id, item.name)
+    }
+    return map
+  }, [quickOverlayContext?.profiles])
+  const profileNamesRef = useRef(profileNamesMap)
+  profileNamesRef.current = profileNamesMap
 
   const palettes = useMemo<WorkflowToolboxPalette[]>(() => {
     const commonActions: WorkflowAction[] = [
@@ -170,7 +189,20 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       },
     ]
     const controlActions: WorkflowAction[] = [
-      { preset: 'switchProfile', name: '切换配置文件', description: '上一个或下一个配置文件，可设置到边缘自动循环' },
+      ...(!isEditingQuickProfile
+        ? [
+            {
+              preset: 'quickOverlay' as const,
+              name: '快捷交互窗',
+              description: '唤起独立快捷配置并展示按键功能预览，按其他键执行后退出，再按触发键直接退出',
+            },
+            {
+              preset: 'switchProfile' as const,
+              name: '切换配置文件',
+              description: '上一个或下一个配置文件，可设置到边缘自动循环',
+            },
+          ]
+        : []),
       {
         preset: 'disabled',
         name: '禁用此触发方式',
@@ -226,12 +258,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       { name: '常用行为', groups: [toGroup({ name: '常用行为', actions: commonActions })] },
       { name: '组合行为', groups: [toGroup({ name: '组合行为', actions: compositeActions })] },
     ]
-  }, [platform])
+  }, [isEditingQuickProfile, platform])
 
   useLayoutEffect(() => {
     if (!canvasRef.current) return
 
-    const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
+    const label = (behavior: Parameters<typeof behaviorSummary>[0]) =>
+      behaviorSummary(behavior, platform, profileNamesRef.current)
     const definition = behaviorsToWorkflow(sequences, label)
     let acceptedBranches = structuredClone(workflowBranches(definition))
     savedRef.current = workflowSequenceSignature(sequences)
@@ -287,7 +320,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
           if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
           if (pendingLibraryAddition) current.step.properties.pendingLibraryAddition = pendingLibraryAddition
+          if (savedBehavior.type === 'quickOverlay' && savedBehavior.enabled !== false) {
+            const branch = workflowBranches(api.editor.getDefinition())[current.trigger]
+            branch.splice(0, branch.length, current.step)
+          }
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+          const next = workflowToBehaviors(api.editor.getDefinition())
+          if (next) persist(next)
           setEditingStep(current => (current?.stepId === stepId ? { ...current, behavior: savedBehavior } : current))
           if (dialog) setDialogStep(null)
         },
@@ -330,14 +369,24 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         isDraggable: canDragStep,
         isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowStepLocked(step, source),
         isDuplicable: (step, source) =>
-          step.type !== 'switchProfile' && !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
-        canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
+          step.type !== 'switchProfile' &&
+          step.type !== 'quickOverlay' &&
+          !isTriggerRoot(step) &&
+          !isWorkflowLaneDisabled(source),
+        canInsertStep: (step, target) =>
+          !target.some(isTriggerRoot) &&
+          !isWorkflowLaneDisabled(target) &&
+          (step.type === 'disabled' ||
+            step.type === 'quickOverlay' ||
+            !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false)),
         canMoveStep: (source, step, target) =>
           step.type !== 'switchProfile' &&
+          step.type !== 'quickOverlay' &&
           !isTriggerRoot(step) &&
           !target.some(isTriggerRoot) &&
           !isWorkflowLaneDisabled(source) &&
-          !isWorkflowLaneDisabled(target),
+          !isWorkflowLaneDisabled(target) &&
+          !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false),
       },
       extensions: [
         fixedWorkflowViewport,
@@ -586,7 +635,11 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         )
         return
       }
-      if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
+      if (
+        nodes.length === 1 &&
+        (nodes[0].type === 'disabled' || nodes[0].type === 'quickOverlay') &&
+        nodes[0].properties.enabled !== false
+      ) {
         branch.splice(0, branch.length, ...nodes)
       } else branch.splice(index, 1, ...nodes)
       api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
@@ -700,6 +753,25 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   }, [activeTrigger, button.triggerLabel])
 
   useEffect(() => {
+    if (!designerApi) return
+    const definition = designerApi.editor.getDefinition()
+    let updated = false
+    for (const branch of Object.values(workflowBranches(definition))) {
+      for (const node of branch) {
+        if (node.type !== 'quickOverlay') continue
+        const behavior = workflowStepBehavior(node)
+        if (!behavior) continue
+        const nextName = `${behavior.enabled ? '' : '已停用 · '}${behaviorSummary(behavior, platform, profileNamesMap)}`
+        if (node.name !== nextName) {
+          node.name = nextName
+          updated = true
+        }
+      }
+    }
+    if (updated) designerApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+  }, [designerApi, platform, profileNamesMap])
+
+  useEffect(() => {
     // An import, reset, or shared undo replaces the view. Our own save echo keeps
     // the current designer and its viewport intact.
     if (workflowSequenceSignature(sequences) !== savedRef.current) setReload(value => value + 1)
@@ -778,6 +850,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
               button={button}
               onClose={closeEditor}
               inline
+              quickOverlayContext={quickOverlayContext}
             />
           ) : (
             <p className="workflow-editor-empty">选择泳道中的行为进行编辑</p>
@@ -824,6 +897,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
             platform={platform}
             button={button}
             onClose={() => setDialogStep(null)}
+            quickOverlayContext={quickOverlayContext}
           />,
           document.body,
         )}

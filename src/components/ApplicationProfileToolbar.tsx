@@ -306,6 +306,7 @@ export function ApplicationProfileToolbar({
   onUpdate,
   onSwitchProfile,
   onCreateProfile,
+  onCreateQuickProfile,
   onDuplicateProfile,
   onRenameProfile,
   onDeleteProfile,
@@ -320,6 +321,7 @@ export function ApplicationProfileToolbar({
   onUpdate: (change: (instance: DeviceInstance) => DeviceInstance) => Promise<unknown>
   onSwitchProfile: (id: string) => void
   onCreateProfile: () => void
+  onCreateQuickProfile?: () => void
   onDuplicateProfile: () => void
   onRenameProfile: (name: string) => void
   onDeleteProfile: () => void
@@ -377,6 +379,7 @@ export function ApplicationProfileToolbar({
           activeProfileId={profileId}
           onSwitch={onSwitchProfile}
           onCreate={onCreateProfile}
+          onCreateQuick={onCreateQuickProfile}
           onDuplicate={onDuplicateProfile}
           onRename={onRenameProfile}
           onDelete={onDeleteProfile}

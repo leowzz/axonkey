@@ -4857,7 +4857,9 @@ mod tests {
             gestures: Gestures::default(),
             maps,
             quick_profiles,
-            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            quick_mode: Arc::new(Mutex::new(
+                crate::input_service::quick_mode::QuickMode::default(),
+            )),
             local_pressed: HashSet::new(),
             actions,
             reports: 0,
@@ -4989,7 +4991,9 @@ mod tests {
             gestures: Gestures::default(),
             maps,
             quick_profiles,
-            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            quick_mode: Arc::new(Mutex::new(
+                crate::input_service::quick_mode::QuickMode::default(),
+            )),
             local_pressed: HashSet::new(),
             actions,
             reports: 0,
@@ -5264,7 +5268,9 @@ mod tests {
             gestures: Gestures::default(),
             maps: active_mappings(integrated),
             quick_profiles: instance_quick_profiles(integrated),
-            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            quick_mode: Arc::new(Mutex::new(
+                crate::input_service::quick_mode::QuickMode::default(),
+            )),
             local_pressed: HashSet::new(),
             actions: actions_tx,
             reports: 0,
@@ -5397,7 +5403,9 @@ mod tests {
             gestures: Gestures::default(),
             maps: active_mappings(&dev),
             quick_profiles: instance_quick_profiles(&dev),
-            quick_mode: Arc::new(Mutex::new(crate::input_service::quick_mode::QuickMode::default())),
+            quick_mode: Arc::new(Mutex::new(
+                crate::input_service::quick_mode::QuickMode::default(),
+            )),
             local_pressed: HashSet::new(),
             actions: actions_tx,
             reports: 0,

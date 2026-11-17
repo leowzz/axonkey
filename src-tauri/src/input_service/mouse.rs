@@ -871,18 +871,13 @@ impl ButtonTracker {
                         .then_some(config.revision)
                 });
                 if let Some(revision) = active_revision {
-                    let quick_execs =
-                        shared
-                            .quick_mode
-                            .try_lock()
-                            .ok()
-                            .and_then(|mut guard| {
-                                let now_ms = quick_now_ms(&mut guard.0, now);
-                                match guard.1.edge(quick_input, false, now_ms) {
-                                    super::quick_mode::Intercept::Execute(execs) => Some(execs),
-                                    _ => None,
-                                }
-                            });
+                    let quick_execs = shared.quick_mode.try_lock().ok().and_then(|mut guard| {
+                        let now_ms = quick_now_ms(&mut guard.0, now);
+                        match guard.1.edge(quick_input, false, now_ms) {
+                            super::quick_mode::Intercept::Execute(execs) => Some(execs),
+                            _ => None,
+                        }
+                    });
                     if let Some(execs) = quick_execs {
                         enqueue_quick_executions(shared, execs, revision);
                     }
@@ -1444,7 +1439,10 @@ mod tests {
                     settings,
                     revision: 1,
                 }),
-                quick_mode: Mutex::new((None, crate::input_service::quick_mode::QuickMode::default())),
+                quick_mode: Mutex::new((
+                    None,
+                    crate::input_service::quick_mode::QuickMode::default(),
+                )),
                 stop: AtomicBool::new(false),
                 ready: AtomicBool::new(true),
                 active: AtomicBool::new(true),

@@ -13,9 +13,9 @@ mod legacy_driver;
 mod library_usage;
 mod onboarding;
 mod profile_switch_overlay;
-mod quick_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
+mod quick_overlay;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod recording_overlay;
 mod relay;

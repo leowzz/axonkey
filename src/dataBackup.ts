@@ -124,8 +124,9 @@ export function createDataBackup(
     ),
     ...document.savedBehaviors.flatMap(saved => saved.behaviors),
   ]
-  const minAppVersion =
-    document.profiles.some(profile => profile.quick) ? quickOverlayMinAppVersion : minAppVersionForBehaviors(behaviors)
+  const minAppVersion = document.profiles.some(profile => profile.quick)
+    ? quickOverlayMinAppVersion
+    : minAppVersionForBehaviors(behaviors)
   if (minAppVersion) {
     document.version = 3
     document.minAppVersion = minAppVersion

@@ -223,8 +223,7 @@ export function prepareCloudRestore(
     const newlyRestored: (typeof profiles)[number][] = []
     for (const id of selected.profileIds) {
       const profile = config.profiles.find(item => item.id === id) as
-        | (DeviceInstance['profiles'][number] & { app_version?: string | null; applicationIds?: string[] })
-        | undefined
+        (DeviceInstance['profiles'][number] & { app_version?: string | null; applicationIds?: string[] }) | undefined
       if (!profile) throw new Error('所选云端方案已不存在，请刷新后重试')
       const already = profiles.find(item => {
         const prior = metadata[profileMetadataKey(targetKey, item.id)]

@@ -146,8 +146,7 @@ export async function processMouseCliRequest(
       throw new InstanceCliError('invalid_behavior', '切换配置必须是唯一行为')
     const quickBehavior = sequence.find(item => item.type === 'quickOverlay')
     if (quickBehavior) {
-      if (sequence.length !== 1)
-        throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是唯一行为')
+      if (sequence.length !== 1) throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是唯一行为')
       const targetProfile = resolveProfile(quickBehavior.profileId, mouse, state.globalProfileId)
       quickBehavior.profileId = targetProfile.id
     }
