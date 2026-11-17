@@ -39,12 +39,12 @@ export function deleteMouseProfile(
   if (!removed) return { profiles: [...profiles], globalProfileId }
 
   const remaining = profiles.filter(profile => profile.id !== profileId)
-  const remainingMouseProfiles = remaining.filter(profile => profile.deviceId === 'mouse')
-  if (!remainingMouseProfiles.length) return { profiles: [...profiles], globalProfileId }
+  const remainingMouseRegular = remaining.filter(profile => profile.deviceId === 'mouse' && !profile.quick)
+  if (!remainingMouseRegular.length) return { profiles: [...profiles], globalProfileId }
 
   const nextGlobalProfileId =
-    profileId === globalProfileId && !remainingMouseProfiles.some(profile => profile.id === globalProfileId)
-      ? remainingMouseProfiles[0].id
+    profileId === globalProfileId && !remainingMouseRegular.some(profile => profile.id === globalProfileId)
+      ? remainingMouseRegular[0].id
       : globalProfileId
   let nextProfiles = remaining
   for (const applicationId of removed.applicationIds ?? [])

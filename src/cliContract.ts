@@ -1,4 +1,10 @@
-import { normalizeApplicationPath, normalizeBehavior, normalizeFilePath, normalizeWebsiteUrl } from './behaviorModel.ts'
+import {
+  normalizeApplicationPath,
+  normalizeBehavior,
+  normalizeFilePath,
+  normalizeProfileReferenceId,
+  normalizeWebsiteUrl,
+} from './behaviorModel.ts'
 import type { Behavior } from './behaviorModel.ts'
 import type { DeviceId, InputId } from './devices/index.ts'
 import type { TriggerType } from './behaviorModel.ts'
@@ -28,6 +34,7 @@ export const cliBehaviorTypes = [
   'openPath',
   'openWebsite',
   'switchProfile',
+  'quickOverlay',
   'disabled',
 ] as const
 
@@ -48,6 +55,7 @@ export type CliBehavior =
   | (CliBehaviorBase & { type: 'openPath'; path: string })
   | (CliBehaviorBase & { type: 'openWebsite'; url: string })
   | (CliBehaviorBase & { type: 'switchProfile'; direction: 'previous' | 'next'; wrap: boolean })
+  | (CliBehaviorBase & { type: 'quickOverlay'; profileId: string })
   | (CliBehaviorBase & { type: 'disabled' })
 
 /** Agent input may omit enabled; normalized responses always include it. */
@@ -64,6 +72,7 @@ export type CliBehaviorInput =
   | (Omit<Extract<CliBehavior, { type: 'openPath' }>, 'enabled'> & { enabled?: boolean })
   | (Omit<Extract<CliBehavior, { type: 'openWebsite' }>, 'enabled'> & { enabled?: boolean })
   | (Omit<Extract<CliBehavior, { type: 'switchProfile' }>, 'enabled'> & { enabled?: boolean })
+  | (Omit<Extract<CliBehavior, { type: 'quickOverlay' }>, 'enabled'> & { enabled?: boolean })
   | (Omit<Extract<CliBehavior, { type: 'disabled' }>, 'enabled'> & { enabled?: boolean })
 
 export type CliBehaviorSequence = CliBehavior[]
@@ -328,6 +337,10 @@ export function normalizeCliBehavior(value: unknown, platform: CliPlatform): Cli
         (value.wrap === undefined || typeof value.wrap === 'boolean')
         ? { type: 'switchProfile', direction: value.direction, wrap: value.wrap !== false, enabled: isEnabled }
         : null
+    case 'quickOverlay': {
+      const profileId = normalizeProfileReferenceId(value.profileId)
+      return profileId ? { type: 'quickOverlay', profileId, enabled: isEnabled } : null
+    }
     case 'disabled':
       return { type: 'disabled', enabled: isEnabled }
   }
@@ -375,6 +388,8 @@ export function behaviorToCliBehavior(value: Behavior, platform: CliPlatform): C
       return { ...base, type: 'openWebsite', url: value.url }
     case 'switchProfile':
       return { ...base, type: 'switchProfile', direction: value.direction, wrap: value.wrap }
+    case 'quickOverlay':
+      return { ...base, type: 'quickOverlay', profileId: value.profileId }
     case 'disabled':
       return { ...base, type: 'disabled' }
   }

@@ -137,13 +137,20 @@ export function applyInstanceProfileSwitch(
 ): DeviceInstance {
   return {
     ...instance,
-    profiles: instance.profiles.map(p => ({
-      ...p,
-      behaviors: {
-        ...p.behaviors,
-        [inputId]: { ...(p.behaviors[inputId] ?? empty()), [trigger]: [{ ...behavior, id: crypto.randomUUID() }] },
-      },
-    })),
+    profiles: instance.profiles.map(p =>
+      p.quick
+        ? p
+        : {
+            ...p,
+            behaviors: {
+              ...p.behaviors,
+              [inputId]: {
+                ...(p.behaviors[inputId] ?? empty()),
+                [trigger]: [{ ...behavior, id: crypto.randomUUID() }],
+              },
+            },
+          },
+    ),
   }
 }
 
@@ -158,10 +165,61 @@ export function removeInstanceProfileSwitch(
   return {
     ...next,
     profiles: next.profiles.map(p => {
+      if (p.quick && p.id !== profileId) return p
       const updated = { ...(p.behaviors[inputId] ?? empty()) }
       for (const trigger of triggers) updated[trigger] = updated[trigger].filter(b => b.type !== 'switchProfile')
       return { ...p, behaviors: { ...p.behaviors, [inputId]: updated } }
     }),
+  }
+}
+
+export function nextQuickProfileName(existingNames: readonly string[], preferred?: string): string {
+  const names = new Set(existingNames)
+  const clean = preferred
+    ?.trim()
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .slice(0, 40)
+  if (clean && !names.has(clean)) return clean
+  const base = clean || '快捷配置'
+  let index = clean ? 2 : 1
+  while (names.has(`${base} ${index}`)) index += 1
+  return `${base} ${index}`.slice(0, 40)
+}
+
+export function addQuickInstanceProfile(
+  instance: DeviceInstance,
+  preferredName?: string,
+  duplicateFromId?: string,
+): { instance: DeviceInstance; profileId: string } {
+  const id = crypto.randomUUID()
+  const source = duplicateFromId ? instance.profiles.find(p => p.id === duplicateFromId) : undefined
+  const behaviors: InstanceProfileBehaviors = source ? structuredClone(source.behaviors) : {}
+  if (source) {
+    for (const triggers of Object.values(behaviors)) {
+      for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
+        triggers[trigger] = triggers[trigger].filter(b => b.type !== 'switchProfile')
+      }
+    }
+  }
+  const name = nextQuickProfileName(
+    instance.profiles.map(p => p.name),
+    preferredName ?? (source ? `${source.name} 副本` : undefined),
+  )
+  return {
+    profileId: id,
+    instance: {
+      ...instance,
+      profiles: [
+        ...instance.profiles,
+        {
+          id,
+          name,
+          behaviors,
+          quick: true,
+          ...(source?.display ? { display: structuredClone(source.display) } : {}),
+        },
+      ],
+    },
   }
 }
 
@@ -205,9 +263,13 @@ export function addApplicationForEditing(instance: DeviceInstance, application: 
 }
 
 export function deleteInstanceProfile(instance: DeviceInstance, profileId: string): DeviceInstance {
-  if (instance.profiles.length <= 1) return instance
+  const removed = instance.profiles.find(profile => profile.id === profileId)
+  if (!removed) return instance
+  const regularCount = instance.profiles.filter(profile => !profile.quick).length
+  if (!removed.quick && regularCount <= 1) return instance
   const profiles = instance.profiles.filter(profile => profile.id !== profileId)
-  const fallbackProfileId = instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId
+  const defaultRegular = profiles.find(profile => !profile.quick) ?? profiles[0]
+  const fallbackProfileId = instance.activeProfileId === profileId ? defaultRegular.id : instance.activeProfileId
   return {
     ...instance,
     profiles,

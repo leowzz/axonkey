@@ -870,6 +870,11 @@ function AppController({
                   exclusive: true,
                   inheritedByNewProfiles: true,
                 },
+                {
+                  type: 'quickOverlay',
+                  fields: ['profileId'],
+                  exclusive: true,
+                },
                 { type: 'disabled', fields: [] },
               ],
               devices: cliDevices.map(item => ({

@@ -26,6 +26,7 @@ export const behaviorTypes = [
   'openPath',
   'openWebsite',
   'switchProfile',
+  'quickOverlay',
   'disabled',
 ] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
@@ -79,6 +80,7 @@ export type CursorMoveBehavior = BehaviorBase & { type: 'cursorMove'; direction:
 export type OpenAppBehavior = BehaviorBase & { type: 'openApp'; path: string }
 export type ProfileDirection = 'previous' | 'next'
 export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
+export type QuickOverlayBehavior = BehaviorBase & { type: 'quickOverlay'; profileId: string }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 
 export type Behavior =
@@ -95,6 +97,7 @@ export type Behavior =
   | OpenWebsiteBehavior
   | DisabledBehavior
   | SwitchProfileBehavior
+  | QuickOverlayBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -132,14 +135,29 @@ export type CreateBehaviorOptions = { libraryItemId?: string } & (
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
   | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
+  | { type: 'quickOverlay'; profileId?: string; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
 )
 
 const maxDelayMs = 300_000
 
 export const newBehaviorMinAppVersion = '1.8.11'
+export const quickOverlayMinAppVersion = '1.9.11'
+export function minAppVersionForBehaviors(behaviors: readonly Behavior[]): string | undefined {
+  if (behaviors.some(behavior => behavior.type === 'quickOverlay')) return quickOverlayMinAppVersion
+  if (behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath'))
+    return newBehaviorMinAppVersion
+  return undefined
+}
 export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): boolean {
-  return behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath')
+  return Boolean(minAppVersionForBehaviors(behaviors))
+}
+
+export function normalizeProfileReferenceId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim()
+  if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null
+  return id
 }
 
 export function normalizeFilePath(value: unknown): string | null {
@@ -253,6 +271,12 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
         type: 'switchProfile',
         direction: options.direction ?? 'next',
         wrap: options.wrap !== false,
+      }
+    case 'quickOverlay':
+      return {
+        ...base,
+        type: 'quickOverlay',
+        profileId: normalizeProfileReferenceId(options.profileId) ?? '',
       }
     case 'disabled':
       return { ...base, type: 'disabled' }
@@ -368,6 +392,10 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
         (value.wrap === undefined || typeof value.wrap === 'boolean')
         ? { ...base, type, direction: value.direction, wrap: value.wrap !== false }
         : null
+    case 'quickOverlay': {
+      const profileId = normalizeProfileReferenceId(value.profileId)
+      return profileId ? { ...base, type, profileId } : null
+    }
     case 'disabled':
       return { ...base, type }
   }
@@ -446,13 +474,12 @@ export function createMappingExport(
     enabled,
     behaviors: Object.fromEntries(device.inputIds.map(id => [id, cloned[id]])),
   }
-  if (
-    requiresNewBehaviorVersion(
-      Object.values(transfer.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
-    )
-  ) {
+  const minAppVersion = minAppVersionForBehaviors(
+    Object.values(transfer.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
+  )
+  if (minAppVersion) {
     transfer.version = 3
-    transfer.minAppVersion = newBehaviorMinAppVersion
+    transfer.minAppVersion = minAppVersion
   }
   const name =
     typeof profileName === 'string'
@@ -513,6 +540,9 @@ export function serializeSequence(behaviors: Behavior[]): string {
           break
         case 'switchProfile':
           line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`
+          break
+        case 'quickOverlay':
+          line = `quick ${sequenceArgument(behavior.profileId)}`
           break
         case 'disabled':
           line = 'disabled'
@@ -585,6 +615,7 @@ function parseSequenceText(text: string): unknown[] | null {
       ['wrap', 'stop'].includes(args[1])
     )
       behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
+    else if (command === 'quick' && args.length === 1) behavior = { type: 'quickOverlay', profileId: args[0] }
     else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
     else return null
     behaviors.push({ ...behavior, enabled })

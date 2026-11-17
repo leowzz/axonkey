@@ -121,7 +121,11 @@ export function keyGroupsForPlatform(platform: Platform) {
   })
 }
 
-export function behaviorSummary(behavior: Behavior, platform: Platform) {
+export function behaviorSummary(
+  behavior: Behavior,
+  platform: Platform,
+  profileNames?: ReadonlyMap<string, string> | Record<string, string>,
+) {
   switch (behavior.type) {
     case 'wheel':
       return { up: '滚轮向上', down: '滚轮向下', left: '水平滚轮向左', right: '水平滚轮向右' }[behavior.direction]
@@ -154,6 +158,14 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
       return behavior.url || '打开网站'
     case 'switchProfile':
       return `${behavior.direction === 'previous' ? '上一个' : '下一个'}配置文件${behavior.wrap ? ' · 循环' : ''}`
+    case 'quickOverlay': {
+      const name = profileNames
+        ? typeof (profileNames as ReadonlyMap<string, string>).get === 'function'
+          ? (profileNames as ReadonlyMap<string, string>).get(behavior.profileId)
+          : (profileNames as Record<string, string>)[behavior.profileId]
+        : undefined
+      return name ? `快捷交互窗 · ${name}` : '快捷交互窗'
+    }
     case 'disabled':
       return '不发送任何按键'
   }

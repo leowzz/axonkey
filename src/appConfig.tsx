@@ -241,12 +241,18 @@ export function getStoredProfiles(): StoredProfiles {
   }
 }
 
-export function createMappingProfile(name: string, behaviors: BehaviorMap, deviceId: DeviceId): MappingProfile {
+export function createMappingProfile(
+  name: string,
+  behaviors: BehaviorMap,
+  deviceId: DeviceId,
+  quick = false,
+): MappingProfile {
   return {
     id: createProfileId(),
     name: cleanProfileName(name),
     deviceId,
     behaviors: extractDeviceBehaviors(behaviors, deviceId),
+    ...(quick ? { quick: true } : {}),
   }
 }
 
@@ -289,6 +295,7 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   openApp: '打开应用',
   openWebsite: '打开网站',
   switchProfile: '切换配置文件',
+  quickOverlay: '快捷交互窗',
   disabled: '禁用按键',
 }
 
