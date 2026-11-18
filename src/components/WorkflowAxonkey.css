@@ -478,7 +478,7 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   align-items: stretch;
   min-width: 0;
   min-height: 0;
-  padding: 12px 14px 12px;
+  padding: 12px 14px 12px 0;
   isolation: isolate;
 }
 .workflow-canvas-panel {
@@ -1272,7 +1272,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
 }
 @media (max-width: 1100px) {
   .workflow-axonkey {
-    padding-inline: 10px;
+    padding-right: 10px;
   }
   .workflow-toolbox-item-main {
     gap: 6px;
