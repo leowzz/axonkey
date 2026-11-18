@@ -35,11 +35,11 @@ function bindLifecycleFlush() {
   if (lifecycleBound || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
   lifecycleBound = true
   window.addEventListener('pagehide', () => {
-    void flushAppStorage()
+    void flushAppStorage().catch(() => {})
   })
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void flushAppStorage()
+      if (document.visibilityState === 'hidden') void flushAppStorage().catch(() => {})
     })
   }
 }
@@ -70,12 +70,20 @@ function enqueueFlush(): Promise<void> {
   const batch = Object.fromEntries(pendingUpdates.entries())
   pendingUpdates.clear()
   const call = activeInvoke
-  writeChain = writeChain
-    .then(() => call<void>('update_app_config', { updates: batch }))
-    .catch(error => {
+  const nextWrite = writeChain.then(async () => {
+    try {
+      await call<void>('update_app_config', { updates: batch })
+    } catch (error) {
+      for (const [key, value] of Object.entries(batch)) {
+        if (!pendingUpdates.has(key)) pendingUpdates.set(key, value)
+      }
       logError('Failed to persist app configuration to data directory', error)
-    })
-  return writeChain
+      throw error
+    }
+  })
+  // Keep writeChain recoverable after an error while letting callers of enqueueFlush() observe failures.
+  writeChain = nextWrite.catch(() => {})
+  return nextWrite
 }
 
 function scheduleFlush() {
@@ -83,7 +91,7 @@ function scheduleFlush() {
   flushScheduled = true
   queueMicrotask(() => {
     flushScheduled = false
-    void enqueueFlush()
+    void enqueueFlush().catch(() => {})
   })
 }
 

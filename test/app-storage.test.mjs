@@ -126,6 +126,17 @@ test('transient disk write failure during upgrade migration preserves all legacy
   )
   assert.equal(disk.get('axonkey.saved-sequences.v1'), '[{"id":"seq-1","name":"常用提示词"}]')
   assert.equal(disk.get(storageMigrationMarkerKey), '1')
+
+  // Subsequent failed runtime writes reject explicit flushAppStorage() and re-queue without losing newer edits.
+  failWrite = true
+  appStorage.setItem('axonkey.audio-settings.v2', '{"gain":6}')
+  await assert.rejects(() => flushAppStorage(), /disk temporarily full/)
+  appStorage.setItem('axonkey.ui-state.v1', '{"activePage":"settings"}')
+
+  failWrite = false
+  await flushAppStorage()
+  assert.equal(disk.get('axonkey.audio-settings.v2'), '{"gain":6}')
+  assert.equal(disk.get('axonkey.ui-state.v1'), '{"activePage":"settings"}')
 })
 
 test('non-native mode delegates directly to fallback localStorage', t => {

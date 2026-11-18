@@ -65,47 +65,95 @@ impl std::fmt::Display for LoadError {
     }
 }
 
+struct StoreState {
+    entries: BTreeMap<String, String>,
+    unrecovered_io_error: Option<String>,
+}
+
 pub(crate) struct AppConfigStore {
     path: PathBuf,
-    entries: Mutex<BTreeMap<String, String>>,
+    state: Mutex<StoreState>,
 }
 
 impl AppConfigStore {
     pub(crate) fn open(path: PathBuf) -> Self {
-        let entries = match read_with_recovery(&path) {
-            Ok(config) => config.entries,
+        let state = match read_with_recovery(&path) {
+            Ok(config) => StoreState {
+                entries: config.entries,
+                unrecovered_io_error: None,
+            },
             Err(error) => {
                 log::error!(
                     target: "axonkey::config",
                     "Failed to load {}: {error}",
                     path.display()
                 );
-                if matches!(error, LoadError::Corrupt(_)) && path.exists() {
-                    let corrupt = unique_corrupt_path(&path);
-                    let _ = std::fs::rename(&path, &corrupt);
+                match error {
+                    LoadError::Corrupt(_) => {
+                        if path.exists() {
+                            let corrupt = unique_corrupt_path(&path);
+                            let _ = std::fs::rename(&path, &corrupt);
+                        }
+                        StoreState {
+                            entries: BTreeMap::new(),
+                            unrecovered_io_error: None,
+                        }
+                    }
+                    LoadError::Io(msg) => StoreState {
+                        entries: BTreeMap::new(),
+                        unrecovered_io_error: Some(msg),
+                    },
                 }
-                BTreeMap::new()
             }
         };
         Self {
             path,
-            entries: Mutex::new(entries),
+            state: Mutex::new(state),
+        }
+    }
+
+    fn ensure_loaded<'a>(&'a self, guard: &mut StoreState) -> Result<(), String> {
+        if guard.unrecovered_io_error.is_none() {
+            return Ok(());
+        }
+        match read_with_recovery(&self.path) {
+            Ok(config) => {
+                guard.entries = config.entries;
+                guard.unrecovered_io_error = None;
+                Ok(())
+            }
+            Err(LoadError::Io(msg)) => {
+                guard.unrecovered_io_error = Some(msg.clone());
+                Err(format!("无法读取软件配置文件：{msg}"))
+            }
+            Err(LoadError::Corrupt(_)) => {
+                if self.path.exists() {
+                    let corrupt = unique_corrupt_path(&self.path);
+                    let _ = std::fs::rename(&self.path, &corrupt);
+                }
+                guard.entries.clear();
+                guard.unrecovered_io_error = None;
+                Ok(())
+            }
         }
     }
 
     pub(crate) fn snapshot(&self) -> Result<BTreeMap<String, String>, String> {
-        self.entries
+        let mut guard = self
+            .state
             .lock()
-            .map(|entries| entries.clone())
-            .map_err(|_| "软件配置状态不可用".into())
+            .map_err(|_| "软件配置状态不可用".to_string())?;
+        self.ensure_loaded(&mut guard)?;
+        Ok(guard.entries.clone())
     }
 
     pub(crate) fn update(&self, updates: BTreeMap<String, Option<String>>) -> Result<(), String> {
         let mut guard = self
-            .entries
+            .state
             .lock()
             .map_err(|_| "软件配置状态不可用".to_string())?;
-        let mut next = guard.clone();
+        self.ensure_loaded(&mut guard)?;
+        let mut next = guard.entries.clone();
         let mut changed = false;
 
         for (key, value) in updates {
@@ -136,7 +184,7 @@ impl AppConfigStore {
                 entries: next.clone(),
             },
         )?;
-        *guard = next;
+        guard.entries = next;
         Ok(())
     }
 }
@@ -215,11 +263,15 @@ fn read_config_file(path: &Path) -> Result<PersistedAppConfig, LoadError> {
     let bytes = std::fs::read(path).map_err(|e| LoadError::Io(e.to_string()))?;
     let parsed: PersistedAppConfig = serde_json::from_slice(&bytes)
         .map_err(|e| LoadError::Corrupt(format!("无法解析配置文件：{e}")))?;
-    if parsed.version != CURRENT_VERSION {
-        return Err(LoadError::Corrupt(format!(
-            "不支持的配置文件版本：{}",
+    if parsed.version == 0 {
+        return Err(LoadError::Corrupt("不支持的配置文件版本：0".into()));
+    }
+    if parsed.version > CURRENT_VERSION {
+        log::warn!(
+            target: "axonkey::config",
+            "Loading forward-version app-config v{} with compatible entries map",
             parsed.version
-        )));
+        );
     }
     Ok(parsed)
 }
@@ -408,6 +460,42 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn preserves_forward_version_entries_and_blocks_overwrite_during_transient_io_failure() {
+        let path = temp_config_path("forward-and-io");
+        std::fs::write(
+            &path,
+            br#"{"version":2,"entries":{"axonkey.mapping-profiles.v2":"{\"version\":2}"},"extraFutureField":true}"#,
+        )
+        .unwrap();
+
+        let forward_store = AppConfigStore::open(path.clone());
+        assert_eq!(
+            forward_store
+                .snapshot()
+                .unwrap()
+                .get("axonkey.mapping-profiles.v2"),
+            Some(&"{\"version\":2}".to_string())
+        );
+
+        // Simulate an unreadable directory occupying `path` (Io error, not Corrupt JSON):
+        // snapshot() and update() must return Err rather than clobbering or returning empty defaults.
+        let io_dir = temp_config_path("io-blocked");
+        std::fs::create_dir_all(&io_dir).unwrap();
+        let io_store = AppConfigStore::open(io_dir.clone());
+        assert!(io_store.snapshot().is_err());
+        assert!(io_store
+            .update(BTreeMap::from([(
+                "axonkey.settings.v1".into(),
+                Some("{}".into())
+            )]))
+            .is_err());
+        assert!(io_dir.is_dir());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(io_dir.parent().unwrap());
     }
 
     #[test]

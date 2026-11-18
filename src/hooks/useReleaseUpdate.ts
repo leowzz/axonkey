@@ -29,7 +29,7 @@ export function useReleaseUpdate(aboutVisible: boolean, debugMode = false) {
             return metadata ? new Update(metadata) : null
           },
           relaunch: async () => {
-            await flushAppStorage()
+            await flushAppStorage().catch(error => logError('Failed to flush app configuration before restart', error))
             await invoke<void>('restart_app')
           },
           onError: (stage, error) => logError(`Update ${stage} failed`, error),
