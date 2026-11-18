@@ -1686,7 +1686,7 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
   try {
     const rootDiv = view.root.find(node => node.type === 'div' && node.props.className?.includes('managed-instance-workspace'))
     assert.match(rootDiv.props.className, /\bis-controller\b/)
-    assert.equal(view.root.findAllByProps({ className: 'remote-stage managed-controller-stage' }).length, 1)
+    assert.equal(view.root.findAllByProps({ className: 'remote-stage' }).length, 1)
     assert.equal(view.root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     assert.ok(view.root.findByType(RemoteControl).props.screenRegion)
 

@@ -69,6 +69,7 @@
 .mapping-active .mapping-flow-page .remote-stage {
   order: 2;
   display: flex;
+  container-type: size;
   flex: 1 1 0;
   min-width: 0;
   min-height: min(210px, 34dvh);
@@ -82,21 +83,21 @@
 .macos-vibrancy .mapping-active .mapping-flow-page .remote-stage {
   background: rgb(255 255 255 / 30%);
 }
-.mapping-active .mapping-flow-page:not(.is-controller) .remote-stage {
-  container-type: size;
-}
-.mapping-active .mapping-flow-page:not(.is-controller) .remote-art {
+.mapping-active .mapping-flow-page .remote-art {
   display: flex;
   justify-content: center;
   width: 100%;
   min-width: 0;
 }
-.mapping-active .mapping-flow-page:not(.is-controller) .remote-control-view {
+.mapping-active .mapping-flow-page .remote-control-view {
   width: min(100cqw, calc((100cqh - 22px) * var(--remote-ratio, 0.411)));
   min-width: 0;
 }
-.mapping-active .mapping-flow-page:not(.is-controller) .remote-control {
+.mapping-active .mapping-flow-page .remote-control {
   aspect-ratio: var(--remote-aspect);
+}
+.mapping-flow-page .remote-control-hint {
+  margin-inline: 0;
 }
 .rail-keymap-list {
   order: 2;

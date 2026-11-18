@@ -1257,9 +1257,6 @@ button.managed-package:hover:not(:disabled) {
   font-weight: 500;
   white-space: nowrap;
 }
-.managed-controller-stage .remote-art {
-  width: 100%;
-}
 .managed-driver-status-row {
   max-width: 720px;
   margin-top: 20px;
@@ -1318,47 +1315,27 @@ button.managed-package:hover:not(:disabled) {
   }
 }
 
-.managed-instance-workspace.is-controller {
-  --controller-stage-width: clamp(380px, 38vw, 520px);
-  --controller-library-width: clamp(266px, 22vw, 340px);
+.managed-instance-workspace {
+  container-type: size;
 }
-/* Cap the device stage once large enough so extra window width expands the middle editor column. */
-.managed-instance-workspace.is-controller .mapping-workbench {
-  grid-template-columns: var(--controller-stage-width) minmax(0, 1fr);
-}
-.managed-instance-workspace.is-controller .managed-controller-stage {
-  flex: 1 1 0;
-  padding: 12px;
-  place-items: stretch;
-}
-.managed-instance-workspace.is-controller .managed-controller-stage .remote-art {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-.managed-instance-workspace.is-controller .remote-control-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-.managed-instance-workspace.is-controller .remote-control {
-  flex: 1 1 0;
-  height: 100%;
-  min-height: 0;
-}
-.managed-instance-workspace.is-controller .remote-control-hint {
-  flex-shrink: 0;
-  margin-inline: 0;
+.managed-instance-workspace .mapping-workbench {
+  /* Aim for a readable device height, then reserve room for the behavior editor. */
+  grid-template-columns:
+    clamp(
+      190px,
+      calc(clamp(400px, 100cqh - 180px, 620px) * var(--device-diagram-ratio, 0.411) + 60px),
+      min(520px, 38cqw)
+    )
+    minmax(0, 1fr);
 }
 .remote-key.remote-screen-region.selected .remote-key-surface {
   fill: rgb(56 189 248 / 12%);
 }
-.managed-instance-workspace.is-controller .managed-analog {
+.managed-instance-workspace .managed-analog {
   flex-shrink: 0;
 }
 .managed-instance-workspace.is-controller .workflow-axonkey {
-  grid-template-columns: minmax(242px, 1fr) var(--controller-library-width);
+  grid-template-columns: minmax(242px, 1fr) clamp(244px, 22vw, 340px);
 }
 .managed-workflow-triggers {
   display: grid;

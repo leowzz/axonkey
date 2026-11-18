@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -683,6 +683,13 @@ export function InstanceWorkspace({
     <div
       ref={workspaceRef}
       className={`mapping-page mapping-flow-page managed-instance-workspace ${singleLaneWorkspace ? 'is-controller' : ''}`}
+      style={
+        {
+          '--device-diagram-ratio': pkg.remoteView
+            ? pkg.remoteView.viewBox.width / pkg.remoteView.viewBox.height
+            : undefined,
+        } as CSSProperties
+      }
     >
       <div className="mapping-workbench">
         <DeviceWorkspaceHeader
@@ -869,7 +876,7 @@ export function InstanceWorkspace({
           </div>
           {railMode === 'diagram' ? (
             <>
-              <div className={`remote-stage ${singleLaneWorkspace ? 'managed-controller-stage' : ''}`}>
+              <div className="remote-stage">
                 <div className="remote-art">
                   <RemoteControl
                     activeId={selected}
