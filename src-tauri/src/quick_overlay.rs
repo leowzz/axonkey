@@ -106,6 +106,7 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow,
     .visible(false)
     .focused(false)
     .focusable(false)
+    .accept_first_mouse(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .shadow(false);
@@ -204,11 +205,17 @@ pub(crate) fn open(
             if !current {
                 return;
             }
-            if let Err(error) = ensure_overlay_window(&handle) {
-                log::warn!(target: "axonkey::quick_overlay", "Cannot create quick overlay window: {error}");
-                return;
-            }
+            let window = match ensure_overlay_window(&handle) {
+                Ok(window) => window,
+                Err(error) => {
+                    log::warn!(target: "axonkey::quick_overlay", "Cannot create quick overlay window: {error}");
+                    return;
+                }
+            };
             let _ = handle.emit_to(LABEL, EVENT, Some(payload));
+            // Present immediately on the cursor's screen so macOS WebKit never throttles
+            // a hidden/off-Space WebView before `reveal_quick_overlay` can fire.
+            present_window_on_cursor_monitor(&window);
         });
     }
     revision
@@ -300,82 +307,83 @@ fn hide_window_if_idle() {
     });
 }
 
-fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
+fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
-        let win = window.clone();
-        window
-            .app_handle()
-            .run_on_main_thread(move || {
-                if let Ok(ns_win) = win.ns_window() {
-                    unsafe extern "C" {
-                        fn axonkey_show_quick_overlay_window(
-                            window_ptr: *mut std::ffi::c_void,
-                            width: f64,
-                            height: f64,
-                        ) -> u32;
-                    }
-                    let status =
-                        unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT) };
-                    log::info!(
-                        target: "axonkey::quick_overlay",
-                        "macOS quick overlay shown: visible={} active_space={}",
-                        status & 1 != 0,
-                        status & 2 != 0
-                    );
-                }
-            })
-            .map_err(|e| e.to_string())
+        if let Ok(ns_win) = window.ns_window() {
+            unsafe extern "C" {
+                fn axonkey_show_quick_overlay_window(
+                    window_ptr: *mut std::ffi::c_void,
+                    width: f64,
+                    height: f64,
+                ) -> u32;
+            }
+            let status = unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT) };
+            log::info!(
+                target: "axonkey::quick_overlay",
+                "macOS quick overlay shown: visible={} active_space={}",
+                status & 1 != 0,
+                status & 2 != 0
+            );
+        }
     }
     #[cfg(windows)]
     {
-        let win = window.clone();
-        window
-            .app_handle()
-            .run_on_main_thread(move || {
-                configure_windows_noactivate(&win);
-                let app = win.app_handle();
-                let monitor = app
-                    .cursor_position()
-                    .ok()
-                    .and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
-                    .or_else(|| app.primary_monitor().ok().flatten());
-                if let Ok(raw) = win.hwnd() {
-                    use windows::Win32::{
-                        Foundation::HWND,
-                        UI::WindowsAndMessaging::{
-                            SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-                            SW_SHOWNOACTIVATE,
-                        },
-                    };
-                    let hwnd = HWND(raw.0);
-                    if let Some(monitor) = monitor {
-                        let area = monitor.work_area();
-                        let scale = monitor.scale_factor();
-                        let w = ((WIDTH * scale).round() as i32).min(area.size.width as i32 - 32);
-                        let h = ((HEIGHT * scale).round() as i32).min(area.size.height as i32 - 32);
-                        let x = area.position.x + (area.size.width as i32 - w) / 2;
-                        let y = area.position.y + (area.size.height as i32 - h) / 2 - 12;
-                        unsafe {
-                            let _ = SetWindowPos(
-                                hwnd,
-                                Some(HWND_TOPMOST),
-                                x,
-                                y,
-                                w,
-                                h,
-                                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                            );
-                            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                        }
-                    } else {
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                        }
-                    }
+        use windows::Win32::{
+            Foundation::{HWND, POINT},
+            Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            },
+            UI::{
+                HiDpi::GetDpiForWindow,
+                WindowsAndMessaging::{
+                    GetCursorPos, SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE,
+                    SWP_NOSIZE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE,
+                },
+            },
+        };
+        configure_windows_noactivate(window);
+        if let Ok(raw) = window.hwnd() {
+            let hwnd = HWND(raw.0);
+            unsafe {
+                let mut cursor = POINT::default();
+                let _ = GetCursorPos(&mut cursor);
+                let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if GetMonitorInfoW(hmonitor, &mut info).as_bool() {
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        info.rcWork.left,
+                        info.rcWork.top,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOSIZE,
+                    );
+                    let dpi = GetDpiForWindow(hwnd);
+                    let scale = if dpi > 0 { dpi as f64 / 96.0 } else { 1.0 };
+                    let work_w = (info.rcWork.right - info.rcWork.left).max(360);
+                    let work_h = (info.rcWork.bottom - info.rcWork.top).max(280);
+                    let w = ((WIDTH * scale).round() as i32).min(work_w - 32);
+                    let h = ((HEIGHT * scale).round() as i32).min(work_h - 32);
+                    let x = info.rcWork.left + (work_w - w) / 2;
+                    let y = info.rcWork.top + (work_h - h) / 2 - 12;
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND_TOPMOST),
+                        x,
+                        y,
+                        w,
+                        h,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                    );
                 }
-            })
-            .map_err(|e| e.to_string())
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+        }
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
@@ -388,17 +396,23 @@ fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), 
         if let Some(monitor) = monitor {
             let area = monitor.work_area();
             let scale = monitor.scale_factor();
-            window
-                .set_position(tauri::PhysicalPosition::new(
-                    area.position.x
-                        + ((area.size.width as f64 - WIDTH * scale) / 2.0).round() as i32,
-                    area.position.y
-                        + ((area.size.height as f64 - HEIGHT * scale) / 2.0).round() as i32,
-                ))
-                .map_err(|e| e.to_string())?;
+            let _ = window.set_position(tauri::PhysicalPosition::new(
+                area.position.x + ((area.size.width as f64 - WIDTH * scale) / 2.0).round() as i32,
+                area.position.y + ((area.size.height as f64 - HEIGHT * scale) / 2.0).round() as i32,
+            ));
         }
-        window.show().map_err(|e| e.to_string())
+        let _ = window.show();
     }
+}
+
+fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let win = window.clone();
+    window
+        .app_handle()
+        .run_on_main_thread(move || {
+            present_window_on_cursor_monitor(&win);
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
