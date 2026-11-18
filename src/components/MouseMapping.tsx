@@ -68,6 +68,7 @@ export function MouseInputModel({
     return (
       <button
         type="button"
+        data-mouse-control={id}
         className={`mouse-part mouse-part-${id}${warning ? ' warning' : ''}`}
         aria-label={`选择${fullLabel}${warning ? `（${warning}）` : ''}`}
         title={warning ? `${fullLabel} — ${warning}` : undefined}

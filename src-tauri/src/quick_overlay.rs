@@ -11,8 +11,8 @@ use tauri::{Emitter, Manager};
 
 const LABEL: &str = "quick-overlay";
 const EVENT: &str = "axonkey-quick-overlay";
-const WIDTH: f64 = 780.0;
-const HEIGHT: f64 = 500.0;
+const WIDTH: f64 = 880.0;
+const HEIGHT: f64 = 560.0;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);

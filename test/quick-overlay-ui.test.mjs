@@ -195,5 +195,93 @@ test('summarizeQuickTrigger highlights embedded prompt inside multi-step sequenc
     summarizeQuickTrigger('click', [{ id: '1', type: 'key', key: 'A', enabled: false }], 'macos'),
     null,
   )
+})
+
+test('callout layout balances left/right columns in vertical order and keypad layout maps K18 4x5 matrix', () => {
+  const rcView = buildQuickOverlayView(
+    {
+      revision: 9,
+      sourceId: 'rc-mouse',
+      deviceKind: 'rc003',
+      deviceName: '小米遥控器',
+      profileId: 'p-mouse',
+      profileName: '鼠标操作',
+      triggerInput: 'menu',
+      pressed: ['confirm'],
+      preview: false,
+      behaviors: {
+        power: { click: [{ id: '1', enabled: true, type: 'openPath', path: '/Users/leo/work/reveland' }] },
+        voice: { click: [{ id: '2', enabled: true, type: 'mouse', button: 'forward' }] },
+        up: { click: [{ id: '3', enabled: true, type: 'cursorMove', direction: 'up', distance: 50 }] },
+        left: { click: [{ id: '4', enabled: true, type: 'cursorMove', direction: 'left', distance: 50 }] },
+        confirm: { click: [{ id: '5', enabled: true, type: 'mouse', button: 'left' }] },
+        right: { click: [{ id: '6', enabled: true, type: 'cursorMove', direction: 'right', distance: 50 }] },
+        down: { click: [{ id: '7', enabled: true, type: 'cursorMove', direction: 'down', distance: 50 }] },
+        back: { click: [{ id: '8', enabled: true, type: 'mouse', button: 'right' }] },
+        home: { click: [{ id: '9', enabled: true, type: 'mouse', button: 'back' }] },
+        volumeUp: { click: [{ id: '10', enabled: true, type: 'wheel', direction: 'up' }] },
+        volumeDown: { click: [{ id: '11', enabled: true, type: 'wheel', direction: 'down' }] },
+      },
+    },
+    'macos',
+  )
+
+  assert.equal(rcView.layoutMode, 'callout')
+  assert.equal(rcView.leftCallouts.length, 6)
+  assert.equal(rcView.rightCallouts.length, 6)
+
+  // Both columns stay monotonically sorted top-to-bottom so leader lines do not cross.
+  for (const column of [rcView.leftCallouts, rcView.rightCallouts]) {
+    for (let i = 1; i < column.length; i++) {
+      assert.ok(column[i].ny >= column[i - 1].ny, `expected monotonic ny at index ${i}`)
+    }
+  }
+
+  const powerCallout = rcView.leftCallouts.find(item => item.inputId === 'power')
+  assert.ok(powerCallout)
+  assert.equal(powerCallout.triggers[0].text, '打开 reveland')
+  assert.equal(powerCallout.triggers[0].showTriggerTag, false)
+
+  const exitCallout = [...rcView.leftCallouts, ...rcView.rightCallouts].find(item => item.isExitTrigger)
+  assert.ok(exitCallout)
+  assert.equal(exitCallout.inputId, 'menu')
+
+  const k18View = buildQuickOverlayView(
+    {
+      revision: 10,
+      sourceId: 'k18-1',
+      deviceKind: 'kivoK18Lite',
+      deviceName: 'Kivo K18 Lite',
+      profileId: 'k18-ai',
+      profileName: 'AI 编程助手',
+      triggerInput: 'kivo.k18Lite.k01',
+      pressed: [],
+      preview: false,
+      behaviors: {
+        'kivo.k18Lite.k02': { click: [{ id: '1', enabled: true, type: 'shortcut', keys: ['Win', '['] }] },
+        'kivo.k18Lite.k18': {
+          click: [{ id: '2', enabled: true, type: 'key', key: 'Esc' }],
+          longPress: [{ id: '3', enabled: true, type: 'shortcut', keys: ['Win', 'Q'] }],
+        },
+      },
+    },
+    'macos',
+  )
+
+  assert.equal(k18View.layoutMode, 'keypad')
+  assert.equal(k18View.keypadSlots.length, 18)
+  assert.deepEqual(
+    { row: k18View.keypadSlots[0].row, col: k18View.keypadSlots[0].col, status: k18View.keypadSlots[0].status },
+    { row: 1, col: 3, status: 'trigger' },
+  )
+  assert.equal(k18View.keypadSlots[1].status, 'configured')
+  assert.equal(k18View.keypadSlots[1].triggers[0].text, 'Cmd + [')
+  assert.equal(k18View.keypadSlots[4].status, 'idle')
+  assert.deepEqual(
+    { row: k18View.keypadSlots[17].row, col: k18View.keypadSlots[17].col, status: k18View.keypadSlots[17].status },
+    { row: 4, col: 5, status: 'configured' },
+  )
+  assert.equal(k18View.keypadSlots[17].triggers[0].text, 'Esc')
+
   assets.deregister()
 })

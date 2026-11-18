@@ -19,19 +19,19 @@ html.quick-overlay-window,
 .quick-overlay-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 14px 16px 16px;
+  padding: 13px 16px 15px;
   box-sizing: border-box;
   border: 1px solid rgb(255 255 255 / 16%);
   border-radius: 18px;
   color: #f4f7fb;
-  background: linear-gradient(165deg, rgb(22 27 36 / 92%), rgb(17 21 29 / 95%));
+  background: linear-gradient(165deg, rgb(20 25 34 / 94%), rgb(15 19 27 / 96%));
   box-shadow:
-    0 18px 42px rgb(0 0 0 / 38%),
+    0 18px 42px rgb(0 0 0 / 42%),
     inset 0 1px 0 rgb(255 255 255 / 10%);
   user-select: none;
 }
@@ -146,26 +146,101 @@ html.quick-overlay-window,
   outline: none;
 }
 
-.quick-overlay-body {
+/* ==========================================================================
+   Spatial 3-Column Callout Canvas (Remotes, Controllers, Custom SVG, Mouse)
+   ========================================================================== */
+
+.quick-overlay-callout-stage {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 176px minmax(0, 1fr);
+  gap: 24px;
+  align-items: stretch;
 }
 
-.quick-overlay-diagram {
+.quick-overlay-callout-stage.is-wide-device {
+  grid-template-columns: minmax(0, 1fr) 232px minmax(0, 1fr);
+  gap: 22px;
+}
+
+.quick-overlay-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.quick-overlay-wire path {
+  fill: none;
+  stroke: rgb(148 163 184 / 42%);
+  stroke-width: 1.35px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke 120ms ease,
+    stroke-width 120ms ease;
+}
+
+.quick-overlay-wire circle {
+  fill: #93c5fd;
+  stroke: rgb(15 23 42 / 85%);
+  stroke-width: 1.2px;
+  transition:
+    fill 120ms ease,
+    r 120ms ease;
+}
+
+.quick-overlay-wire.is-exit path {
+  stroke: rgb(251 191 36 / 52%);
+  stroke-dasharray: 3 3;
+}
+
+.quick-overlay-wire.is-exit circle {
+  fill: #fbbf24;
+}
+
+.quick-overlay-wire.is-active path {
+  stroke: #60a5fa;
+  stroke-width: 2.1px;
+  stroke-dasharray: none;
+}
+
+.quick-overlay-wire.is-active circle {
+  fill: #60a5fa;
+}
+
+.quick-overlay-wire.is-exit.is-active path {
+  stroke: #fbbf24;
+}
+
+.quick-overlay-wire.is-exit.is-active circle {
+  fill: #fde68a;
+}
+
+.quick-overlay-wire.is-pressed path {
+  stroke: #34d399;
+  stroke-width: 2.3px;
+}
+
+.quick-overlay-wire.is-pressed circle {
+  fill: #34d399;
+}
+
+.quick-overlay-center-device {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
   min-width: 0;
-  padding: 12px;
-  border-radius: 14px;
-  background: rgb(255 255 255 / 4.5%);
-  border: 1px solid rgb(255 255 255 / 8%);
-  overflow: hidden;
+  padding: 6px 4px;
 }
 
 .quick-overlay-remote-wrap {
@@ -190,172 +265,275 @@ html.quick-overlay-window,
 .quick-overlay-remote-wrap .remote-control {
   width: auto;
   height: auto;
-  max-width: 196px;
-  max-height: 386px;
+  max-width: 168px;
+  max-height: 454px;
+  filter: drop-shadow(0 12px 24px rgb(0 0 0 / 35%));
 }
 
-.quick-overlay-remote-wrap .remote-hint {
+.quick-overlay-callout-stage.is-wide-device .quick-overlay-remote-wrap .remote-control {
+  max-width: 224px;
+  max-height: 360px;
+}
+
+.quick-overlay-remote-wrap .remote-control-hint {
   display: none;
 }
 
-.quick-overlay-diagram .remote-key.quick-trigger-key .remote-key-outline {
-  stroke: #fbbf24;
-  stroke-width: 2.4;
-  opacity: 0.95;
+.quick-overlay-center-device .remote-key.mapped .remote-key-outline {
+  stroke: rgb(96 165 250 / 75%);
+  stroke-width: 1.4px;
 }
 
-.quick-overlay-diagram .remote-key.quick-trigger-key .remote-key-halo {
+.quick-overlay-center-device .remote-key.mapped .remote-key-surface {
+  fill: rgb(59 130 246 / 20%);
+}
+
+.quick-overlay-center-device .remote-key.quick-trigger-key .remote-key-outline {
+  stroke: #fbbf24;
+  stroke-width: 2.2px;
+}
+
+.quick-overlay-center-device .remote-key.quick-trigger-key .remote-key-halo {
   stroke: rgb(251 191 36 / 34%);
-  stroke-width: 6;
-  opacity: 1;
+  stroke-width: 5.5px;
+}
+
+.quick-overlay-center-device .remote-key.quick-trigger-key .remote-key-surface {
+  fill: rgb(245 158 11 / 22%);
 }
 
 .quick-overlay-mouse-wrap {
   width: 100%;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid rgb(255 255 255 / 9%);
   color: #e2e8f0;
 }
 
-.quick-overlay-mouse-wrap .mouse-model-title {
+.quick-overlay-mouse-wrap .mouse-model-title,
+.quick-overlay-mouse-wrap .mouse-model-selection {
   display: none;
 }
 
-.quick-overlay-mouse-wrap .mouse-model-selection {
-  color: #cbd5e1;
-  font-size: 12px;
+.quick-overlay-mouse-wrap .mouse-part,
+.quick-overlay-mouse-wrap .mouse-part[aria-pressed='true'] {
+  border-color: rgb(148 163 184 / 20%);
+  background: rgb(30 41 59 / 76%);
+  color: rgb(203 213 225 / 72%);
+  box-shadow: none;
 }
 
-.quick-overlay-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-content: start;
-  gap: 9px;
-  min-height: 0;
-  min-width: 0;
-  padding-right: 2px;
-  overflow-y: auto;
+.quick-overlay-mouse-wrap .mouse-part.quick-mapped-key {
+  border-color: rgb(96 165 250 / 52%);
+  background: rgb(37 64 112 / 55%);
+  color: #f1f5f9;
 }
 
-.quick-overlay-card {
+.quick-overlay-mouse-wrap .mouse-part.quick-trigger-key {
+  border-color: rgb(251 191 36 / 65%);
+  background: rgb(245 158 11 / 22%);
+  color: #fde68a;
+}
+
+.quick-overlay-mouse-wrap .mouse-part:hover,
+.quick-overlay-mouse-wrap .mouse-part.quick-active-key {
+  border-color: #60a5fa;
+  background: rgb(59 130 246 / 38%);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgb(96 165 250 / 28%);
+}
+
+.quick-callout-column {
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  justify-content: space-evenly;
+  gap: 6px;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.quick-callout-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
   width: 100%;
   min-width: 0;
-  padding: 10px 12px;
-  text-align: left;
+  padding: 7px 10px;
+  border-radius: 11px;
+  border: 1px solid rgb(255 255 255 / 11%);
+  background: rgb(30 37 50 / 82%);
+  color: #f8fafc;
   font-family: inherit;
-  color: inherit;
-  border: 1px solid rgb(255 255 255 / 9%);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 5.5%);
+  text-align: left;
   cursor: pointer;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    transform 120ms ease;
+    box-shadow 120ms ease;
 }
 
-.quick-overlay-card:hover,
-.quick-overlay-card:focus-visible,
-.quick-overlay-card.is-active {
-  background: rgb(59 130 246 / 15%);
-  border-color: rgb(96 165 250 / 45%);
+/* Put the key badge on the inner edge right next to the leader wire! */
+.quick-callout-card.side-left {
+  flex-direction: row;
+}
+
+.quick-callout-card.side-right {
+  flex-direction: row-reverse;
+}
+
+.quick-callout-card:hover,
+.quick-callout-card:focus-visible,
+.quick-callout-card.is-active {
+  background: rgb(37 64 112 / 62%);
+  border-color: rgb(96 165 250 / 58%);
+  box-shadow: 0 0 0 1px rgb(96 165 250 / 20%);
   outline: none;
 }
 
-.quick-overlay-card.is-pressed {
-  background: rgb(16 185 129 / 20%);
-  border-color: rgb(52 211 153 / 62%);
+.quick-callout-card.is-pressed {
+  background: rgb(16 185 129 / 26%);
+  border-color: rgb(52 211 153 / 72%);
 }
 
-.quick-overlay-card-head {
-  display: flex;
+.quick-callout-card.is-exit-card {
+  border-style: dashed;
+  border-color: rgb(251 191 36 / 34%);
+  background: rgb(245 158 11 / 9%);
+}
+
+.quick-callout-card.is-exit-card:hover,
+.quick-callout-card.is-exit-card.is-active {
+  border-color: rgb(251 191 36 / 68%);
+  background: rgb(245 158 11 / 18%);
+  box-shadow: none;
+}
+
+.quick-callout-key-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #dbeafe;
+  background: rgb(59 130 246 / 22%);
+  border: 1px solid rgb(96 165 250 / 32%);
+  white-space: nowrap;
 }
 
-.quick-overlay-keycap {
+.quick-callout-key-pill.is-exit {
+  color: #fde68a;
+  background: rgb(245 158 11 / 22%);
+  border-color: rgb(251 191 36 / 38%);
+}
+
+.quick-callout-key-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 5px;
-  border-radius: 7px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  color: #dbeafe;
-  background: rgb(59 130 246 / 24%);
-  border: 1px solid rgb(96 165 250 / 30%);
-  flex: 0 0 auto;
 }
 
-.quick-overlay-key-name {
-  flex: 1 1 auto;
-  min-width: 0;
+.quick-callout-key-label {
+  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  color: #f8fafc;
 }
 
-.quick-overlay-card-tags {
-  display: inline-flex;
+.quick-callout-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quick-callout-meta-row {
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
-  flex: 0 0 auto;
+  min-width: 0;
 }
 
-.quick-overlay-kind-tag {
+.quick-callout-scope-tag {
+  align-self: flex-start;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: 4px;
   font-size: 10.5px;
   font-weight: 600;
   color: #93c5fd;
   background: rgb(59 130 246 / 18%);
+  line-height: 1.35;
 }
 
-.quick-overlay-trigger-tag {
-  padding: 1px 6px;
-  border-radius: 5px;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: rgb(226 232 240 / 74%);
-  background: rgb(255 255 255 / 9%);
-  flex: 0 0 auto;
-}
-
-.quick-overlay-card-detail {
+.quick-callout-single {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
-.quick-overlay-detail-text {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.48;
-  color: rgb(241 245 249 / 90%);
+.quick-callout-primary-text {
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.38;
+  color: #fff;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   word-break: break-word;
-  white-space: pre-wrap;
 }
 
-.quick-overlay-card-detail.is-action .quick-overlay-detail-text {
-  font-weight: 500;
-  color: #cbd5e1;
+.quick-callout-single.is-prompt .quick-callout-primary-text {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: #f1f5f9;
+}
+
+.quick-callout-exit-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fcd34d;
+}
+
+.quick-overlay-kind-tag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #93c5fd;
+  background: rgb(59 130 246 / 20%);
+}
+
+.quick-overlay-trigger-tag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: rgb(255 255 255 / 12%);
 }
 
 .quick-overlay-steps-chain {
   font-size: 11px;
-  color: rgb(148 163 184 / 88%);
+  color: rgb(148 163 184 / 90%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -364,37 +542,221 @@ html.quick-overlay-window,
 .quick-overlay-multi-triggers {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   min-width: 0;
 }
 
 .quick-overlay-trigger-row {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
 }
 
-.quick-overlay-trigger-body {
+.quick-overlay-trigger-row .quick-callout-primary-text {
+  -webkit-line-clamp: 1;
+  font-size: 12.5px;
+}
+
+/* ==========================================================================
+   1:1 Hardware Keycap Matrix HUD (Kivo K18 Lite 4x5 Deck)
+   ========================================================================== */
+
+.quick-keypad-deck {
   flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  padding: 12px;
+  border-radius: 15px;
+  background: rgb(10 13 20 / 55%);
+  border: 1px solid rgb(255 255 255 / 9%);
+}
+
+.quick-keypad-oled {
+  grid-column: 1 / span 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgb(8 12 20 / 95%), rgb(15 23 42 / 90%));
+  border: 1px solid rgb(96 165 250 / 28%);
+  box-shadow: inset 0 0 18px rgb(59 130 246 / 10%);
   min-width: 0;
 }
 
-.quick-overlay-trigger-row .quick-overlay-detail-text {
+.quick-keypad-oled-eyebrow {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #60a5fa;
+}
+
+.quick-keypad-oled strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-keypad-oled span:last-child {
+  font-size: 11px;
+  color: rgb(148 163 184 / 92%);
+}
+
+.quick-keypad-cap {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 10px;
+  border-radius: 11px;
+  font-family: inherit;
+  text-align: left;
+  overflow: hidden;
+}
+
+.quick-keypad-cap.is-idle {
+  border: 1px dashed rgb(255 255 255 / 8%);
+  background: rgb(255 255 255 / 2.5%);
+  color: rgb(148 163 184 / 42%);
+}
+
+.quick-keypad-cap.is-configured {
+  border: 1px solid rgb(96 165 250 / 32%);
+  background: linear-gradient(180deg, rgb(34 44 62 / 92%), rgb(25 33 48 / 92%));
+  box-shadow:
+    0 3px 0 rgb(10 15 26 / 85%),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 100ms ease;
+}
+
+.quick-keypad-cap.is-configured:hover,
+.quick-keypad-cap.is-configured:focus-visible,
+.quick-keypad-cap.is-configured.is-active {
+  border-color: #60a5fa;
+  background: linear-gradient(180deg, rgb(39 67 115 / 92%), rgb(29 50 88 / 92%));
+  outline: none;
+}
+
+.quick-keypad-cap.is-configured.is-pressed {
+  border-color: #34d399;
+  background: rgb(16 185 129 / 28%);
+  transform: translateY(1px);
+}
+
+.quick-keypad-cap.is-trigger {
+  border: 1px dashed rgb(251 191 36 / 52%);
+  background: rgb(245 158 11 / 14%);
+  color: #fde68a;
+  cursor: pointer;
+}
+
+.quick-keypad-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.quick-keypad-code {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgb(191 219 254 / 88%);
+}
+
+.quick-keypad-cap.is-idle .quick-keypad-code {
+  color: inherit;
+}
+
+.quick-keypad-cap.is-trigger .quick-keypad-code {
+  color: #fde68a;
+}
+
+.quick-keypad-exit-pill {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgb(245 158 11 / 24%);
+  color: #fde68a;
+}
+
+.quick-keypad-action {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.32;
+  color: #fff;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  font-size: 12px;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.quick-keypad-cap.is-trigger .quick-keypad-action {
+  color: #fcd34d;
+  font-size: 12.5px;
+}
+
+.quick-keypad-action.is-prompt {
+  font-size: 11.5px;
+  font-weight: 550;
+  -webkit-line-clamp: 3;
+}
+
+.quick-keypad-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quick-keypad-multi-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.quick-keypad-multi-row span {
+  flex: 0 0 auto;
+  color: #93c5fd;
+  font-size: 10px;
+}
+
+.quick-keypad-multi-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quick-overlay-empty {
-  grid-column: 1 / -1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 220px;
   padding: 24px;
-  border-radius: 12px;
+  border-radius: 14px;
   text-align: center;
   background: rgb(255 255 255 / 3.5%);
 }
