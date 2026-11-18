@@ -1,136 +1,175 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { CornerDownLeft, MousePointerClick, Sparkles, X } from 'lucide-react'
 import type { Platform } from '../appTypes'
-import type { InputId } from '../behaviorModel'
 import {
   activateCatalogDeviceDescriptors,
   applyLocalCustomDevices,
+  clearDeviceModelCatalogCache,
   hydratePreviewLocalCustomDevices,
   readCachedDeviceModelCatalog,
   type LocalCustomDeviceEntry,
 } from '../cloud/deviceModelCatalog'
 import { getSupportPackages, subscribeSupportPackages } from '../devices/integration/model'
 import { railKeyGlyphText } from '../devices/integration/railOverview'
-import { RemoteControl } from '../devices/shared/RemoteControl'
 import { logError } from '../runtimeLogging'
 import { iconFor } from './InputIcon'
-import { MouseInputModel } from './MouseMapping'
 import {
   buildQuickOverlayView,
-  pickPerimeterAttachment,
-  type QuickOverlayCalloutItem,
-  type QuickOverlayKeypadSlot,
-  type QuickOverlayPoint as Point,
+  type QuickOverlayKeySlot,
+  type QuickOverlayScopedEntry,
   type QuickOverlaySessionPayload,
+  type QuickOverlaySurfaceBlock,
+  type QuickOverlayTriggerPreview,
 } from './quickOverlayModel'
 import './QuickOverlay.css'
-
-type CalloutWire = {
-  id: string
-  path: string
-  isExit: boolean
-}
-
-function sampleSvgOutline(outlineEl: SVGGeometryElement, stageRect: DOMRect, samples: number): Point[] {
-  const total = outlineEl.getTotalLength()
-  const ctm = outlineEl.getScreenCTM()
-  if (!(total > 0) || !ctm) return []
-  const points: Point[] = []
-  for (let i = 0; i < samples; i++) {
-    const pt = outlineEl.getPointAtLength((i / samples) * total)
-    points.push({
-      x: ctm.a * pt.x + ctm.c * pt.y + ctm.e - stageRect.left,
-      y: ctm.b * pt.x + ctm.d * pt.y + ctm.f - stageRect.top,
-    })
-  }
-  return points
-}
-
-function sampleRoundedRectOutline(el: HTMLElement, stageRect: DOMRect): Point[] {
-  const rect = el.getBoundingClientRect()
-  if (!(rect.width > 0) || !(rect.height > 0)) return []
-  const style = window.getComputedStyle(el)
-  const maxR = Math.min(rect.width, rect.height) / 2
-  const parseRadius = (raw: string) => {
-    const n = Number.parseFloat(raw)
-    return Number.isFinite(n) ? Math.max(0, Math.min(maxR, n)) : 0
-  }
-  const tl = parseRadius(style.borderTopLeftRadius)
-  const tr = parseRadius(style.borderTopRightRadius)
-  const br = parseRadius(style.borderBottomRightRadius)
-  const bl = parseRadius(style.borderBottomLeftRadius)
-
-  const left = rect.left - stageRect.left
-  const top = rect.top - stageRect.top
-  const right = left + rect.width
-  const bottom = top + rect.height
-
-  const points: Point[] = []
-  const pushArc = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
-    if (r <= 0.5) {
-      points.push({ x: cx, y: cy })
-      return
-    }
-    const steps = 10
-    for (let i = 0; i <= steps; i++) {
-      const a = startAngle + ((endAngle - startAngle) * i) / steps
-      points.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r })
-    }
-  }
-
-  pushArc(left + tl, top + tl, tl, Math.PI, Math.PI * 1.5)
-  pushArc(right - tr, top + tr, tr, -Math.PI * 0.5, 0)
-  pushArc(right - br, bottom - br, br, 0, Math.PI * 0.5)
-  pushArc(left + bl, bottom - bl, bl, Math.PI * 0.5, Math.PI)
-  return points
-}
 
 function detectFallbackPlatform(): Platform {
   if (typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)) return 'macos'
   return 'windows'
 }
 
-function conciseKeyName(item: Pick<QuickOverlayCalloutItem, 'short' | 'label'>): string {
-  const raw = (item.short?.trim() || item.label.trim())
-    .replace(/（.*?）|\(.*?\)/g, '')
-    .replace(/^鼠标/, '')
-    .replace(/键$/, '')
-    .trim()
-  return raw || item.label
+function renderKeyGlyph(slot: Pick<QuickOverlayKeySlot, 'inputId' | 'label' | 'short' | 'icon'>) {
+  const glyph = railKeyGlyphText({ id: slot.inputId, label: slot.label, icon: slot.icon }, slot.short)
+  if (glyph) {
+    // Skip duplicate badge text when it matches short verbatim (e.g. K01, Y, X, A, B, 侧上).
+    if (glyph === slot.short) return null
+    return <span className="ceramic-key-glyph-text">{glyph}</span>
+  }
+  if (slot.inputId.startsWith('mouse.') && slot.icon === 'center') {
+    return <MousePointerClick size={12} strokeWidth={2.1} />
+  }
+  return iconFor(slot.icon, 12)
 }
 
-function renderKeyGlyph(item: Pick<QuickOverlayCalloutItem, 'inputId' | 'label' | 'short' | 'icon'>) {
-  const glyph = railKeyGlyphText({ id: item.inputId, label: item.label, icon: item.icon }, item.short)
-  if (glyph) return <span>{glyph}</span>
-  if (item.inputId.startsWith('mouse.') && item.icon === 'center') {
-    return <MousePointerClick size={12} strokeWidth={2} />
+function conciseSlotShort(slot: Pick<QuickOverlayKeySlot, 'short' | 'label'>): string {
+  const raw = (slot.short?.trim() || slot.label.trim()).replace(/（.*?）|\(.*?\)/g, '').trim()
+  const dpadDir: Record<string, string> = { UP: '上', DOWN: '下', LEFT: '左', RIGHT: '右' }
+  const dpadMatch = raw.match(/^DPAD\.(UP|DOWN|LEFT|RIGHT)$/i)
+  if (dpadMatch) return `十字${dpadDir[dpadMatch[1].toUpperCase()]}`
+  const stickMatch = raw.match(/^(LS|RS)\.(UP|DOWN|LEFT|RIGHT)$/i)
+  if (stickMatch) return `${stickMatch[1].toUpperCase()}${dpadDir[stickMatch[2].toUpperCase()]}`
+  const mouseTrimmed = raw.replace(/^鼠标/, '').trim()
+  if (/^(左键|右键|中键|侧键)$/.test(mouseTrimmed)) return mouseTrimmed
+  return mouseTrimmed.replace(/键$/, '').trim() || slot.short || slot.label
+}
+
+function slotKindClass(kind?: 'prompt' | 'action' | 'sequence'): string {
+  if (!kind) return ''
+  return ` kind-${kind}`
+}
+
+function formatScopedMetaLabel(entry: QuickOverlayScopedEntry): string {
+  const scopePrefix = entry.contextLabel ? `${entry.contextLabel} · ` : ''
+  if (entry.isExitTrigger) return `${scopePrefix}退出键`
+  const primary = entry.triggers[0]
+  return `${scopePrefix}${primary?.badge || primary?.triggerLabel || '动作'}`
+}
+
+function slotDetailCandidate(slot: QuickOverlayKeySlot): {
+  title: string
+  badge: string
+  body: string
+  steps?: string
+} | null {
+  if (slot.status !== 'configured') return null
+  if (slot.scopedEntries && slot.scopedEntries.length > 1) {
+    return {
+      title: slot.label,
+      badge: `${slot.scopedEntries.length} 个作用域`,
+      body: slot.scopedEntries
+        .map(entry => {
+          const scope = entry.contextLabel ?? '全局'
+          if (entry.isExitTrigger) return `${scope}：再按退出`
+          return `${scope}：${entry.triggers.map(t => t.text).join(' / ')}`
+        })
+        .join('  ·  '),
+    }
   }
-  return iconFor(item.icon, 13)
+  if (slot.triggers.length > 1) {
+    return {
+      title: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
+      badge: `${slot.triggers.length} 组触发`,
+      body: slot.triggers.map(t => `${t.triggerLabel}：${t.text}`).join('  |  '),
+    }
+  }
+  const single = slot.triggers[0]
+  if (!single) return null
+  if (single.kind === 'prompt' || single.stepsSummary || single.text.length > 16) {
+    return {
+      title: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
+      badge: single.badge || single.triggerLabel,
+      body: single.text,
+      steps: single.stepsSummary,
+    }
+  }
+  return null
+}
+
+function collectAllSlots(surface: ReturnType<typeof buildQuickOverlayView>['surface']): QuickOverlayKeySlot[] {
+  if (surface.variant === 'matrix') return surface.cells
+  if (surface.variant === 'mouse') {
+    const out: QuickOverlayKeySlot[] = [...surface.thumbStack, ...surface.primaryPair]
+    for (const key of ['up', 'left', 'center', 'right', 'down'] as const) {
+      const slot = surface.wheelWell[key]
+      if (slot) out.push(slot)
+    }
+    return out
+  }
+  const flattenBlocks = (blocks: readonly QuickOverlaySurfaceBlock[]): QuickOverlayKeySlot[] => {
+    const res: QuickOverlayKeySlot[] = []
+    for (const block of blocks) {
+      if (block.kind === 'row') {
+        res.push(...block.slots)
+      } else if (block.kind === 'cross') {
+        for (const key of ['up', 'left', 'center', 'right', 'down'] as const) {
+          if (block[key]) res.push(block[key]!)
+        }
+      } else {
+        res.push(...block.leftStack, block.center, ...block.rightStack)
+      }
+    }
+    return res
+  }
+  if (surface.variant === 'controller') {
+    return [
+      ...surface.leftShoulders,
+      ...surface.rightShoulders,
+      ...surface.centerRow,
+      ...flattenBlocks(surface.leftPod),
+      ...flattenBlocks(surface.rightPod),
+    ]
+  }
+  return [...flattenBlocks(surface.blocks), ...(surface.sideRail?.slots ?? [])]
 }
 
 export function QuickOverlay() {
   useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const [platform, setPlatform] = useState<Platform>(detectFallbackPlatform)
   const [session, setSession] = useState<QuickOverlaySessionPayload | null>(null)
-  const [hoveredInputId, setHoveredInputId] = useState<string>('')
-  const [wires, setWires] = useState<CalloutWire[]>([])
-
-  const stageRef = useRef<HTMLDivElement>(null)
-  const diagramWrapRef = useRef<HTMLDivElement>(null)
-  const leftColRef = useRef<HTMLDivElement>(null)
-  const rightColRef = useRef<HTMLDivElement>(null)
-  const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [hoveredSlotId, setHoveredSlotId] = useState<string>('')
 
   useEffect(() => {
-    try {
-      const cached = readCachedDeviceModelCatalog(window.localStorage)
-      if (cached?.items?.length) activateCatalogDeviceDescriptors(cached.items)
-      hydratePreviewLocalCustomDevices(window.localStorage)
-    } catch {
-      /* Storage access in overlay is best-effort. */
+    const hydrateCatalog = () => {
+      try {
+        const cached = readCachedDeviceModelCatalog(window.localStorage)
+        if (cached?.items?.length) activateCatalogDeviceDescriptors(cached.items)
+        hydratePreviewLocalCustomDevices(window.localStorage)
+      } catch {
+        /* Storage access in overlay is best-effort. */
+      }
     }
+    hydrateCatalog()
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('axonkey.device-model-catalog')) {
+        clearDeviceModelCatalogCache()
+        hydrateCatalog()
+      }
+    }
+    window.addEventListener('storage', onStorage)
+
     void invoke<Platform>('get_platform')
       .then(next => {
         if (next === 'macos' || next === 'windows' || next === 'unsupported') setPlatform(next)
@@ -141,6 +180,10 @@ export function QuickOverlay() {
         if (Array.isArray(entries) && entries.length > 0) applyLocalCustomDevices(entries)
       })
       .catch(() => {})
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
   useEffect(() => {
@@ -176,7 +219,7 @@ export function QuickOverlay() {
   const revision = session?.revision ?? 0
   useEffect(() => {
     if (!revision) return
-    setHoveredInputId('')
+    setHoveredSlotId('')
     void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
@@ -193,183 +236,23 @@ export function QuickOverlay() {
   }, [revision])
 
   const view = useMemo(() => (session ? buildQuickOverlayView(session, platform) : null), [session, platform])
-  const activeInputId = hoveredInputId || view?.pressedIds[0] || ''
 
-  useEffect(() => {
-    const root = diagramWrapRef.current
-    if (!root || !view) return
-    for (const node of root.querySelectorAll('.quick-trigger-key, .quick-mapped-key, .quick-active-key')) {
-      node.classList.remove('quick-trigger-key', 'quick-mapped-key', 'quick-active-key')
-    }
-    if (view.isMouse) {
-      for (const item of [...view.leftCallouts, ...view.rightCallouts]) {
-        if (item.target.kind !== 'mouse') continue
-        const part = root.querySelector<HTMLElement>(`[data-mouse-control="${item.target.controlId}"]`)
-        if (!part) continue
-        if (item.isExitTrigger) part.classList.add('quick-trigger-key')
-        else part.classList.add('quick-mapped-key')
-        if (activeInputId && activeInputId === item.inputId) part.classList.add('quick-active-key')
-      }
-    } else if (view.triggerInputId) {
-      const target = Array.from(root.querySelectorAll<HTMLElement | SVGElement>('[data-remote-key]')).find(
-        el => el.getAttribute('data-remote-key') === view.triggerInputId,
-      )
-      target?.classList.add('quick-trigger-key')
-    }
-  }, [activeInputId, view])
-
-  const measureWires = useCallback(() => {
-    const stage = stageRef.current
-    const diagram = diagramWrapRef.current
-    if (!stage || !diagram || !view || view.layoutMode !== 'callout') {
-      setWires([])
-      return
-    }
-    const stageRect = stage.getBoundingClientRect()
-    if (!stageRect.width || !stageRect.height) return
-
-    const allCallouts = [...view.leftCallouts, ...view.rightCallouts]
-    const svgEl = diagram.querySelector<SVGSVGElement>('.remote-control')
-    const svgRect = svgEl?.getBoundingClientRect()
-    const diagramRect = diagram.getBoundingClientRect()
-
-    const remoteOutlines = new Map<string, Point[]>()
-    const remoteKeyEls = new Map<string, SVGGraphicsElement>()
-    if (!view.isMouse && svgEl) {
-      for (const el of svgEl.querySelectorAll<SVGGraphicsElement>('[data-remote-key]')) {
-        const keyId = el.getAttribute('data-remote-key')
-        if (!keyId) continue
-        remoteKeyEls.set(keyId, el)
-        const outlineEl = el.querySelector<SVGGeometryElement>('.remote-key-outline')
-        if (outlineEl) {
-          const pts = sampleSvgOutline(outlineEl, stageRect, 72)
-          if (pts.length >= 3) remoteOutlines.set(keyId, pts)
-        }
+  const { defaultDetailSlot, slotLookup } = useMemo(() => {
+    if (!view) {
+      return {
+        defaultDetailSlot: null as QuickOverlayKeySlot | null,
+        slotLookup: new Map<string, QuickOverlayKeySlot>(),
       }
     }
-
-    const mouseOutlines = new Map<string, Point[]>()
-    const mousePartEls = new Map<string, HTMLElement>()
-    if (view.isMouse) {
-      for (const el of diagram.querySelectorAll<HTMLElement>('[data-mouse-control]')) {
-        const ctrlId = el.getAttribute('data-mouse-control')
-        if (!ctrlId) continue
-        mousePartEls.set(ctrlId, el)
-        const pts = sampleRoundedRectOutline(el, stageRect)
-        if (pts.length >= 3) mouseOutlines.set(ctrlId, pts)
-      }
+    const allSlots = collectAllSlots(view.surface)
+    const map = new Map<string, QuickOverlayKeySlot>()
+    let firstDetail: QuickOverlayKeySlot | null = null
+    for (const slot of allSlots) {
+      map.set(slot.slotId, slot)
+      if (!firstDetail && slotDetailCandidate(slot)) firstDetail = slot
     }
-
-    const nextWires: CalloutWire[] = []
-    for (const item of allCallouts) {
-      const cardEl = cardRefs.current[item.inputId]
-      if (!cardEl) continue
-      const cardRect = cardEl.getBoundingClientRect()
-      if (cardRect.bottom < stageRect.top + 6 || cardRect.top > stageRect.bottom - 6) continue
-
-      const x1 = (item.side === 'left' ? cardRect.right : cardRect.left) - stageRect.left
-      const y1 = cardRect.top + cardRect.height / 2 - stageRect.top
-
-      const deviceEdgeX = item.side === 'left' ? diagramRect.left - stageRect.left : diagramRect.right - stageRect.left
-      const gap = item.side === 'left' ? deviceEdgeX - x1 : x1 - deviceEdgeX
-      const elbowOffset = Math.max(8, Math.min(20, gap * 0.55))
-      const elbow = item.side === 'left' ? x1 + elbowOffset : x1 - elbowOffset
-      const elbowPt: Point = { x: elbow, y: y1 }
-
-      let attached: Point | null = null
-
-      if (item.target.kind === 'mouse') {
-        const controlId = item.target.controlId
-        const partEl = mousePartEls.get(controlId)
-        const partRect = partEl?.getBoundingClientRect()
-        if (partRect && partRect.width > 0) {
-          const centerPt: Point = {
-            x: partRect.left + partRect.width / 2 - stageRect.left,
-            y: partRect.top + partRect.height / 2 - stageRect.top,
-          }
-          const outlinePts = mouseOutlines.get(controlId)
-          if (outlinePts) {
-            const siblings: Point[][] = []
-            for (const [id, pts] of mouseOutlines) {
-              if (id !== controlId) siblings.push(pts)
-            }
-            attached = pickPerimeterAttachment(elbowPt, centerPt, outlinePts, siblings)
-          }
-          attached ??= {
-            x: (item.side === 'left' ? partRect.left : partRect.right) - stageRect.left,
-            y: centerPt.y,
-          }
-        }
-      } else if (
-        item.target.kind === 'remote' &&
-        svgRect &&
-        svgRect.width > 0 &&
-        svgRect.height > 0 &&
-        view.remoteView
-      ) {
-        const targetId = item.target.id
-        const anchor = view.remoteView.keyRegions[targetId]?.anchor
-        const { width: vbW, height: vbH } = view.remoteView.viewBox
-        const keyRect = remoteKeyEls.get(targetId)?.getBoundingClientRect()
-        let centerPt: Point | null = null
-        if (anchor && vbW > 0 && vbH > 0) {
-          centerPt = {
-            x: svgRect.left - stageRect.left + (anchor.x / vbW) * svgRect.width,
-            y: svgRect.top - stageRect.top + (anchor.y / vbH) * svgRect.height,
-          }
-        } else if (keyRect && keyRect.width > 0) {
-          centerPt = {
-            x: keyRect.left + keyRect.width / 2 - stageRect.left,
-            y: keyRect.top + keyRect.height / 2 - stageRect.top,
-          }
-        }
-
-        if (centerPt) {
-          const outlinePts = remoteOutlines.get(targetId)
-          if (outlinePts) {
-            const siblings: Point[][] = []
-            for (const [id, pts] of remoteOutlines) {
-              if (id !== targetId) siblings.push(pts)
-            }
-            attached = pickPerimeterAttachment(elbowPt, centerPt, outlinePts, siblings)
-          }
-          attached ??= centerPt
-        }
-      }
-
-      if (!attached) continue
-
-      nextWires.push({
-        id: item.inputId,
-        path: `M ${x1.toFixed(1)} ${y1.toFixed(1)} H ${elbow.toFixed(1)} L ${attached.x.toFixed(1)} ${attached.y.toFixed(1)}`,
-        isExit: item.isExitTrigger,
-      })
-    }
-
-    setWires(nextWires)
+    return { defaultDetailSlot: firstDetail, slotLookup: map }
   }, [view])
-
-  useLayoutEffect(() => {
-    measureWires()
-    if (typeof ResizeObserver === 'undefined') return
-    const stage = stageRef.current
-    const diagram = diagramWrapRef.current
-    if (!stage || !diagram) return
-    const observer = new ResizeObserver(() => measureWires())
-    observer.observe(stage)
-    observer.observe(diagram)
-    const svgEl = diagram.querySelector('.remote-control')
-    if (svgEl) observer.observe(svgEl)
-    const leftCol = leftColRef.current
-    const rightCol = rightColRef.current
-    leftCol?.addEventListener('scroll', measureWires, { passive: true })
-    rightCol?.addEventListener('scroll', measureWires, { passive: true })
-    return () => {
-      observer.disconnect()
-      leftCol?.removeEventListener('scroll', measureWires)
-      rightCol?.removeEventListener('scroll', measureWires)
-    }
-  }, [measureWires])
 
   if (!session || !view) return null
 
@@ -379,188 +262,152 @@ export function QuickOverlay() {
     )
   }
 
-  const triggerCard = (inputId: string) => {
+  const triggerInput = (inputId: string) => {
     void invoke('trigger_quick_overlay_input', {
       revision: session.revision,
       inputId,
     }).catch(error => logError('Failed to trigger quick overlay input', error))
   }
 
-  const handleDiagramSelect = (inputId: string) => {
-    if (inputId === view.triggerInputId) {
-      dismiss()
-      return
-    }
-    setHoveredInputId(inputId)
-    const card = cardRefs.current[inputId]
-    if (card) {
-      card.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-      card.focus({ preventScroll: true })
-    }
-  }
+  const hoveredSlot = hoveredSlotId ? slotLookup.get(hoveredSlotId) : undefined
+  const activeDetail =
+    (hoveredSlot && slotDetailCandidate(hoveredSlot)) ||
+    (defaultDetailSlot && slotDetailCandidate(defaultDetailSlot)) ||
+    null
 
-  const renderCalloutCard = (item: QuickOverlayCalloutItem) => {
-    const isActive = activeInputId === item.inputId
-    const isPressed = view.pressedIds.includes(item.inputId)
-    const single = item.triggers.length === 1 ? item.triggers[0] : null
-    const shortName = conciseKeyName(item)
-    const fullTitle = item.contextLabel ? `${item.contextLabel} · ${item.label}` : item.label
+  const renderSingleTriggerBody = (single: QuickOverlayTriggerPreview, contextLabel?: string) => (
+    <div className="ceramic-key-single">
+      {contextLabel && <span className="ceramic-key-scope-line">{contextLabel}</span>}
+      <strong className={`ceramic-key-label is-${single.kind}`}>{single.text}</strong>
+      {single.stepsSummary && <span className="ceramic-key-steps">{single.stepsSummary}</span>}
+    </div>
+  )
 
-    const keyBadge = (
-      <span className={`quick-callout-key-pill${item.isExitTrigger ? ' is-exit' : ''}`} title={fullTitle}>
-        <span className="quick-callout-key-icon" aria-hidden="true">
-          {renderKeyGlyph(item)}
-        </span>
-        <span className="quick-callout-key-label">{shortName}</span>
-      </span>
-    )
-
-    if (item.isExitTrigger) {
-      return (
-        <button
-          key={`exit-${item.inputId}`}
-          ref={node => {
-            cardRefs.current[item.inputId] = node
-          }}
-          type="button"
-          role="listitem"
-          className={`quick-callout-card side-${item.side} is-exit-card${isActive ? ' is-active' : ''}`}
-          aria-label={`${fullTitle}：再按退出快捷交互`}
-          onMouseEnter={() => setHoveredInputId(item.inputId)}
-          onMouseLeave={() => setHoveredInputId('')}
-          onFocus={() => setHoveredInputId(item.inputId)}
-          onBlur={() => setHoveredInputId('')}
-          onClick={dismiss}
-        >
-          <div className="quick-callout-content">
-            <span className="quick-callout-exit-text">
-              <CornerDownLeft size={13} aria-hidden="true" />
-              再按退出
-            </span>
-          </div>
-          {keyBadge}
-        </button>
-      )
-    }
-
-    return (
-      <button
-        key={item.inputId}
-        ref={node => {
-          cardRefs.current[item.inputId] = node
-        }}
-        type="button"
-        role="listitem"
-        title={single?.kind === 'prompt' ? single.text : undefined}
-        className={`quick-callout-card side-${item.side}${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}`}
-        aria-label={`${fullTitle}：${item.triggers.map(t => `${t.triggerLabel} ${t.text}`).join('；')}`}
-        onMouseEnter={() => setHoveredInputId(item.inputId)}
-        onMouseLeave={() => setHoveredInputId('')}
-        onFocus={() => setHoveredInputId(item.inputId)}
-        onBlur={() => setHoveredInputId('')}
-        onClick={() => triggerCard(item.inputId)}
-      >
-        <div className="quick-callout-content">
-          {single ? (
-            <div className={`quick-callout-single is-${single.kind}`}>
-              {(item.contextLabel || single.showTriggerTag || single.badge) && (
-                <div className="quick-callout-meta-row">
-                  {item.contextLabel && (
-                    <span className="quick-callout-scope-tag">
-                      {single.showTriggerTag ? `${item.contextLabel} · ${single.triggerLabel}` : item.contextLabel}
-                    </span>
-                  )}
-                  {!item.contextLabel && single.showTriggerTag && (
-                    <span className="quick-overlay-trigger-tag">{single.triggerLabel}</span>
-                  )}
-                  {single.badge && <span className="quick-overlay-kind-tag">{single.badge}</span>}
-                </div>
-              )}
-              <strong className="quick-callout-primary-text">{single.text}</strong>
-              {single.stepsSummary && <span className="quick-overlay-steps-chain">{single.stepsSummary}</span>}
-            </div>
-          ) : (
-            <div className="quick-overlay-multi-triggers">
-              {item.contextLabel && <span className="quick-callout-scope-tag">{item.contextLabel}</span>}
-              {item.triggers.map(entry => (
-                <div key={entry.trigger} className={`quick-overlay-trigger-row is-${entry.kind}`}>
-                  <span className="quick-overlay-trigger-tag">{entry.triggerLabel}</span>
-                  <strong className="quick-callout-primary-text">
-                    {entry.badge && entry.kind === 'prompt' ? `${entry.badge} · ` : ''}
-                    {entry.text}
-                  </strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {keyBadge}
-      </button>
-    )
-  }
-
-  const renderKeypadSlot = (slot: QuickOverlayKeypadSlot) => {
-    const isPressed = view.pressedIds.includes(slot.inputId)
-    const isActive = activeInputId === slot.inputId
-    const single = slot.triggers.length === 1 ? slot.triggers[0] : null
+  const renderKeySlot = (slot: QuickOverlayKeySlot, extraClass = '', inlineStyle?: React.CSSProperties) => {
+    const isPressed =
+      view.pressedIds.includes(slot.inputId) ||
+      Boolean(slot.scopedEntries?.some(entry => view.pressedIds.includes(entry.inputId)))
+    const isActive = hoveredSlotId === slot.slotId
+    const shortText = conciseSlotShort(slot)
+    const glyphEl = renderKeyGlyph(slot)
 
     if (slot.status === 'idle') {
       return (
         <div
-          key={slot.inputId}
-          className="quick-keypad-cap is-idle"
-          style={{ gridColumn: slot.col, gridRow: slot.row }}
+          key={slot.slotId}
+          className={`ceramic-key is-idle${extraClass ? ` ${extraClass}` : ''}`}
+          style={inlineStyle}
           aria-hidden="true"
         >
-          <span className="quick-keypad-code">{slot.short}</span>
+          {glyphEl && <span className="ceramic-key-idle-glyph">{glyphEl}</span>}
+          <span className="ceramic-key-idle-code">{shortText}</span>
         </div>
       )
     }
 
-    if (slot.status === 'trigger') {
+    if (slot.status === 'trigger' && !slot.scopedEntries) {
       return (
         <button
-          key={slot.inputId}
+          key={slot.slotId}
           type="button"
-          className={`quick-keypad-cap is-trigger${isActive ? ' is-active' : ''}`}
-          style={{ gridColumn: slot.col, gridRow: slot.row }}
-          aria-label={`${slot.label}：再按退出`}
+          className={`ceramic-key is-trigger${isActive ? ' is-active' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+          style={inlineStyle}
+          aria-label={`${slot.label}：再按退出快捷交互`}
+          onMouseEnter={() => setHoveredSlotId(slot.slotId)}
+          onMouseLeave={() => setHoveredSlotId('')}
+          onFocus={() => setHoveredSlotId(slot.slotId)}
+          onBlur={() => setHoveredSlotId('')}
           onClick={dismiss}
         >
-          <div className="quick-keypad-top">
-            <span className="quick-keypad-code">{slot.short}</span>
-            <span className="quick-keypad-exit-pill">退出键</span>
+          <div className="ceramic-key-top">
+            <span className="ceramic-key-code">
+              {glyphEl}
+              <span>{shortText}</span>
+            </span>
+            <span className="ceramic-key-tag is-exit">退出键</span>
           </div>
-          <strong className="quick-keypad-action">再按退出</strong>
+          <span className="ceramic-key-exit-text">
+            <CornerDownLeft size={12} aria-hidden="true" />
+            再按退出
+          </span>
         </button>
       )
     }
 
+    if (slot.scopedEntries && slot.scopedEntries.length > 1) {
+      return (
+        <div
+          key={slot.slotId}
+          className={`ceramic-key is-scoped-group${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+          style={inlineStyle}
+          onMouseEnter={() => setHoveredSlotId(slot.slotId)}
+          onMouseLeave={() => setHoveredSlotId('')}
+        >
+          <div className="ceramic-key-top">
+            <span className="ceramic-key-code">
+              {glyphEl}
+              <span>{shortText}</span>
+            </span>
+            <span className="ceramic-key-tag">{slot.scopedEntries.length} 项</span>
+          </div>
+          <div className="ceramic-scoped-list">
+            {slot.scopedEntries.map(entry => {
+              const primary = entry.triggers[0]
+              const entryPressed = view.pressedIds.includes(entry.inputId)
+              return (
+                <button
+                  key={entry.inputId}
+                  type="button"
+                  className={`ceramic-scoped-btn${entry.isExitTrigger ? ' is-exit' : ''}${entryPressed ? ' is-pressed' : ''}`}
+                  aria-label={`${slot.label} ${formatScopedMetaLabel(entry)}`}
+                  onFocus={() => setHoveredSlotId(slot.slotId)}
+                  onBlur={() => setHoveredSlotId('')}
+                  onClick={() => (entry.isExitTrigger ? dismiss() : triggerInput(entry.inputId))}
+                >
+                  <span className="ceramic-scoped-badge">{entry.contextLabel ?? '全局'}</span>
+                  <strong className="ceramic-scoped-text">
+                    {entry.isExitTrigger ? '再按退出' : (primary?.text ?? '')}
+                  </strong>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+
+    const single = slot.triggers.length === 1 ? slot.triggers[0] : null
+    const topTag = single?.badge || (single?.showTriggerTag ? single.triggerLabel : undefined)
+    const fullTitle = slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label
+
     return (
       <button
-        key={slot.inputId}
+        key={slot.slotId}
         type="button"
         title={single?.kind === 'prompt' ? single.text : undefined}
-        className={`quick-keypad-cap is-configured${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}`}
-        style={{ gridColumn: slot.col, gridRow: slot.row }}
-        aria-label={`${slot.label}：${slot.triggers.map(t => `${t.triggerLabel} ${t.text}`).join('；')}`}
-        onMouseEnter={() => setHoveredInputId(slot.inputId)}
-        onMouseLeave={() => setHoveredInputId('')}
-        onFocus={() => setHoveredInputId(slot.inputId)}
-        onBlur={() => setHoveredInputId('')}
-        onClick={() => triggerCard(slot.inputId)}
+        className={`ceramic-key is-configured${slotKindClass(slot.primaryKind)}${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+        style={inlineStyle}
+        aria-label={`${fullTitle}：${slot.triggers.map(t => `${t.triggerLabel} ${t.text}`).join('；')}`}
+        onMouseEnter={() => setHoveredSlotId(slot.slotId)}
+        onMouseLeave={() => setHoveredSlotId('')}
+        onFocus={() => setHoveredSlotId(slot.slotId)}
+        onBlur={() => setHoveredSlotId('')}
+        onClick={() => triggerInput(slot.inputId)}
       >
-        <div className="quick-keypad-top">
-          <span className="quick-keypad-code">{slot.short}</span>
-          {single?.badge && <span className="quick-overlay-kind-tag">{single.badge}</span>}
-          {single?.showTriggerTag && <span className="quick-overlay-trigger-tag">{single.triggerLabel}</span>}
+        <div className="ceramic-key-top">
+          <span className="ceramic-key-code">
+            {glyphEl}
+            <span>{shortText}</span>
+          </span>
+          {topTag && <span className={`ceramic-key-tag${slotKindClass(single?.kind)}`}>{topTag}</span>}
         </div>
         {single ? (
-          <strong className={`quick-keypad-action is-${single.kind}`}>{single.text}</strong>
+          renderSingleTriggerBody(single, slot.contextLabel)
         ) : (
-          <div className="quick-keypad-multi">
-            {slot.triggers.map(entry => (
-              <div key={entry.trigger} className="quick-keypad-multi-row">
+          <div className="ceramic-key-multi">
+            {slot.contextLabel && <span className="ceramic-key-scope-line">{slot.contextLabel}</span>}
+            {slot.triggers.slice(0, 2).map(entry => (
+              <div key={entry.trigger} className={`ceramic-key-multi-row is-${entry.kind}`}>
                 <span>{entry.triggerLabel}</span>
                 <strong>{entry.text}</strong>
               </div>
@@ -571,114 +418,200 @@ export function QuickOverlay() {
     )
   }
 
-  return (
-    <aside className="quick-overlay-shell" role="dialog" aria-label={`快捷交互窗 · ${view.profileName}`}>
-      <header className="quick-overlay-header">
-        <div className="quick-overlay-identity">
-          <span className={`quick-overlay-mode-pill${session.preview ? ' is-preview' : ''}`}>
-            <Sparkles size={13} aria-hidden="true" />
-            <span>{session.preview ? '预览' : '快捷交互'}</span>
-          </span>
-          <strong className="quick-overlay-profile-name">{view.profileName}</strong>
-          <span className="quick-overlay-device-name">{view.deviceName}</span>
+  const renderCrossWell = (well: Extract<QuickOverlaySurfaceBlock, { kind: 'cross' }>, idx: number) => (
+    <div key={`cross-${idx}`} className="ceramic-cross-well">
+      {well.up && renderKeySlot(well.up, 'cross-slot is-up')}
+      {well.left && renderKeySlot(well.left, 'cross-slot is-left')}
+      {well.center && renderKeySlot(well.center, 'cross-slot is-center')}
+      {well.right && renderKeySlot(well.right, 'cross-slot is-right')}
+      {well.down && renderKeySlot(well.down, 'cross-slot is-down')}
+    </div>
+  )
+
+  const renderBlocks = (blocks: readonly QuickOverlaySurfaceBlock[]) =>
+    blocks.map((block, idx) => {
+      if (block.kind === 'cross') return renderCrossWell(block, idx)
+      if (block.kind === 'bridge') {
+        return (
+          <div key={`bridge-${idx}`} className="ceramic-bridge-block">
+            <div className="ceramic-bridge-stack">
+              {renderKeySlot(block.leftStack[0])}
+              {renderKeySlot(block.leftStack[1])}
+            </div>
+            {renderKeySlot(block.center, 'ceramic-bridge-center')}
+            <div className="ceramic-bridge-stack">
+              {renderKeySlot(block.rightStack[0])}
+              {renderKeySlot(block.rightStack[1])}
+            </div>
+          </div>
+        )
+      }
+      if (block.columns === 1 && block.align) {
+        const colPos = block.align === 'left' ? 1 : block.align === 'right' ? 3 : 2
+        return (
+          <div key={`row-${idx}`} className="ceramic-row cols-3">
+            {renderKeySlot(block.slots[0], '', { gridColumn: colPos })}
+          </div>
+        )
+      }
+      return (
+        <div key={`row-${idx}`} className={`ceramic-row cols-${block.columns}`}>
+          {block.slots.map(slot => renderKeySlot(slot))}
         </div>
-        <div className="quick-overlay-actions">
-          {view.triggerLabel ? (
-            <span className="quick-overlay-exit-hint">
-              再按 <kbd>{view.triggerLabel}</kbd> 退出
-            </span>
-          ) : (
-            <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
+      )
+    })
+
+  const renderSurfaceChassis = () => {
+    const { surface } = view
+
+    if (surface.variant === 'matrix') {
+      return (
+        <div
+          className="ceramic-chassis is-matrix"
+          style={{
+            gridTemplateColumns: `repeat(${surface.cols}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${surface.rows}, minmax(74px, 1fr))`,
+          }}
+        >
+          {surface.oledSpan && (
+            <div
+              className="ceramic-matrix-oled"
+              style={{
+                gridRow: surface.oledSpan.row,
+                gridColumn: `${surface.oledSpan.colStart} / span ${surface.oledSpan.colSpan}`,
+              }}
+              aria-hidden="true"
+            >
+              <span className="ceramic-oled-eyebrow">{view.deviceName}</span>
+              <strong>{view.profileName}</strong>
+              <span>{view.items.length} 键已就绪</span>
+            </div>
           )}
-          <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={dismiss}>
-            <X size={15} aria-hidden="true" />
-          </button>
+          {surface.cells.map(cell => renderKeySlot(cell, '', { gridColumn: cell.col, gridRow: cell.row }))}
         </div>
-      </header>
+      )
+    }
 
-      {view.items.length === 0 ? (
-        <div className="quick-overlay-empty">
-          <p>此快捷配置暂未添加按键功能</p>
-          <span>在主窗口选择「{view.profileName}」即可为按键配置提示词或快捷行为</span>
-        </div>
-      ) : view.layoutMode === 'keypad' ? (
-        <div className="quick-keypad-deck" role="group" aria-label="小键盘物理键位映射">
-          <div className="quick-keypad-oled" aria-hidden="true">
-            <span className="quick-keypad-oled-eyebrow">{view.deviceName}</span>
-            <strong>{view.profileName}</strong>
-            <span>{view.items.length} 个按键已就绪 · 按一次即执行</span>
+    if (surface.variant === 'mouse') {
+      return (
+        <div className="ceramic-chassis is-mouse">
+          <div className="ceramic-mouse-thumb">{surface.thumbStack.map(slot => renderKeySlot(slot))}</div>
+          <div className="ceramic-mouse-body">
+            <div className="ceramic-mouse-primary">
+              {surface.primaryPair.map(slot => renderKeySlot(slot, 'is-primary-click'))}
+            </div>
+            {renderCrossWell(surface.wheelWell, 0)}
           </div>
-          {view.keypadSlots.map(renderKeypadSlot)}
         </div>
-      ) : (
-        <div ref={stageRef} className={`quick-overlay-callout-stage${view.isWideDiagram ? ' is-wide-device' : ''}`}>
-          <svg className="quick-overlay-wires" aria-hidden="true">
-            {wires.map(wire => {
-              const highlighted = activeInputId === wire.id || view.pressedIds.includes(wire.id)
-              const pressed = view.pressedIds.includes(wire.id)
-              return (
-                <g
-                  key={wire.id}
-                  className={`quick-overlay-wire${wire.isExit ? ' is-exit' : ''}${highlighted ? ' is-active' : ''}${pressed ? ' is-pressed' : ''}`}
-                >
-                  <path d={wire.path} />
-                </g>
-              )
-            })}
-          </svg>
+      )
+    }
 
-          <div ref={leftColRef} className="quick-callout-column side-left" role="list" aria-label="左侧按键功能标注">
-            {view.leftCallouts.map(renderCalloutCard)}
+    if (surface.variant === 'controller') {
+      return (
+        <div className="ceramic-chassis is-controller">
+          <div className="ceramic-controller-shoulders">
+            <div className="ceramic-shoulder-pair">{surface.leftShoulders.map(slot => renderKeySlot(slot))}</div>
+            <div className="ceramic-shoulder-pair">{surface.rightShoulders.map(slot => renderKeySlot(slot))}</div>
           </div>
+          {surface.centerRow.length > 0 && (
+            <div className="ceramic-controller-center">{surface.centerRow.map(slot => renderKeySlot(slot))}</div>
+          )}
+          <div className="ceramic-controller-pods">
+            <div className="ceramic-pod">{renderBlocks(surface.leftPod)}</div>
+            <div className="ceramic-pod">{renderBlocks(surface.rightPod)}</div>
+          </div>
+        </div>
+      )
+    }
 
-          <div
-            ref={diagramWrapRef}
-            className="quick-overlay-center-device"
-            aria-label="设备按键位置"
-            onPointerOver={event => {
-              const el = (event.target as Element | null)?.closest?.('[data-remote-key], [data-mouse-control]')
-              if (!el) return
-              const remoteKey = el.getAttribute('data-remote-key')
-              if (remoteKey) {
-                setHoveredInputId(remoteKey)
-                return
-              }
-              const mouseCtrl = el.getAttribute('data-mouse-control')
-              if (mouseCtrl) {
-                const matched = [...view.leftCallouts, ...view.rightCallouts].find(
-                  item => item.target.kind === 'mouse' && item.target.controlId === mouseCtrl,
-                )
-                if (matched) setHoveredInputId(matched.inputId)
-              }
-            }}
-            onPointerLeave={() => setHoveredInputId('')}
-          >
-            {view.isMouse ? (
-              <div className="quick-overlay-mouse-wrap">
-                <MouseInputModel
-                  activeId={(activeInputId || view.items[0]?.inputId || 'mouse.global.buttonMiddle') as InputId}
-                  onSelect={id => handleDiagramSelect(id)}
-                />
-              </div>
+    const mainColumn = (
+      <div className={`ceramic-panel-main density-${surface.density}`}>{renderBlocks(surface.blocks)}</div>
+    )
+    if (!surface.sideRail) {
+      return <div className={`ceramic-chassis is-panel density-${surface.density}`}>{mainColumn}</div>
+    }
+    const sideRailEl = (
+      <div className="ceramic-side-rail" aria-label="侧面按键区">
+        {surface.sideRail.slots.map(slot => renderKeySlot(slot, 'is-side-key'))}
+      </div>
+    )
+    return (
+      <div
+        className={`ceramic-chassis is-panel has-side-rail side-${surface.sideRail.side} density-${surface.density}`}
+      >
+        {surface.sideRail.side === 'left' ? (
+          <>
+            {sideRailEl}
+            {mainColumn}
+          </>
+        ) : (
+          <>
+            {mainColumn}
+            {sideRailEl}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const shellVariantClass =
+    view.surface.variant === 'panel' && view.surface.sideRail ? 'variant-panel-rail' : `variant-${view.surface.variant}`
+
+  return (
+    <div
+      className="quick-overlay-backdrop"
+      onClick={event => {
+        if (event.target === event.currentTarget) dismiss()
+      }}
+    >
+      <aside
+        className={`quick-overlay-shell ${shellVariantClass}`}
+        role="dialog"
+        aria-label={`快捷交互窗 · ${view.profileName}`}
+      >
+        <header className="quick-overlay-header">
+          <div className="quick-overlay-identity">
+            <span className={`quick-overlay-mode-pill${session.preview ? ' is-preview' : ''}`}>
+              <Sparkles size={12} aria-hidden="true" />
+              <span>{session.preview ? '预览' : '快捷交互'}</span>
+            </span>
+            <strong className="quick-overlay-profile-name">{view.profileName}</strong>
+            <span className="quick-overlay-device-name">{view.deviceName}</span>
+          </div>
+          <div className="quick-overlay-actions">
+            {view.triggerLabel ? (
+              <span className="quick-overlay-exit-hint">
+                再按 <kbd>{view.triggerLabel}</kbd> 退出
+              </span>
             ) : (
-              <div className="quick-overlay-remote-wrap">
-                <RemoteControl
-                  activeId={activeInputId}
-                  pressedIds={view.pressedIds}
-                  mappedIds={view.mappedIds}
-                  onSelect={handleDiagramSelect}
-                  remoteView={view.remoteView}
-                  screenRegion={view.screenRegion}
-                />
-              </div>
+              <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
             )}
+            <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={dismiss}>
+              <X size={15} aria-hidden="true" />
+            </button>
           </div>
+        </header>
 
-          <div ref={rightColRef} className="quick-callout-column side-right" role="list" aria-label="右侧按键功能标注">
-            {view.rightCallouts.map(renderCalloutCard)}
+        {view.items.length === 0 ? (
+          <div className="quick-overlay-empty">
+            <p>此快捷配置暂未添加按键功能</p>
+            <span>在主窗口选择「{view.profileName}」即可为按键配置提示词或快捷行为</span>
           </div>
-        </div>
-      )}
-    </aside>
+        ) : (
+          <div className="quick-surface-scroll">{renderSurfaceChassis()}</div>
+        )}
+
+        {activeDetail && (
+          <div className="quick-surface-detail-bar" aria-live="polite">
+            <span className="quick-detail-title">
+              <strong>{activeDetail.title}</strong>
+              <span className="quick-detail-badge">{activeDetail.badge}</span>
+            </span>
+            <p className="quick-detail-body">{activeDetail.body}</p>
+            {activeDetail.steps && <span className="quick-detail-steps">{activeDetail.steps}</span>}
+          </div>
+        )}
+      </aside>
+    </div>
   )
 }

@@ -6,8 +6,8 @@ import { macosShortcutPresets } from '../macosShortcutPresets.ts'
 import { mouseInputIds, mouseInputParts } from '../devices/index.ts'
 import type { MouseControlId, MouseInputId } from '../devices/index.ts'
 import { packageFor } from '../devices/integration/model.ts'
-import { isOverviewButton } from '../devices/integration/railOverview.ts'
-import type { DeviceScreenRegion, RemoteView } from '../devices/types.ts'
+import { tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
+import type { DeviceSupportPackage, RemoteView } from '../devices/types.ts'
 
 export type QuickOverlaySessionPayload = {
   revision: number
@@ -20,6 +20,7 @@ export type QuickOverlaySessionPayload = {
   behaviors: Record<string, unknown> | null
   pressed: string[]
   preview: boolean
+  descriptorSvg?: string | null
 }
 
 export type QuickOverlayTriggerPreview = {
@@ -41,151 +42,122 @@ export type QuickOverlayCardItem = {
   triggers: QuickOverlayTriggerPreview[]
 }
 
-export type QuickOverlayTargetAnchor = { kind: 'remote'; id: string } | { kind: 'mouse'; controlId: MouseControlId }
-
-export type QuickOverlayCalloutItem = {
+export type QuickOverlayScopedEntry = {
   inputId: string
-  label: string
   contextLabel?: string
-  short?: string
-  icon: MappingInput['icon']
-  side: 'left' | 'right'
-  nx: number
-  ny: number
   isExitTrigger: boolean
-  target: QuickOverlayTargetAnchor
   triggers: QuickOverlayTriggerPreview[]
 }
 
-export type QuickOverlayKeypadSlot = {
+export type QuickOverlayKeySlot = {
+  slotId: string
   inputId: string
-  short: string
   label: string
-  row: number
-  col: number
+  short: string
+  icon: MappingInput['icon']
   status: 'configured' | 'trigger' | 'idle'
+  primaryKind?: 'prompt' | 'action' | 'sequence'
+  contextLabel?: string
   triggers: QuickOverlayTriggerPreview[]
+  scopedEntries?: QuickOverlayScopedEntry[]
 }
 
-export type QuickOverlayPoint = {
-  x: number
-  y: number
+export type QuickOverlayCrossWell = {
+  kind: 'cross'
+  up?: QuickOverlayKeySlot
+  down?: QuickOverlayKeySlot
+  left?: QuickOverlayKeySlot
+  right?: QuickOverlayKeySlot
+  center?: QuickOverlayKeySlot
 }
 
-function segmentIntersection(
-  a1: QuickOverlayPoint,
-  a2: QuickOverlayPoint,
-  b1: QuickOverlayPoint,
-  b2: QuickOverlayPoint,
-): { t: number; point: QuickOverlayPoint } | null {
-  const dax = a2.x - a1.x
-  const day = a2.y - a1.y
-  const dbx = b2.x - b1.x
-  const dby = b2.y - b1.y
-  const denom = dax * dby - day * dbx
-  if (Math.abs(denom) < 1e-7) return null
-  const ox = b1.x - a1.x
-  const oy = b1.y - a1.y
-  const t = (ox * dby - oy * dbx) / denom
-  const u = (ox * day - oy * dax) / denom
-  if (t < 0 || t > 1 || u < -1e-4 || u > 1 + 1e-4) return null
-  return {
-    t,
-    point: { x: a1.x + t * dax, y: a1.y + t * day },
-  }
+export type QuickOverlayBridgeBlock = {
+  kind: 'bridge'
+  leftStack: [QuickOverlayKeySlot, QuickOverlayKeySlot]
+  center: QuickOverlayKeySlot
+  rightStack: [QuickOverlayKeySlot, QuickOverlayKeySlot]
 }
 
-function minDistanceSqToSiblings(pt: QuickOverlayPoint, siblings: readonly QuickOverlayPoint[][]): number {
-  let minSq = Number.POSITIVE_INFINITY
-  for (const poly of siblings) {
-    for (const other of poly) {
-      const dx = pt.x - other.x
-      const dy = pt.y - other.y
-      const dSq = dx * dx + dy * dy
-      if (dSq < minSq) minSq = dSq
+export type QuickOverlayRowBlock = {
+  kind: 'row'
+  columns: 1 | 2 | 3 | 4 | 5
+  align?: 'left' | 'center' | 'right'
+  slots: QuickOverlayKeySlot[]
+}
+
+export type QuickOverlaySurfaceBlock = QuickOverlayRowBlock | QuickOverlayCrossWell | QuickOverlayBridgeBlock
+
+export type QuickOverlaySurfaceLayout =
+  | {
+      variant: 'matrix'
+      rows: number
+      cols: number
+      oledSpan?: { row: number; colStart: number; colSpan: number }
+      cells: (QuickOverlayKeySlot & { row: number; col: number })[]
     }
-  }
-  return minSq
-}
-
-export function pickPerimeterAttachment(
-  elbowPt: QuickOverlayPoint,
-  centerPt: QuickOverlayPoint,
-  outlinePts: readonly QuickOverlayPoint[],
-  siblingOutlines: readonly QuickOverlayPoint[][] = [],
-): QuickOverlayPoint | null {
-  const n = outlinePts.length
-  if (n < 3) return null
-
-  const siblingDistsSq =
-    siblingOutlines.length > 0 ? outlinePts.map(pt => minDistanceSqToSiblings(pt, siblingOutlines)) : null
-
-  const buildEligibleMask = (minGapPx: number): boolean[] => {
-    if (!siblingDistsSq) return outlinePts.map(() => true)
-    const thresholdSq = minGapPx * minGapPx
-    return siblingDistsSq.map(dSq => dSq > thresholdSq)
-  }
-
-  let eligible = buildEligibleMask(9)
-  if (eligible.filter(Boolean).length < 8) eligible = buildEligibleMask(4.5)
-  if (eligible.filter(Boolean).length < 6) eligible = buildEligibleMask(2)
-  if (eligible.filter(Boolean).length < 4) eligible = outlinePts.map(() => true)
-
-  let bestHit: { t: number; point: QuickOverlayPoint } | null = null
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n
-    if (!eligible[i] || !eligible[j]) continue
-    const hit = segmentIntersection(elbowPt, centerPt, outlinePts[i], outlinePts[j])
-    if (hit && (!bestHit || hit.t < bestHit.t)) {
-      bestHit = hit
+  | {
+      variant: 'controller'
+      leftShoulders: QuickOverlayKeySlot[]
+      rightShoulders: QuickOverlayKeySlot[]
+      centerRow: QuickOverlayKeySlot[]
+      leftPod: QuickOverlaySurfaceBlock[]
+      rightPod: QuickOverlaySurfaceBlock[]
     }
-  }
-
-  let chosen = bestHit?.point ?? null
-  if (!chosen) {
-    let bestDistSq = Number.POSITIVE_INFINITY
-    for (let i = 0; i < n; i++) {
-      if (!eligible[i]) continue
-      const p = outlinePts[i]
-      const dx = p.x - elbowPt.x
-      const dy = p.y - elbowPt.y
-      const dSq = dx * dx + dy * dy
-      if (dSq < bestDistSq) {
-        bestDistSq = dSq
-        chosen = p
-      }
+  | {
+      variant: 'mouse'
+      thumbStack: QuickOverlayKeySlot[]
+      primaryPair: [QuickOverlayKeySlot, QuickOverlayKeySlot]
+      wheelWell: QuickOverlayCrossWell
     }
-  }
-
-  if (!chosen) return null
-  const outX = elbowPt.x - chosen.x
-  const outY = elbowPt.y - chosen.y
-  const outLen = Math.hypot(outX, outY)
-  if (outLen > 1) {
-    return {
-      x: chosen.x + (outX / outLen) * 0.4,
-      y: chosen.y + (outY / outLen) * 0.4,
+  | {
+      variant: 'panel'
+      density: 'spacious' | 'regular' | 'compact'
+      blocks: QuickOverlaySurfaceBlock[]
+      sideRail?: { side: 'left' | 'right'; slots: QuickOverlayKeySlot[] }
     }
-  }
-  return chosen
-}
 
 export type QuickOverlayViewModel = {
-  layoutMode: 'callout' | 'keypad'
   isMouse: boolean
-  isWideDiagram: boolean
   deviceName: string
   profileName: string
   triggerInputId: string
   triggerLabel: string | null
-  remoteView?: RemoteView
-  screenRegion?: DeviceScreenRegion
   mappedIds: string[]
   pressedIds: string[]
   items: QuickOverlayCardItem[]
-  leftCallouts: QuickOverlayCalloutItem[]
-  rightCallouts: QuickOverlayCalloutItem[]
-  keypadSlots: QuickOverlayKeypadSlot[]
+  surface: QuickOverlaySurfaceLayout
+}
+
+type PositionedSlot = {
+  slot: QuickOverlayKeySlot
+  nx: number
+  ny: number
+  kindTag: string
+  order: number
+}
+
+const parsedSessionSvgCache = new Map<string, DeviceSupportPackage>()
+
+function resolveSessionPackage(session: QuickOverlaySessionPayload): DeviceSupportPackage {
+  const inlineSvg = typeof session.descriptorSvg === 'string' ? session.descriptorSvg.trim() : ''
+  if (inlineSvg) {
+    const cacheKey = `${session.deviceKind}\0${inlineSvg}`
+    const cached = parsedSessionSvgCache.get(cacheKey)
+    if (cached) return cached
+    const parsed = tryParseRuntimeDescriptorSvg(inlineSvg, {
+      kind: session.deviceKind,
+      name: session.deviceName,
+    })
+    if (parsed) {
+      if (parsedSessionSvgCache.size >= 32) {
+        const firstKey = parsedSessionSvgCache.keys().next().value
+        if (firstKey !== undefined) parsedSessionSvgCache.delete(firstKey)
+      }
+      parsedSessionSvgCache.set(cacheKey, parsed.supportPackage)
+      return parsed.supportPackage
+    }
+  }
+  return packageFor(session.deviceKind)
 }
 
 const mouseOverlayInputs: MappingInput<string>[] = mouseInputIds.map(id => {
@@ -198,25 +170,6 @@ const mouseOverlayInputs: MappingInput<string>[] = mouseInputIds.map(id => {
     triggerLabel: control.kind === 'wheel' ? '滚动' : undefined,
   }
 })
-
-const mouseControlSpatialMap: Record<MouseControlId, { side: 'left' | 'right'; nx: number; ny: number }> = {
-  buttonLeft: { side: 'left', nx: 0.26, ny: 0.16 },
-  buttonRight: { side: 'right', nx: 0.74, ny: 0.16 },
-  buttonForward: { side: 'left', nx: 0.16, ny: 0.44 },
-  buttonBack: { side: 'left', nx: 0.16, ny: 0.62 },
-  up: { side: 'right', nx: 0.58, ny: 0.42 },
-  left: { side: 'left', nx: 0.42, ny: 0.64 },
-  buttonMiddle: { side: 'right', nx: 0.58, ny: 0.62 },
-  right: { side: 'right', nx: 0.76, ny: 0.66 },
-  down: { side: 'right', nx: 0.58, ny: 0.84 },
-}
-
-const mouseScopeOrder: Record<string, number> = {
-  global: 0,
-  left: 1,
-  top: 2,
-  right: 3,
-}
 
 function coerceBehaviorList(raw: unknown): Behavior[] {
   if (!Array.isArray(raw)) return []
@@ -238,10 +191,9 @@ function coerceTriggerBehaviors(raw: unknown): TriggerBehaviors {
   }
 }
 
-function resolveCanonicalInputId(rawKey: string, deviceKind: string): string {
+function resolveCanonicalInputId(rawKey: string, deviceKind: string, pkg: DeviceSupportPackage | null): string {
   const trimmed = rawKey.trim()
-  if (!trimmed || deviceKind === 'mouse') return trimmed
-  const pkg = packageFor(deviceKind)
+  if (!trimmed || deviceKind === 'mouse' || !pkg) return trimmed
   if (pkg.inputs.some(input => input.id === trimmed)) return trimmed
   const matchedButton = pkg.remoteView?.buttons.find(
     button => button.id === trimmed || (button as { rawId?: string }).rawId === trimmed,
@@ -341,6 +293,24 @@ export function summarizeQuickTrigger(
     }
   }
 
+  // Also treat manually assembled [paste|typeText, (optional delay), Enter] sequences as prompt sends.
+  const isEnterKey = (step: Behavior) => step.type === 'key' && (step.key === 'Enter' || step.key === 'Return')
+  const firstStep = active[0]
+  if (
+    (firstStep.type === 'paste' || firstStep.type === 'typeText') &&
+    ((active.length === 2 && isEnterKey(active[1])) ||
+      (active.length === 3 && active[1].type === 'delay' && isEnterKey(active[2])))
+  ) {
+    return {
+      trigger,
+      triggerLabel: label,
+      showTriggerTag,
+      kind: 'prompt',
+      badge: firstStep.type === 'paste' ? '粘贴并发送' : '输入并发送',
+      text: firstStep.text || '（空文本）',
+    }
+  }
+
   if (active.length === 1) {
     const step = active[0]
     if (step.type === 'paste') {
@@ -406,169 +376,720 @@ export function summarizeQuickTrigger(
   }
 }
 
-function buildCalloutSides(
-  items: readonly QuickOverlayCardItem[],
-  triggerInputId: string,
-  triggerMeta: MappingInput<string> | undefined,
-  triggerShort: string | undefined,
-  isMouse: boolean,
-  remoteView: RemoteView | undefined,
-): { leftCallouts: QuickOverlayCalloutItem[]; rightCallouts: QuickOverlayCalloutItem[] } {
-  type DraftCallout = Omit<QuickOverlayCalloutItem, 'side'> & {
-    preferredSide: 'left' | 'right' | 'center'
-    sortTie: number
+/* ==========================================================================
+   Generic Geometry-Driven Surface Compiler (No Device Hardcoding)
+   ========================================================================== */
+
+function cluster1D(values: number[], tol: number): number[] {
+  const sorted = [...values].sort((a, b) => a - b)
+  const clusters: { sum: number; count: number; last: number }[] = []
+  for (const val of sorted) {
+    const prev = clusters[clusters.length - 1]
+    if (prev && val - prev.last <= tol) {
+      prev.sum += val
+      prev.count += 1
+      prev.last = val
+    } else {
+      clusters.push({ sum: val, count: 1, last: val })
+    }
+  }
+  return clusters.map(c => c.sum / c.count)
+}
+
+function nearestIndex(value: number, centers: readonly number[]): number {
+  let bestIdx = 0
+  let bestDist = Math.abs(value - centers[0])
+  for (let i = 1; i < centers.length; i++) {
+    const d = Math.abs(value - centers[i])
+    if (d < bestDist) {
+      bestDist = d
+      bestIdx = i
+    }
+  }
+  return bestIdx
+}
+
+function extractSideRail(
+  items: PositionedSlot[],
+  aspectRatio: number,
+): { main: PositionedSlot[]; sideRail?: { side: 'left' | 'right'; slots: QuickOverlayKeySlot[] } } {
+  if (items.length < 8 || aspectRatio >= 0.85) return { main: items }
+  const byX = [...items].sort((a, b) => a.nx - b.nx)
+  let bestGap = 0
+  let splitIdx = -1
+  for (let i = 1; i < byX.length; i++) {
+    const gap = byX[i].nx - byX[i - 1].nx
+    if (gap > bestGap) {
+      bestGap = gap
+      splitIdx = i
+    }
+  }
+  if (bestGap < 0.22 || splitIdx < 1) return { main: items }
+
+  const leftGroup = byX.slice(0, splitIdx)
+  const rightGroup = byX.slice(splitIdx)
+
+  const spanOf = (group: PositionedSlot[]) => Math.max(...group.map(g => g.nx)) - Math.min(...group.map(g => g.nx))
+
+  const isSideColumn = (sideGroup: PositionedSlot[], mainGroup: PositionedSlot[]) =>
+    sideGroup.length >= 1 &&
+    sideGroup.length <= 5 &&
+    spanOf(sideGroup) <= 0.045 &&
+    mainGroup.length >= 6 &&
+    spanOf(mainGroup) >= 0.22
+
+  let railGroup: PositionedSlot[] | null = null
+  let mainGroup: PositionedSlot[] | null = null
+  let side: 'left' | 'right' = 'right'
+
+  if (isSideColumn(rightGroup, leftGroup)) {
+    railGroup = rightGroup
+    mainGroup = leftGroup
+    side = 'right'
+  } else if (isSideColumn(leftGroup, rightGroup)) {
+    railGroup = leftGroup
+    mainGroup = rightGroup
+    side = 'left'
   }
 
-  const drafts: DraftCallout[] = []
+  if (!railGroup || !mainGroup) return { main: items }
 
-  const addDraft = (
-    inputId: string,
-    label: string,
-    contextLabel: string | undefined,
-    short: string | undefined,
-    icon: MappingInput['icon'],
-    isExitTrigger: boolean,
-    triggers: QuickOverlayTriggerPreview[],
-    index: number,
-  ) => {
-    if (isMouse) {
-      if (!(mouseInputIds as readonly string[]).includes(inputId)) return
-      const { scope, control } = mouseInputParts(inputId as MouseInputId)
-      const pos = mouseControlSpatialMap[control.id]
-      const scopeOffset = (mouseScopeOrder[scope.id] ?? 0) * 0.015
-      drafts.push({
-        inputId,
-        label,
-        contextLabel,
-        short,
-        icon,
-        nx: pos.nx,
-        ny: pos.ny + scopeOffset,
-        isExitTrigger,
-        target: { kind: 'mouse', controlId: control.id },
-        triggers,
-        preferredSide: pos.side,
-        sortTie: index,
+  const minMainX = Math.min(...mainGroup.map(g => g.nx))
+  const maxMainX = Math.max(...mainGroup.map(g => g.nx))
+  const mainSpan = Math.max(0.01, maxMainX - minMainX)
+
+  return {
+    main: mainGroup.map(item => ({
+      ...item,
+      nx: 0.2 + ((item.nx - minMainX) / mainSpan) * 0.6,
+    })),
+    sideRail: {
+      side,
+      slots: [...railGroup].sort((a, b) => a.ny - b.ny).map(item => item.slot),
+    },
+  }
+}
+
+type DetectedCross = {
+  cross: QuickOverlayCrossWell
+  usedIndices: Set<number>
+  cx: number
+  cy: number
+  minNy: number
+  maxNy: number
+}
+
+function detectCrossClusters(items: PositionedSlot[]): DetectedCross[] {
+  type Candidate = DetectedCross & { score: number }
+  const candidates: Candidate[] = []
+
+  const iconMatchBonus = (item: PositionedSlot, expected: 'up' | 'down' | 'left' | 'right' | 'center') => {
+    let bonus = item.kindTag === 'hat' ? 0.025 : 0
+    if (item.slot.icon === expected) bonus += 0.05
+    return bonus
+  }
+
+  for (let u = 0; u < items.length; u++) {
+    const up = items[u]
+    for (let d = 0; d < items.length; d++) {
+      if (d === u) continue
+      const down = items[d]
+      const dy = down.ny - up.ny
+      if (dy < 0.08 || dy > 0.42) continue
+      if (Math.abs(up.nx - down.nx) > 0.065) continue
+
+      const cx = (up.nx + down.nx) / 2
+      const cy = (up.ny + down.ny) / 2
+
+      let bestArmScore = -Infinity
+      let bestLeftIdx = -1
+      let bestRightIdx = -1
+
+      for (let l = 0; l < items.length; l++) {
+        if (l === u || l === d) continue
+        const left = items[l]
+        if (left.nx >= cx - 0.04) continue
+
+        for (let r = 0; r < items.length; r++) {
+          if (r === u || r === d || r === l) continue
+          const right = items[r]
+          if (right.nx <= cx + 0.04) continue
+
+          const dx = right.nx - left.nx
+          if (dx < 0.08 || dx > 0.78) continue
+          if (Math.abs(left.ny - right.ny) > 0.065) continue
+
+          const armCx = (left.nx + right.nx) / 2
+          const armCy = (left.ny + right.ny) / 2
+          const centerErr = Math.hypot(armCx - cx, armCy - cy)
+          if (centerErr > 0.075) continue
+
+          // Empty-corners invariant: reject regular grids/keypads where keys occupy the 4 corners inside the bounding box.
+          const minX = left.nx - 0.035
+          const maxX = right.nx + 0.035
+          const minY = up.ny - 0.035
+          const maxY = down.ny + 0.035
+
+          let centerIdx = -1
+          let bestCenterDist = 0.07
+          let hasCornerIntruder = false
+
+          for (let k = 0; k < items.length; k++) {
+            if (k === u || k === d || k === l || k === r) continue
+            const other = items[k]
+            if (other.nx >= minX && other.nx <= maxX && other.ny >= minY && other.ny <= maxY) {
+              const distToCenter = Math.hypot(other.nx - cx, other.ny - cy)
+              if (
+                distToCenter <= bestCenterDist &&
+                Math.abs(other.nx - cx) <= 0.06 &&
+                Math.abs(other.ny - cy) <= 0.06
+              ) {
+                bestCenterDist = distToCenter
+                centerIdx = k
+              } else {
+                hasCornerIntruder = true
+                break
+              }
+            }
+          }
+          if (hasCornerIntruder) continue
+
+          const score =
+            iconMatchBonus(up, 'up') +
+            iconMatchBonus(down, 'down') +
+            iconMatchBonus(left, 'left') +
+            iconMatchBonus(right, 'right') +
+            (centerIdx >= 0 ? iconMatchBonus(items[centerIdx], 'center') + 0.02 : 0) -
+            centerErr * 1.5 -
+            Math.abs(up.nx - down.nx) -
+            Math.abs(left.ny - right.ny)
+
+          if (score > bestArmScore) {
+            bestArmScore = score
+            bestLeftIdx = l
+            bestRightIdx = r
+          }
+        }
+      }
+
+      if (bestLeftIdx < 0 || bestRightIdx < 0) continue
+
+      const left = items[bestLeftIdx]
+      const right = items[bestRightIdx]
+      const usedIndices = new Set<number>([u, d, bestLeftIdx, bestRightIdx])
+      let centerItem: PositionedSlot | undefined
+      let bestCenterDist = 0.065
+
+      for (let k = 0; k < items.length; k++) {
+        if (usedIndices.has(k)) continue
+        const other = items[k]
+        if (Math.abs(other.nx - cx) <= 0.06 && Math.abs(other.ny - cy) <= 0.06) {
+          const dist = Math.hypot(other.nx - cx, other.ny - cy)
+          if (dist < bestCenterDist) {
+            bestCenterDist = dist
+            centerItem = other
+          }
+        }
+      }
+      if (centerItem) {
+        const centerIdx = items.indexOf(centerItem)
+        if (centerIdx >= 0) usedIndices.add(centerIdx)
+      }
+
+      candidates.push({
+        cross: {
+          kind: 'cross',
+          up: up.slot,
+          down: down.slot,
+          left: left.slot,
+          right: right.slot,
+          ...(centerItem ? { center: centerItem.slot } : {}),
+        },
+        usedIndices,
+        cx,
+        cy,
+        minNy: Math.min(up.ny, left.ny, right.ny),
+        maxNy: Math.max(down.ny, left.ny, right.ny),
+        score: bestArmScore,
       })
-      return
     }
+  }
 
-    const region = remoteView?.keyRegions[inputId]
-    const viewBox = remoteView?.viewBox
-    const nx = region && viewBox && viewBox.width > 0 ? region.anchor.x / viewBox.width : 0.5
-    const ny = region && viewBox && viewBox.height > 0 ? region.anchor.y / viewBox.height : 0.5
-    const preferredSide = nx < 0.43 ? 'left' : nx > 0.57 ? 'right' : 'center'
-    drafts.push({
-      inputId,
-      label,
-      contextLabel,
-      short,
-      icon,
-      nx,
-      ny,
-      isExitTrigger,
-      target: { kind: 'remote', id: inputId },
-      triggers,
-      preferredSide,
-      sortTie: index,
+  candidates.sort((a, b) => b.score - a.score)
+  const chosen: DetectedCross[] = []
+  const globallyUsed = new Set<number>()
+
+  for (const cand of candidates) {
+    let overlaps = false
+    for (const idx of cand.usedIndices) {
+      if (globallyUsed.has(idx)) {
+        overlaps = true
+        break
+      }
+    }
+    if (overlaps) continue
+    for (const idx of cand.usedIndices) globallyUsed.add(idx)
+    chosen.push({
+      cross: cand.cross,
+      usedIndices: cand.usedIndices,
+      cx: cand.cx,
+      cy: cand.cy,
+      minNy: cand.minNy,
+      maxNy: cand.maxNy,
     })
   }
 
-  items.forEach((item, index) => {
-    addDraft(item.inputId, item.label, item.contextLabel, item.short, item.icon, false, item.triggers, index)
-  })
-
-  if (triggerInputId && (isMouse || Boolean(remoteView?.keyRegions[triggerInputId]))) {
-    addDraft(
-      triggerInputId,
-      triggerMeta?.label ?? triggerInputId,
-      triggerMeta?.contextLabel,
-      triggerShort,
-      triggerMeta?.icon ?? 'center',
-      true,
-      [],
-      items.length + 1,
-    )
-  }
-
-  const leftCallouts: QuickOverlayCalloutItem[] = []
-  const rightCallouts: QuickOverlayCalloutItem[] = []
-
-  for (const draft of drafts) {
-    if (draft.preferredSide === 'left') {
-      leftCallouts.push({ ...draft, side: 'left' })
-    } else if (draft.preferredSide === 'right') {
-      rightCallouts.push({ ...draft, side: 'right' })
-    }
-  }
-
-  const centerDrafts = drafts
-    .filter(draft => draft.preferredSide === 'center')
-    .sort((a, b) => a.ny - b.ny || a.nx - b.nx || a.sortTie - b.sortTie)
-
-  centerDrafts.forEach((draft, idx) => {
-    const side: 'left' | 'right' =
-      leftCallouts.length < rightCallouts.length
-        ? 'left'
-        : rightCallouts.length < leftCallouts.length
-          ? 'right'
-          : draft.nx < 0.495
-            ? 'left'
-            : draft.nx > 0.505
-              ? 'right'
-              : idx % 2 === 0
-                ? 'left'
-                : 'right'
-    if (side === 'left') leftCallouts.push({ ...draft, side: 'left' })
-    else rightCallouts.push({ ...draft, side: 'right' })
-  })
-
-  leftCallouts.sort((a, b) => a.ny - b.ny || a.nx - b.nx)
-  rightCallouts.sort((a, b) => a.ny - b.ny || b.nx - a.nx)
-
-  return { leftCallouts, rightCallouts }
+  return chosen.sort((a, b) => a.cy - b.cy || a.cx - b.cx)
 }
 
-function buildK18KeypadSlots(
-  inputs: readonly MappingInput<string>[],
-  viewButtons: readonly { id: string; short?: string }[] | undefined,
+function tryBuildMatrixLayout(
+  items: PositionedSlot[],
+  aspectRatio: number,
+  hasCross: boolean,
+): QuickOverlaySurfaceLayout | null {
+  if (hasCross || items.length < 2) return null
+  if (aspectRatio < 0.72 && items.length > 8) return null
+
+  const rowCenters = cluster1D(
+    items.map(i => i.ny),
+    0.055,
+  )
+  const colCenters = cluster1D(
+    items.map(i => i.nx),
+    0.065,
+  )
+  const rows = rowCenters.length
+  const cols = colCenters.length
+  if (rows < 1 || rows > 6 || cols < 2 || cols > 8) return null
+  if (items.length / (rows * cols) < 0.55) return null
+
+  const occupied = new Set<string>()
+  const cells: (QuickOverlayKeySlot & { row: number; col: number })[] = []
+
+  for (const item of items) {
+    const r = nearestIndex(item.ny, rowCenters) + 1
+    const c = nearestIndex(item.nx, colCenters) + 1
+    const coord = `${r}:${c}`
+    if (occupied.has(coord)) return null
+    occupied.add(coord)
+    cells.push({ ...item.slot, row: r, col: c })
+  }
+
+  let oledSpan: { row: number; colStart: number; colSpan: number } | undefined
+  if (rows >= 2 && cols >= 4) {
+    let leftEmpty = 0
+    for (let c = 1; c <= cols; c++) {
+      if (!occupied.has(`1:${c}`)) leftEmpty++
+      else break
+    }
+    if (leftEmpty >= 2 && leftEmpty < cols) {
+      oledSpan = { row: 1, colStart: 1, colSpan: leftEmpty }
+    } else {
+      let rightEmpty = 0
+      for (let c = cols; c >= 1; c--) {
+        if (!occupied.has(`1:${c}`)) rightEmpty++
+        else break
+      }
+      if (rightEmpty >= 2 && rightEmpty < cols) {
+        oledSpan = { row: 1, colStart: cols - rightEmpty + 1, colSpan: rightEmpty }
+      }
+    }
+  }
+
+  cells.sort((a, b) => a.row - b.row || a.col - b.col)
+  return {
+    variant: 'matrix',
+    rows,
+    cols,
+    ...(oledSpan ? { oledSpan } : {}),
+    cells,
+  }
+}
+
+function packRowsWithBridge(items: PositionedSlot[]): QuickOverlaySurfaceBlock[] {
+  if (items.length === 0) return []
+  const sorted = [...items].sort((a, b) => a.ny - b.ny || a.nx - b.nx || a.order - b.order)
+
+  const rows: PositionedSlot[][] = []
+  for (const item of sorted) {
+    const prevRow = rows[rows.length - 1]
+    if (prevRow && item.ny - prevRow[0].ny <= 0.036) {
+      prevRow.push(item)
+    } else {
+      rows.push([item])
+    }
+  }
+  for (const row of rows) row.sort((a, b) => a.nx - b.nx || a.order - b.order)
+
+  const blocks: QuickOverlaySurfaceBlock[] = []
+  for (let i = 0; i < rows.length;) {
+    const r0 = rows[i]
+    const r1 = rows[i + 1]
+    const r2 = rows[i + 2]
+
+    if (
+      r0 &&
+      r1 &&
+      r2 &&
+      r0.length === 2 &&
+      r1.length === 1 &&
+      r2.length === 2 &&
+      r0[0].nx < 0.4 &&
+      r0[1].nx > 0.6 &&
+      r1[0].nx >= 0.36 &&
+      r1[0].nx <= 0.64 &&
+      r2[0].nx < 0.4 &&
+      r2[1].nx > 0.6 &&
+      r2[0].ny - r0[0].ny <= 0.22
+    ) {
+      blocks.push({
+        kind: 'bridge',
+        leftStack: [r0[0].slot, r2[0].slot],
+        center: r1[0].slot,
+        rightStack: [r0[1].slot, r2[1].slot],
+      })
+      i += 3
+      continue
+    }
+
+    if (r0.length > 5) {
+      for (let start = 0; start < r0.length; start += 4) {
+        const chunk = r0.slice(start, start + 4)
+        blocks.push({
+          kind: 'row',
+          columns: Math.max(1, Math.min(5, chunk.length)) as 1 | 2 | 3 | 4 | 5,
+          slots: chunk.map(c => c.slot),
+        })
+      }
+      i += 1
+      continue
+    }
+
+    if (r0.length === 1) {
+      const only = r0[0]
+      const align = only.nx < 0.36 ? 'left' : only.nx > 0.64 ? 'right' : 'center'
+      blocks.push({
+        kind: 'row',
+        columns: 1,
+        align,
+        slots: [only.slot],
+      })
+      i += 1
+      continue
+    }
+
+    blocks.push({
+      kind: 'row',
+      columns: Math.min(5, r0.length) as 2 | 3 | 4 | 5,
+      slots: r0.map(item => item.slot),
+    })
+    i += 1
+  }
+
+  return blocks
+}
+
+function buildVerticalBlocks(items: PositionedSlot[], crosses: DetectedCross[]): QuickOverlaySurfaceBlock[] {
+  const usedByCross = new Set<number>()
+  for (const c of crosses) {
+    for (const idx of c.usedIndices) usedByCross.add(idx)
+  }
+
+  const remaining = items.filter((_, idx) => !usedByCross.has(idx)).sort((a, b) => a.ny - b.ny || a.nx - b.nx)
+  if (crosses.length === 0) return packRowsWithBridge(remaining)
+
+  const orderedCrosses = [...crosses].sort((a, b) => a.cy - b.cy)
+  const blocks: QuickOverlaySurfaceBlock[] = []
+  let cursor = 0
+
+  for (const crossEntry of orderedCrosses) {
+    const before: PositionedSlot[] = []
+    while (cursor < remaining.length && remaining[cursor].ny < crossEntry.cy - 0.02) {
+      before.push(remaining[cursor])
+      cursor += 1
+    }
+    blocks.push(...packRowsWithBridge(before))
+    blocks.push(crossEntry.cross)
+  }
+
+  if (cursor < remaining.length) {
+    blocks.push(...packRowsWithBridge(remaining.slice(cursor)))
+  }
+
+  return blocks
+}
+
+function tryBuildControllerLayout(
+  items: PositionedSlot[],
+  crosses: DetectedCross[],
+  aspectRatio: number,
+): QuickOverlaySurfaceLayout | null {
+  if (aspectRatio < 1.05 || items.length < 8) return null
+  if (crosses.length < 2 && !(crosses.length >= 1 && items.length >= 10)) return null
+
+  const minCrossTop = crosses.length > 0 ? Math.min(...crosses.map(c => c.minNy)) : 0.35
+  const shoulderCutoff = Math.min(0.3, minCrossTop - 0.03)
+  const crossMemberSet = new Set<number>()
+  for (const c of crosses) {
+    for (const idx of c.usedIndices) crossMemberSet.add(idx)
+  }
+
+  const leftShoulders: PositionedSlot[] = []
+  const rightShoulders: PositionedSlot[] = []
+  const centerItems: PositionedSlot[] = []
+  const leftItems: { item: PositionedSlot; origIdx: number }[] = []
+  const rightItems: { item: PositionedSlot; origIdx: number }[] = []
+
+  items.forEach((item, idx) => {
+    const inCross = crossMemberSet.has(idx)
+    if (!inCross && item.ny <= shoulderCutoff) {
+      if (item.nx < 0.5) leftShoulders.push(item)
+      else rightShoulders.push(item)
+      return
+    }
+    if (!inCross && item.nx >= 0.4 && item.nx <= 0.6 && item.ny <= 0.56) {
+      centerItems.push(item)
+      return
+    }
+    if (item.nx < 0.5) leftItems.push({ item, origIdx: idx })
+    else rightItems.push({ item, origIdx: idx })
+  })
+
+  if (leftItems.length === 0 || rightItems.length === 0) return null
+
+  const remapPod = (
+    podEntries: { item: PositionedSlot; origIdx: number }[],
+    isLeft: boolean,
+  ): QuickOverlaySurfaceBlock[] => {
+    const podItems = podEntries.map(({ item }) => ({
+      ...item,
+      nx: isLeft ? Math.min(0.95, Math.max(0.05, item.nx * 2)) : Math.min(0.95, Math.max(0.05, (item.nx - 0.5) * 2)),
+    }))
+    const podCrosses = detectCrossClusters(podItems)
+    return buildVerticalBlocks(podItems, podCrosses)
+  }
+
+  return {
+    variant: 'controller',
+    leftShoulders: leftShoulders.sort((a, b) => a.ny - b.ny || a.nx - b.nx).map(i => i.slot),
+    rightShoulders: rightShoulders.sort((a, b) => a.ny - b.ny || a.nx - b.nx).map(i => i.slot),
+    centerRow: centerItems.sort((a, b) => a.ny - b.ny || a.nx - b.nx).map(i => i.slot),
+    leftPod: remapPod(leftItems, true),
+    rightPod: remapPod(rightItems, false),
+  }
+}
+
+function buildMouseSurfaceLayout(
+  normalizedBehaviors: ReadonlyMap<string, TriggerBehaviors>,
+  triggerInputId: string,
+  platform: Platform,
+): QuickOverlaySurfaceLayout {
+  const byControl = new Map<MouseControlId, QuickOverlayScopedEntry[]>()
+  const metaById = new Map(mouseOverlayInputs.map(item => [item.id, item]))
+
+  for (const id of mouseInputIds) {
+    const { scope, control } = mouseInputParts(id)
+    const meta = metaById.get(id)
+    const isExitTrigger = id === triggerInputId
+    const sequences = normalizedBehaviors.get(id)
+    const triggers = isExitTrigger
+      ? []
+      : triggerTypes
+          .map(trigger => summarizeQuickTrigger(trigger, sequences?.[trigger] ?? [], platform, meta?.triggerLabel))
+          .filter((entry): entry is QuickOverlayTriggerPreview => entry !== null)
+    if (!isExitTrigger && triggers.length === 0) continue
+
+    const entries = byControl.get(control.id) ?? []
+    entries.push({
+      inputId: id,
+      contextLabel: scope.id === 'global' ? undefined : scope.label,
+      isExitTrigger,
+      triggers,
+    })
+    byControl.set(control.id, entries)
+  }
+
+  const slotForControl = (controlId: MouseControlId): QuickOverlayKeySlot => {
+    const sampleId = mouseInputIds.find(id => mouseInputParts(id).control.id === controlId)!
+    const { control } = mouseInputParts(sampleId)
+    const entries = byControl.get(controlId) ?? []
+    if (entries.length === 0) {
+      return {
+        slotId: controlId,
+        inputId: sampleId,
+        label: control.label,
+        short: control.label,
+        icon: control.icon,
+        status: 'idle',
+        triggers: [],
+      }
+    }
+    const primary = entries.find(e => e.isExitTrigger) ?? entries[0]
+    const primaryTrigger = primary.triggers[0]
+    return {
+      slotId: controlId,
+      inputId: primary.inputId,
+      label: control.label,
+      short: control.label,
+      icon: control.icon,
+      status: primary.isExitTrigger ? 'trigger' : 'configured',
+      primaryKind: primaryTrigger?.kind,
+      contextLabel: entries.length === 1 ? primary.contextLabel : undefined,
+      triggers: primary.triggers,
+      ...(entries.length > 1 ? { scopedEntries: entries } : {}),
+    }
+  }
+
+  return {
+    variant: 'mouse',
+    thumbStack: [slotForControl('buttonForward'), slotForControl('buttonBack')],
+    primaryPair: [slotForControl('buttonLeft'), slotForControl('buttonRight')],
+    wheelWell: {
+      kind: 'cross',
+      up: slotForControl('up'),
+      left: slotForControl('left'),
+      center: slotForControl('buttonMiddle'),
+      right: slotForControl('right'),
+      down: slotForControl('down'),
+    },
+  }
+}
+
+function compileGenericSvgSurface(
+  pkg: DeviceSupportPackage,
+  normalizedBehaviors: ReadonlyMap<string, TriggerBehaviors>,
   itemById: ReadonlyMap<string, QuickOverlayCardItem>,
   triggerInputId: string,
-): QuickOverlayKeypadSlot[] {
-  return inputs.slice(0, 18).map((input, index) => {
-    const row = index < 3 ? 1 : Math.floor((index - 3) / 5) + 2
-    const col = index < 3 ? index + 3 : ((index - 3) % 5) + 1
-    const configured = itemById.get(input.id)
+  triggerMeta: MappingInput<string> | undefined,
+  triggerShort: string | undefined,
+): QuickOverlaySurfaceLayout {
+  const viewBox = pkg.remoteView?.viewBox ?? { width: 420, height: 1000 }
+  const aspectRatio = viewBox.width / Math.max(1, viewBox.height)
+
+  const positioned: PositionedSlot[] = []
+  const seenIds = new Set<string>()
+
+  const pushInput = (
+    input: MappingInput<string> & { kind?: string },
+    index: number,
+    fallbackPos?: { nx: number; ny: number },
+  ) => {
+    if (!input.id || seenIds.has(input.id)) return
     const isTrigger = input.id === triggerInputId
-    const short = viewButtons?.find(btn => btn.id === input.id)?.short ?? input.label
-    return {
-      inputId: input.id,
-      short,
-      label: input.label,
-      row,
-      col,
-      status: isTrigger ? 'trigger' : configured ? 'configured' : 'idle',
-      triggers: configured?.triggers ?? [],
+    const configured = itemById.get(input.id)
+    const viewBtn = pkg.remoteView?.buttons.find(btn => btn.id === input.id)
+    const kindTag = input.kind ?? viewBtn?.kind ?? 'button'
+    const hasEnabledOrRaw = Boolean(configured || isTrigger || normalizedBehaviors.has(input.id))
+    // Keep non-axis hardware buttons on the ceramic chassis so physical shape stays recognizable;
+    // omit unconfigured analog stick axis directions to avoid visual clutter.
+    if (!hasEnabledOrRaw && kindTag === 'axis') return
+
+    const region = pkg.remoteView?.keyRegions[input.id]
+    let nx = 0.5
+    let ny = 0.5
+    if (region && viewBox.width > 0 && viewBox.height > 0) {
+      nx = region.anchor.x / viewBox.width
+      ny = region.anchor.y / viewBox.height
+    } else if (viewBtn) {
+      nx = viewBtn.x / 100
+      ny = viewBtn.y / 100
+    } else if (fallbackPos) {
+      nx = fallbackPos.nx
+      ny = fallbackPos.ny
+    } else {
+      return
     }
-  })
+
+    seenIds.add(input.id)
+    const short = viewBtn?.short ?? input.label
+    const triggers = configured?.triggers ?? []
+    positioned.push({
+      slot: {
+        slotId: input.id,
+        inputId: input.id,
+        label: input.label,
+        short,
+        icon: input.icon,
+        status: isTrigger ? 'trigger' : configured ? 'configured' : 'idle',
+        ...(configured?.triggers[0]?.kind ? { primaryKind: configured.triggers[0].kind } : {}),
+        ...(input.contextLabel ? { contextLabel: input.contextLabel } : {}),
+        triggers,
+      },
+      nx,
+      ny,
+      kindTag,
+      order: index,
+    })
+  }
+
+  pkg.inputs.forEach((input, idx) => pushInput(input, idx))
+
+  // Fallback for unknown devices whose SVG is absent or incomplete: arrange configured items into a neat 2-column grid.
+  if (positioned.length === 0) {
+    const fallbackEntries: MappingInput<string>[] = [...itemById.values()].map(item => ({
+      id: item.inputId,
+      label: item.label,
+      icon: item.icon,
+      contextLabel: item.contextLabel,
+    }))
+    if (triggerInputId && !itemById.has(triggerInputId)) {
+      fallbackEntries.unshift({
+        id: triggerInputId,
+        label: triggerMeta?.label ?? triggerInputId,
+        icon: triggerMeta?.icon ?? 'center',
+        contextLabel: triggerMeta?.contextLabel,
+      })
+    }
+    fallbackEntries.forEach((entry, idx) => {
+      const col = idx % 2
+      const row = Math.floor(idx / 2)
+      pushInput(entry, idx, {
+        nx: col === 0 ? 0.3 : 0.7,
+        ny: (row + 0.5) / Math.max(1, Math.ceil(fallbackEntries.length / 2)),
+      })
+    })
+    if (triggerShort && positioned[0]?.slot.inputId === triggerInputId) {
+      positioned[0].slot.short = triggerShort
+    }
+  }
+
+  const { main, sideRail } = extractSideRail(positioned, aspectRatio)
+  const crosses = detectCrossClusters(main)
+  const matrix = tryBuildMatrixLayout(main, aspectRatio, crosses.length > 0)
+  if (matrix) return matrix
+
+  const controller = tryBuildControllerLayout(main, crosses, aspectRatio)
+  if (controller) return controller
+
+  const blocks = buildVerticalBlocks(main, crosses)
+  const totalCount = main.length + (sideRail?.slots.length ?? 0)
+  const density: 'spacious' | 'regular' | 'compact' =
+    totalCount <= 10 ? 'spacious' : totalCount <= 18 ? 'regular' : 'compact'
+
+  return {
+    variant: 'panel',
+    density,
+    blocks,
+    ...(sideRail ? { sideRail } : {}),
+  }
 }
 
 export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platform: Platform): QuickOverlayViewModel {
   const isMouse = session.deviceKind === 'mouse'
-  const pkg = isMouse ? null : packageFor(session.deviceKind)
+  const pkg = isMouse ? null : resolveSessionPackage(session)
   const inputs: readonly MappingInput<string>[] = isMouse ? mouseOverlayInputs : (pkg?.inputs ?? [])
   const viewButtons = pkg?.remoteView?.buttons
 
   const normalizedBehaviors = new Map<string, TriggerBehaviors>()
   if (session.behaviors && typeof session.behaviors === 'object') {
     for (const [rawKey, rawValue] of Object.entries(session.behaviors)) {
-      const id = resolveCanonicalInputId(rawKey, session.deviceKind)
+      const id = resolveCanonicalInputId(rawKey, session.deviceKind, pkg)
       if (!id) continue
       normalizedBehaviors.set(id, coerceTriggerBehaviors(rawValue))
     }
   }
 
-  const triggerInputId = resolveCanonicalInputId(session.triggerInput, session.deviceKind)
+  const triggerInputId = resolveCanonicalInputId(session.triggerInput, session.deviceKind, pkg)
   const findInputMeta = (id: string): MappingInput<string> | undefined => inputs.find(item => item.id === id)
   const formatInputLabel = (meta: MappingInput<string> | undefined, fallbackId: string): string => {
     if (!meta) return fallbackId
@@ -584,7 +1105,6 @@ export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platf
 
   const pushItem = (id: string, meta: MappingInput<string> | undefined) => {
     if (!id || seenIds.has(id) || id === triggerInputId) return
-    if (meta && !isMouse && !isOverviewButton(meta, viewButtons)) return
     const sequences = normalizedBehaviors.get(id)
     if (!sequences) return
     const triggers = triggerTypes
@@ -609,34 +1129,24 @@ export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platf
     pushItem(id, findInputMeta(id))
   }
 
-  const pressedIds = (session.pressed ?? []).map(id => resolveCanonicalInputId(id, session.deviceKind)).filter(Boolean)
-  const layoutMode: 'callout' | 'keypad' =
-    session.deviceKind === 'kivoK18Lite' && inputs.length >= 18 ? 'keypad' : 'callout'
-  const viewBox = pkg?.remoteView?.viewBox
-  const isWideDiagram = isMouse || Boolean(viewBox && viewBox.width / Math.max(1, viewBox.height) >= 0.85)
+  const pressedIds = (session.pressed ?? [])
+    .map(id => resolveCanonicalInputId(id, session.deviceKind, pkg))
+    .filter(Boolean)
 
   const itemById = new Map(items.map(item => [item.inputId, item]))
-  const keypadSlots = layoutMode === 'keypad' ? buildK18KeypadSlots(inputs, viewButtons, itemById, triggerInputId) : []
-  const { leftCallouts, rightCallouts } =
-    layoutMode === 'callout'
-      ? buildCalloutSides(items, triggerInputId, triggerMeta, triggerShort, isMouse, pkg?.remoteView)
-      : { leftCallouts: [], rightCallouts: [] }
+  const surface: QuickOverlaySurfaceLayout = isMouse
+    ? buildMouseSurfaceLayout(normalizedBehaviors, triggerInputId, platform)
+    : compileGenericSvgSurface(pkg!, normalizedBehaviors, itemById, triggerInputId, triggerMeta, triggerShort)
 
   return {
-    layoutMode,
     isMouse,
-    isWideDiagram,
     deviceName: session.deviceName || (isMouse ? '系统鼠标' : (pkg?.name ?? '设备')),
     profileName: session.profileName || '快捷交互配置',
     triggerInputId,
     triggerLabel,
-    remoteView: pkg?.remoteView,
-    screenRegion: pkg?.screenRegion,
     mappedIds: items.map(item => item.inputId),
     pressedIds,
     items,
-    leftCallouts,
-    rightCallouts,
-    keypadSlots,
+    surface,
   }
 }

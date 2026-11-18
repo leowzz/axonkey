@@ -12,7 +12,7 @@ use tauri::{Emitter, Manager};
 const LABEL: &str = "quick-overlay";
 const EVENT: &str = "axonkey-quick-overlay";
 const WIDTH: f64 = 880.0;
-const HEIGHT: f64 = 560.0;
+const HEIGHT: f64 = 620.0;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -36,6 +36,8 @@ pub struct QuickOverlaySession {
     pub behaviors: serde_json::Value,
     pub pressed: Vec<String>,
     pub preview: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descriptor_svg: Option<String>,
 }
 
 #[derive(Default)]
@@ -171,6 +173,7 @@ pub(crate) fn open(
     behaviors: serde_json::Value,
     preview: bool,
 ) -> u64 {
+    let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
     let session = {
         let mut state = STATE.lock().unwrap();
         state.replace(QuickOverlaySession {
@@ -184,6 +187,7 @@ pub(crate) fn open(
             behaviors,
             pressed: Vec::new(),
             preview,
+            descriptor_svg,
         })
     };
     let revision = session.revision;
@@ -578,6 +582,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            descriptor_svg: None,
         });
         let second = state.replace(QuickOverlaySession {
             revision: 0,
@@ -590,6 +595,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            descriptor_svg: None,
         });
         assert!(second.revision > first.revision);
         assert!(!state.is_current(first.revision));
