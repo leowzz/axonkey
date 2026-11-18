@@ -14,9 +14,9 @@ WebView 的 `localStorage` 按应用容器身份与前端 Origin（如开发态 
 1. **统一原生文件存储边界**：
    - 在软件数据目录新增 `app-config.json`（同目录配 `.tmp` 临时写入、`sync_all` 刷盘与 `.bak` 备份恢复，Unix 文件权限 `0600`），集中承载鼠标映射配置、全局设置、常用序列、音频设置、云端同步元数据与界面偏好。
    - 临时 HTTP 响应缓存（行为库分页缓存、设备型号目录缓存）和纯浏览器预览模拟项不进入 `app-config.json`，避免高频缓存刷新污染或膨胀配置文件。
-2. **启动预加载与同步读写桥接**：
-   - 主窗口挂载前通过 `bootstrapAppStorage()` 一次性加载 `app-config.json` 快照到前端内存映射表 `appStorage`，保持渲染层同步读取零闪烁，写入通过微任务合并批量落盘；涉及页面重载的操作（导入备份、清除本地数据）以及 CLI 修改在返回或刷新前执行 `flushAppStorage()` 等待落盘完成。
-   - 桌面端启动时若检测到当前 WebView `localStorage` 仍存有历史配置键，自动将缺失键补齐写入 `app-config.json` 并删除对应的 `localStorage` 条目。
+2. **启动预加载与无损迁移兼容**：
+   - 主窗口挂载前通过 `bootstrapAppStorage()` 一次性加载 `app-config.json` 快照到前端内存映射表 `appStorage`，保持渲染层同步读取零闪烁，写入通过微任务合并批量落盘；涉及页面重载、应用更新重启（`restart_app`）、页面隐藏卸载以及 CLI 修改在返回或刷新前执行 `flushAppStorage()`。
+   - 桌面端首次迁移时（`app-config.json` 尚未写入 `axonkey.storage-migrated.v1` 标记），自动将当前 WebView `localStorage` 中的历史配置键无损补齐至 `app-config.json`，**不主动清除原 `localStorage` 条目**：一方面避免首次落盘失败导致双端数据同时丢失，另一方面保留用户回退旧版本时的配置兼容性；仅当用户主动执行删除或「重置本地数据」时同步清理两处存储。
    - 浏览器预览与 Node 单元测试环境未注入 Tauri 运行时时自动回退至 `localStorage`。
 
 ## 主要取舍及影响

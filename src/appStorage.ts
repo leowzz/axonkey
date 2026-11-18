@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { logError } from './runtimeLogging.ts'
 
+export const storageMigrationMarkerKey = 'axonkey.storage-migrated.v1'
+
 export const persistedConfigKeys = [
   'axonkey.settings.v1',
   'axonkey.mapping-profiles.v1',
@@ -22,11 +24,25 @@ type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
 
 let nativeHydrated = false
+let lifecycleBound = false
 let activeInvoke: InvokeFn = invoke
 const memory = new Map<string, string>()
 const pendingUpdates = new Map<string, string | null>()
 let flushScheduled = false
 let writeChain: Promise<void> = Promise.resolve()
+
+function bindLifecycleFlush() {
+  if (lifecycleBound || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+  lifecycleBound = true
+  window.addEventListener('pagehide', () => {
+    void flushAppStorage()
+  })
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void flushAppStorage()
+    })
+  }
+}
 
 function fallbackStorage(): StorageLike {
   if (typeof window !== 'undefined' && 'localStorage' in window) {
@@ -129,10 +145,19 @@ export async function bootstrapAppStorage(options?: {
     for (const [key, value] of Object.entries(loaded ?? {})) {
       if (typeof value === 'string') memory.set(key, value)
     }
+  } catch (error) {
+    nativeHydrated = false
+    logError('Failed to load native app storage; falling back to WebView localStorage', error)
+    return
+  }
 
+  nativeHydrated = true
+  bindLifecycleFlush()
+
+  if (memory.get(storageMigrationMarkerKey) !== '1') {
     const legacy = options?.legacyStorage === undefined ? tryLegacyLocalStorage() : options.legacyStorage
+    const migrated: Record<string, string> = {}
     if (legacy) {
-      const migrated: Record<string, string> = {}
       for (const key of persistedConfigKeys) {
         let legacyValue: string | null = null
         try {
@@ -140,26 +165,23 @@ export async function bootstrapAppStorage(options?: {
         } catch {
           legacyValue = null
         }
-        if (legacyValue === null) continue
-        if (!memory.has(key)) {
-          memory.set(key, legacyValue)
-          migrated[key] = legacyValue
-        }
-        try {
-          legacy.removeItem(key)
-        } catch {
-          // Best-effort cleanup of legacy WebView localStorage.
-        }
-      }
-      if (Object.keys(migrated).length > 0) {
-        await activeInvoke<void>('update_app_config', { updates: migrated })
+        if (legacyValue === null || memory.has(key)) continue
+        memory.set(key, legacyValue)
+        migrated[key] = legacyValue
       }
     }
+    memory.set(storageMigrationMarkerKey, '1')
+    migrated[storageMigrationMarkerKey] = '1'
 
-    nativeHydrated = true
-  } catch (error) {
-    nativeHydrated = false
-    logError('Failed to bootstrap native app storage', error)
+    try {
+      await activeInvoke<void>('update_app_config', { updates: migrated })
+    } catch (error) {
+      // Keep hydrated values in memory and queue retry on next flush; legacy localStorage stays untouched.
+      for (const [key, value] of Object.entries(migrated)) {
+        if (!pendingUpdates.has(key)) pendingUpdates.set(key, value)
+      }
+      logError('Failed to persist migrated legacy localStorage config; queued for retry', error)
+    }
   }
 }
 

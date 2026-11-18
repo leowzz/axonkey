@@ -5,13 +5,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const CURRENT_VERSION: u32 = 1;
-const MAX_ENTRIES: usize = 128;
+const MAX_ENTRIES: usize = 512;
 const MAX_KEY_BYTES: usize = 128;
-const MAX_TOTAL_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TOTAL_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct PersistedAppConfig {
     version: u32,
+    #[serde(default, deserialize_with = "deserialize_entries")]
     entries: BTreeMap<String, String>,
 }
 
@@ -20,6 +21,46 @@ impl Default for PersistedAppConfig {
         Self {
             version: CURRENT_VERSION,
             entries: BTreeMap::new(),
+        }
+    }
+}
+
+fn deserialize_entries<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut entries = BTreeMap::new();
+    for (key, value) in raw {
+        match value {
+            serde_json::Value::String(text) => {
+                entries.insert(key, text);
+            }
+            serde_json::Value::Number(num) => {
+                entries.insert(key, num.to_string());
+            }
+            serde_json::Value::Bool(flag) => {
+                entries.insert(key, flag.to_string());
+            }
+            serde_json::Value::Null => {}
+            other => {
+                // Keep structured JSON entries usable if hand-edited as raw objects/arrays.
+                entries.insert(key, other.to_string());
+            }
+        }
+    }
+    Ok(entries)
+}
+
+enum LoadError {
+    Io(String),
+    Corrupt(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(msg) | Self::Corrupt(msg) => f.write_str(msg),
         }
     }
 }
@@ -39,8 +80,8 @@ impl AppConfigStore {
                     "Failed to load {}: {error}",
                     path.display()
                 );
-                if path.exists() {
-                    let corrupt = path.with_extension("corrupt.json");
+                if matches!(error, LoadError::Corrupt(_)) && path.exists() {
+                    let corrupt = unique_corrupt_path(&path);
                     let _ = std::fs::rename(&path, &corrupt);
                 }
                 BTreeMap::new()
@@ -136,7 +177,19 @@ fn validate_entries(entries: &BTreeMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
-fn read_with_recovery(path: &Path) -> Result<PersistedAppConfig, String> {
+fn unique_corrupt_path(path: &Path) -> PathBuf {
+    let default = path.with_extension("corrupt.json");
+    if !default.exists() {
+        return default;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    path.with_extension(format!("corrupt-{stamp}.json"))
+}
+
+fn read_with_recovery(path: &Path) -> Result<PersistedAppConfig, LoadError> {
     let backup = path.with_extension("bak");
     if path.exists() {
         match read_config_file(path) {
@@ -158,14 +211,33 @@ fn read_with_recovery(path: &Path) -> Result<PersistedAppConfig, String> {
     Ok(PersistedAppConfig::default())
 }
 
-fn read_config_file(path: &Path) -> Result<PersistedAppConfig, String> {
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let parsed: PersistedAppConfig =
-        serde_json::from_slice(&bytes).map_err(|e| format!("无法解析配置文件：{e}"))?;
+fn read_config_file(path: &Path) -> Result<PersistedAppConfig, LoadError> {
+    let bytes = std::fs::read(path).map_err(|e| LoadError::Io(e.to_string()))?;
+    let parsed: PersistedAppConfig = serde_json::from_slice(&bytes)
+        .map_err(|e| LoadError::Corrupt(format!("无法解析配置文件：{e}")))?;
     if parsed.version != CURRENT_VERSION {
-        return Err(format!("不支持的配置文件版本：{}", parsed.version));
+        return Err(LoadError::Corrupt(format!(
+            "不支持的配置文件版本：{}",
+            parsed.version
+        )));
     }
     Ok(parsed)
+}
+
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut last_err = None;
+    for attempt in 0..3 {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap())
 }
 
 fn write_atomic(path: &Path, config: &PersistedAppConfig) -> Result<(), String> {
@@ -193,12 +265,12 @@ fn write_atomic(path: &Path, config: &PersistedAppConfig) -> Result<(), String> 
 
     if path.exists() {
         if backup.exists() {
-            std::fs::remove_file(&backup).map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_file(&backup);
         }
-        std::fs::rename(path, &backup).map_err(|e| e.to_string())?;
+        rename_with_retry(path, &backup).map_err(|e| e.to_string())?;
     }
-    if let Err(error) = std::fs::rename(&temp, path) {
-        let _ = std::fs::rename(&backup, path);
+    if let Err(error) = rename_with_retry(&temp, path) {
+        let _ = rename_with_retry(&backup, path);
         return Err(format!("无法更新软件配置文件：{error}"));
     }
     Ok(())
@@ -291,6 +363,48 @@ mod tests {
                 .unwrap()
                 .get("axonkey.audio-settings.v2"),
             Some(&"{\"gain\":12}".to_string())
+        );
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn tolerates_non_string_json_entries_and_large_multibyte_payloads() {
+        let path = temp_config_path("tolerant-large");
+        std::fs::write(
+            &path,
+            br#"{"version":1,"entries":{"axonkey.settings.v1":{"enabled":true},"axonkey.remote-interaction-hint.v1":1,"axonkey.ui-state.v1":null}}"#,
+        )
+        .unwrap();
+
+        let store = AppConfigStore::open(path.clone());
+        let snapshot = store.snapshot().unwrap();
+        assert_eq!(
+            snapshot.get("axonkey.settings.v1"),
+            Some(&"{\"enabled\":true}".to_string())
+        );
+        assert_eq!(
+            snapshot.get("axonkey.remote-interaction-hint.v1"),
+            Some(&"1".to_string())
+        );
+        assert!(!snapshot.contains_key("axonkey.ui-state.v1"));
+
+        // 6 MB UTF-8 payload (equivalent to ~2M Chinese characters in WebView localStorage) succeeds cleanly.
+        let large_sequences = "中".repeat(2_000_000);
+        store
+            .update(BTreeMap::from([(
+                "axonkey.saved-sequences.v1".into(),
+                Some(large_sequences.clone()),
+            )]))
+            .unwrap();
+        let reopened = AppConfigStore::open(path.clone());
+        assert_eq!(
+            reopened
+                .snapshot()
+                .unwrap()
+                .get("axonkey.saved-sequences.v1")
+                .map(String::len),
+            Some(large_sequences.len())
         );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
