@@ -24,7 +24,7 @@ export function createCloudSnapshot(
           instance =>
             memory[`${instance.kind}/${instance.id}`] ||
             instance.profiles.some(
-              profile => hasBehaviors(profile.behaviors) || hasCustomProfileDisplay(profile.display),
+              profile => profile.quick || hasBehaviors(profile.behaviors) || hasCustomProfileDisplay(profile.display),
             ) ||
             instance.applicationProfiles?.length ||
             hasNonDefaultDeviceDisplay(instance.display),

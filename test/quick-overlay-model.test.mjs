@@ -242,6 +242,28 @@ test('backup and cloud restore preserve quick profiles and remap quickOverlay pr
   }
 })
 
+test('cloud snapshot includes a named quick profile before assigning any behaviors', () => {
+  const base = {
+    id: 'device-empty-quick',
+    kind: 'kivoK18Lite',
+    name: '小键盘',
+    binding: null,
+    enabled: true,
+    activeProfileId: 'default',
+    profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],
+  }
+  const { instance, profileId } = addQuickInstanceProfile(base, '待配置的交互窗')
+  const snapshot = createCloudSnapshot(createDataBackup(sampleData(), '1.9.11'), [instance])
+  const document = snapshot.documents.find(item => item.key === instance.id)
+  assert.equal(document.config.activeProfileId, 'default')
+  assert.deepEqual(document.config.profiles.find(profile => profile.id === profileId), {
+    id: profileId,
+    name: '待配置的交互窗',
+    quick: true,
+    behaviors: {},
+  })
+})
+
 test('CLI supports quick profile creation, blocks activating quick profiles, and validates quickOverlay mappings', async () => {
   assert.deepEqual(normalizeCliBehavior({ type: 'quickOverlay', profileId: 'prof-1' }, 'macos'), {
     type: 'quickOverlay',
