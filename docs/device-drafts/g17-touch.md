@@ -35,4 +35,5 @@ Input Report `0x01` 定长 8 字节（`[0x01, b0, b1, b2, b3, flags, pos_lo, pos
 
 - [x] 使用 SDCC 编译 `tools/ch552-g17touch` 为 `.hex` 并通过 `WCHISPTool` 刷入 CH552G（注意保持「使能 RST Pin」未勾选，否则按数字 `5` 会触发芯片硬件复位）。
 - [x] 在实机上逐键核对 17 键矩阵与 `RST`（数字 `5`）物理槽位顺序（已固化于 `g17_engine.c` 中 `s_matrix_map`）。
-- [ ] 实机验收 Windows / macOS 免驱直连、滑条上滑/下滑与 4 段点按消歧义、Windows 长时间挂机不休眠睡死。
+- [x] 实机验收 Windows 免驱直连、全部 17 键及滑条 `T1`–`T4` 点按 / 长按 / 连续上下滑消歧义。
+- [ ] 实机验收 macOS 免驱直连与长时间挂机不休眠睡死。
