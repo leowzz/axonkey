@@ -128,7 +128,17 @@ export function QuickOverlaySurface({
     const rail = renderSideRail(surface.sideRail)
     return (
       <div className={`ceramic-matrix-with-rail side-${surface.sideRail.side}`}>
-        {surface.sideRail.side === 'left' ? <>{rail}{matrix}</> : <>{matrix}{rail}</>}
+        {surface.sideRail.side === 'left' ? (
+          <>
+            {rail}
+            {matrix}
+          </>
+        ) : (
+          <>
+            {matrix}
+            {rail}
+          </>
+        )}
       </div>
     )
   }

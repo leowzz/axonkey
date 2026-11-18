@@ -72,7 +72,7 @@ function configuratorHarness() {
     })
   }
   return {
-    render, changes, document, WorkflowToolbox, SelectControl, devices, mouseInputs,
+    render, changes, document, WorkflowToolbox, SelectControl, devices, mouseInputs, packageFor,
     get view() { return view },
     close() { act(() => view.unmount()) },
   }
@@ -484,6 +484,71 @@ test('geometry compiler transforms bundled remotes, bridge remotes, dual-view si
     assert.ok(JSON.stringify(xboxEditorView.surface).includes(`"inputId":"${axis}"`))
     assert.ok(!JSON.stringify(xboxView.surface).includes(`"inputId":"${axis}"`))
   }
+})
+
+test('G17 geometry retains the numpad spans and keeps all six touch controls in a separate ordered rail', () => {
+  const session = {
+    revision: 1, sourceId: 'g17', deviceKind: 'g17Touch', deviceName: 'G17 Touch',
+    profileId: 'quick-g17', profileName: '数字快捷键', triggerInput: 'g17.touch.num',
+    pressed: ['g17.touch.t2'], preview: false,
+    behaviors: { 'g17.touch.t2': { click: [{ id: 't2', type: 'key', key: 'Enter', enabled: true }] } },
+  }
+  const assertLayout = (surface, prefix, withRail = true) => {
+    assert.equal(surface.variant, 'matrix')
+    assert.equal(surface.rows, 5)
+    assert.equal(surface.cols, 4)
+    assert.equal(surface.cells.length, 17)
+    assert.equal(surface.oledSpan, undefined)
+    const expected = [
+      ['num', 1, 1, 1, 1], ['div', 1, 2, 1, 1], ['mul', 1, 3, 1, 1], ['sub', 1, 4, 1, 1],
+      ['k7', 2, 1, 1, 1], ['k8', 2, 2, 1, 1], ['k9', 2, 3, 1, 1], ['add', 2, 4, 2, 1],
+      ['k4', 3, 1, 1, 1], ['k5', 3, 2, 1, 1], ['k6', 3, 3, 1, 1],
+      ['k1', 4, 1, 1, 1], ['k2', 4, 2, 1, 1], ['k3', 4, 3, 1, 1], ['enter', 4, 4, 2, 1],
+      ['k0', 5, 1, 1, 2], ['dot', 5, 3, 1, 1],
+    ]
+    assert.deepEqual(surface.cells.map(cell => [
+      cell.inputId.slice(prefix.length), cell.row, cell.col, cell.rowSpan ?? 1, cell.colSpan ?? 1,
+    ]), expected)
+    assert.equal(new Set(surface.cells.map(cell => cell.inputId)).size, 17)
+    if (withRail) {
+      assert.equal(surface.sideRail.side, 'right')
+      assert.deepEqual(surface.sideRail.slots.map(slot => slot.inputId),
+        ['swipeUp', 't1', 't2', 't3', 't4', 'swipeDown'].map(id => prefix + id))
+    } else assert.equal(surface.sideRail, undefined)
+  }
+  const view = buildQuickOverlayView(session, 'windows')
+  assertLayout(view.surface, 'g17.touch.')
+  assert.equal(view.surface.cells[0].status, 'trigger')
+  assert.equal(view.surface.sideRail.slots[2].status, 'configured')
+  assert.deepEqual(view.mappedIds, ['g17.touch.t2'])
+  assert.deepEqual(view.pressedIds, ['g17.touch.t2'])
+  assert.deepEqual(buildQuickOverlayView(session, 'windows', { includeUnconfiguredAxes: true }), view)
+
+  const svg = readFileSync('public/device-descriptors/g17-touch.svg', 'utf8').replaceAll('g17.touch', 'acme.pad')
+  const custom = { ...session, deviceKind: 'unregisteredPad', descriptorSvg: svg, triggerInput: '', behaviors: {} }
+  assertLayout(buildQuickOverlayView(custom, 'windows').surface, 'acme.pad.')
+  const numpadOnly = svg
+    .replace(/<ak:input\b[^>]*id="acme\.pad\.(?:swipeUp|swipeDown|t[1-4])"[^>]*\/>/g, '')
+    .replace(/<path\b[^>]*data-ak-region="acme\.pad\.(?:swipeUp|swipeDown|t[1-4])"[^>]*\/>/g, '')
+  assertLayout(buildQuickOverlayView({ ...custom, descriptorSvg: numpadOnly }, 'windows').surface, 'acme.pad.', false)
+})
+
+test('G17 configurator renders spanning keys and independently selectable touch controls', () => {
+  const harness = configuratorHarness()
+  harness.render({ deviceKind: 'g17Touch', inputs: harness.packageFor('g17Touch').inputs, triggerInput: 'g17.touch.num' })
+  try {
+    const key = id => editorKeys(harness.view).find(node => node.props['data-quick-overlay-input'] === `g17.touch.${id}`)
+    assert.equal(editorKeys(harness.view).length, 23)
+    assert.equal(key('add').props.style.gridRow, '2 / span 2')
+    assert.equal(key('enter').props.style.gridRow, '4 / span 2')
+    assert.equal(key('k0').props.style.gridColumn, '1 / span 2')
+    const rail = harness.view.root.findByProps({ 'aria-label': '侧面按键区' })
+    assert.equal(rail.findAllByType('button').length, 6)
+    act(() => key('t4').props.onClick())
+    assert.equal(key('t4').props['aria-pressed'], true)
+    act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
+    assert.equal(harness.changes[0][0], 'g17.touch.t4')
+  } finally { harness.close() }
 })
 
 test('cloud-delivered descriptorSvg on session dynamically compiles brand-new unregistered SVG models into ceramic surfaces', () => {

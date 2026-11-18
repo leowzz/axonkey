@@ -353,7 +353,6 @@ html.quick-overlay-window,
 
 .ceramic-matrix-with-rail {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.8fr);
   gap: 10px;
   width: 100%;
   max-width: 780px;

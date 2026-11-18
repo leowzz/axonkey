@@ -730,11 +730,17 @@ function tryBuildSpanningMatrixLayout(items: PositionedSlot[]): QuickOverlaySurf
   if (!regular || regular.length < 4) return null
 
   const { width, height } = regular[0].bounds
-  const columns = cluster1D(regular.map(item => item.nx), width * 0.1)
-  const rows = cluster1D(regular.map(item => item.ny), height * 0.1)
+  const columns = cluster1D(
+    regular.map(item => item.nx),
+    width * 0.1,
+  )
+  const rows = cluster1D(
+    regular.map(item => item.ny),
+    height * 0.1,
+  )
   if (columns.length < 2 || rows.length < 2) return null
-  const pitchX = (columns.at(-1)! - columns[0]) / (columns.length - 1)
-  const pitchY = (rows.at(-1)! - rows[0]) / (rows.length - 1)
+  const pitchX = (columns[columns.length - 1] - columns[0]) / (columns.length - 1)
+  const pitchY = (rows[rows.length - 1] - rows[0]) / (rows.length - 1)
   const closeX = (a: number, b: number) => Math.abs(a - b) < width * 0.1
   const closeY = (a: number, b: number) => Math.abs(a - b) < height * 0.1
   if (pitchX < width || pitchY < height) return null
@@ -743,7 +749,7 @@ function tryBuildSpanningMatrixLayout(items: PositionedSlot[]): QuickOverlaySurf
 
   const left = columns[0] - width / 2
   const top = rows[0] - height / 2
-  const right = columns.at(-1)! + width / 2
+  const right = columns[columns.length - 1] + width / 2
   const cells: Extract<QuickOverlaySurfaceLayout, { variant: 'matrix' }>['cells'] = []
   const rail: typeof bounded = []
   const occupied = new Set<string>()
@@ -812,7 +818,14 @@ function keyRegionBounds(region: RemoteKeyRegion): PositionedSlot['bounds'] {
       const nextX = kind === 'V' ? x : args[kind === 'A' ? 5 : 0] + (relative ? x : 0)
       const nextY = kind === 'H' ? y : args[kind === 'A' ? 6 : kind === 'V' ? 0 : 1] + (relative ? y : 0)
       // Quarter arcs keep rounded-rectangle extrema at their endpoints; other curves use the existing layout fallback.
-      if (kind === 'A' && (args[2] !== 0 || args[3] !== 0 || Math.abs(Math.abs(nextX - x) - args[0]) > 0.01 || Math.abs(Math.abs(nextY - y) - args[1]) > 0.01)) return
+      if (
+        kind === 'A' &&
+        (args[2] !== 0 ||
+          args[3] !== 0 ||
+          Math.abs(Math.abs(nextX - x) - args[0]) > 0.01 ||
+          Math.abs(Math.abs(nextY - y) - args[1]) > 0.01)
+      )
+        return
       x = nextX
       y = nextY
       xs.push(x)
@@ -1140,7 +1153,16 @@ function compileGenericSvgSurface(
       ny,
       kindTag,
       order: index,
-      ...(bounds ? { bounds: { left: bounds.left / viewBox.width, top: bounds.top / viewBox.height, width: bounds.width / viewBox.width, height: bounds.height / viewBox.height } } : {}),
+      ...(bounds
+        ? {
+            bounds: {
+              left: bounds.left / viewBox.width,
+              top: bounds.top / viewBox.height,
+              width: bounds.width / viewBox.width,
+              height: bounds.height / viewBox.height,
+            },
+          }
+        : {}),
     })
   }
 
