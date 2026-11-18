@@ -155,6 +155,49 @@ test('quick configurator reserves only the triggering mouse scope and handles a 
   } finally { harness.close() }
 })
 
+test('quick configurator keeps default actions after click or drag insertion and switching keys', () => {
+  const defaults = [
+    ['volumeControl', { type: 'key', key: 'VolumeUp' }],
+    ['mediaTrack', { type: 'key', key: 'MediaPrevious' }],
+    ['mouseButton', { type: 'mouse', button: 'left' }],
+    ['wheel', { type: 'wheel', direction: 'up' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'up', distance: 50 }],
+  ]
+  const harness = configuratorHarness()
+  const inputs = [{ id: 'power', label: '电源键', icon: 'power' }, { id: 'menu', label: '菜单键', icon: 'menu' }]
+  harness.render({ inputs })
+  try {
+    for (const mode of ['click', 'drag']) for (const [type, value] of defaults) {
+      harness.render({ behaviors: {} })
+      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'power').props.onClick())
+      const toolbox = harness.view.root.findByType(harness.WorkflowToolbox)
+      const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === type)
+      const count = harness.changes.length
+      if (mode === 'click') act(() => toolbox.props.onAddStep(action))
+      else {
+        harness.document.elementFromPoint = () => ({
+          closest: selector => selector === '[data-quick-overlay-input]' ? { dataset: { quickOverlayInput: 'power' } } : null,
+        })
+        const event = { button: 0, isPrimary: true, pointerId: 1, clientX: 0, clientY: 0, currentTarget: { setPointerCapture() {} } }
+        act(() => toolbox.props.onStepPointerDown(event, action))
+        const section = harness.view.root.findByProps({ 'aria-label': '快捷交互窗配置' })
+        act(() => section.props.onPointerMove({ ...event, clientX: 20 }))
+        act(() => section.props.onPointerUp({ ...event, clientX: 20, type: 'pointerup' }))
+      }
+      assert.equal(harness.changes.length, count + 1, `${mode}: ${type} saves without editing`)
+      const [id, saved] = harness.changes.at(-1)
+      assert.equal(id, 'power')
+      assert.deepEqual(JSON.parse(JSON.stringify(saved.click)), [{ id: saved.click[0]?.id, enabled: true, ...value }])
+      harness.render({ behaviors: { [id]: saved } })
+      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'menu').props.onClick())
+      assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 0)
+      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'power').props.onClick())
+      assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 1)
+      assert.equal(harness.changes.length, count + 1)
+    }
+  } finally { harness.close() }
+})
+
 test('quick overlay view resolves trigger exit key, preserves full prompt text, and excludes trigger key from executable cards', () => {
   const longPrompt =
     '请作为资深架构师审查当前选中的代码，重点指出潜在的数据竞争、未处理的错误分支以及可简化的抽象，不要重写无关逻辑。'

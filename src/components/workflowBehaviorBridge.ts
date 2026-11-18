@@ -173,7 +173,6 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
           behaviorType: choices.options[0].behavior.type,
           enabled: true,
           choice: choices.options[0].stepType,
-          draftGroup: step.id,
         },
       },
     ]
@@ -186,7 +185,6 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
           behaviorType: preset,
           enabled: true,
           direction: 'up',
-          draftGroup: step.id,
           ...(preset === 'cursorMove' ? { distance: defaultCursorDistance } : {}),
         },
       },

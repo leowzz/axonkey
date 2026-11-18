@@ -138,3 +138,20 @@ test('quick configuration accepts reusable actions without nested configuration 
   assert.deepEqual(insertQuickOverlaySteps([key], 0, [disabled]), [disabled])
   assert.deepEqual(insertQuickOverlaySteps([disabled], 1, [key]), [key])
 })
+
+test('quick configuration commits valid action defaults without requiring an edit', () => {
+  const defaults = [
+    ['volumeControl', { type: 'key', key: 'VolumeUp' }],
+    ['mediaTrack', { type: 'key', key: 'MediaPrevious' }],
+    ['mouseButton', { type: 'mouse', button: 'left' }],
+    ['wheel', { type: 'wheel', direction: 'up' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'up', distance: 50 }],
+  ]
+  for (const platform of ['windows', 'macos']) for (const [type, value] of defaults) {
+    const { additions, needsEdit } = quickOverlayToolboxInsertion(
+      { type, name: type, componentType: 'task', properties: {} }, platform, type,
+    )
+    assert.equal(needsEdit, false, `${platform}: ${type}`)
+    assert.deepEqual(additions, [{ id: type, enabled: true, ...value }])
+  }
+})
