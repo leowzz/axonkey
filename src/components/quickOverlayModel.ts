@@ -67,6 +67,109 @@ export type QuickOverlayKeypadSlot = {
   triggers: QuickOverlayTriggerPreview[]
 }
 
+export type QuickOverlayPoint = {
+  x: number
+  y: number
+}
+
+function segmentIntersection(
+  a1: QuickOverlayPoint,
+  a2: QuickOverlayPoint,
+  b1: QuickOverlayPoint,
+  b2: QuickOverlayPoint,
+): { t: number; point: QuickOverlayPoint } | null {
+  const dax = a2.x - a1.x
+  const day = a2.y - a1.y
+  const dbx = b2.x - b1.x
+  const dby = b2.y - b1.y
+  const denom = dax * dby - day * dbx
+  if (Math.abs(denom) < 1e-7) return null
+  const ox = b1.x - a1.x
+  const oy = b1.y - a1.y
+  const t = (ox * dby - oy * dbx) / denom
+  const u = (ox * day - oy * dax) / denom
+  if (t < 0 || t > 1 || u < -1e-4 || u > 1 + 1e-4) return null
+  return {
+    t,
+    point: { x: a1.x + t * dax, y: a1.y + t * day },
+  }
+}
+
+function minDistanceSqToSiblings(pt: QuickOverlayPoint, siblings: readonly QuickOverlayPoint[][]): number {
+  let minSq = Number.POSITIVE_INFINITY
+  for (const poly of siblings) {
+    for (const other of poly) {
+      const dx = pt.x - other.x
+      const dy = pt.y - other.y
+      const dSq = dx * dx + dy * dy
+      if (dSq < minSq) minSq = dSq
+    }
+  }
+  return minSq
+}
+
+export function pickPerimeterAttachment(
+  elbowPt: QuickOverlayPoint,
+  centerPt: QuickOverlayPoint,
+  outlinePts: readonly QuickOverlayPoint[],
+  siblingOutlines: readonly QuickOverlayPoint[][] = [],
+): QuickOverlayPoint | null {
+  const n = outlinePts.length
+  if (n < 3) return null
+
+  const siblingDistsSq =
+    siblingOutlines.length > 0 ? outlinePts.map(pt => minDistanceSqToSiblings(pt, siblingOutlines)) : null
+
+  const buildEligibleMask = (minGapPx: number): boolean[] => {
+    if (!siblingDistsSq) return outlinePts.map(() => true)
+    const thresholdSq = minGapPx * minGapPx
+    return siblingDistsSq.map(dSq => dSq > thresholdSq)
+  }
+
+  let eligible = buildEligibleMask(9)
+  if (eligible.filter(Boolean).length < 8) eligible = buildEligibleMask(4.5)
+  if (eligible.filter(Boolean).length < 6) eligible = buildEligibleMask(2)
+  if (eligible.filter(Boolean).length < 4) eligible = outlinePts.map(() => true)
+
+  let bestHit: { t: number; point: QuickOverlayPoint } | null = null
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n
+    if (!eligible[i] || !eligible[j]) continue
+    const hit = segmentIntersection(elbowPt, centerPt, outlinePts[i], outlinePts[j])
+    if (hit && (!bestHit || hit.t < bestHit.t)) {
+      bestHit = hit
+    }
+  }
+
+  let chosen = bestHit?.point ?? null
+  if (!chosen) {
+    let bestDistSq = Number.POSITIVE_INFINITY
+    for (let i = 0; i < n; i++) {
+      if (!eligible[i]) continue
+      const p = outlinePts[i]
+      const dx = p.x - elbowPt.x
+      const dy = p.y - elbowPt.y
+      const dSq = dx * dx + dy * dy
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq
+        chosen = p
+      }
+    }
+  }
+
+  if (!chosen) return null
+  const outX = elbowPt.x - chosen.x
+  const outY = elbowPt.y - chosen.y
+  const outLen = Math.hypot(outX, outY)
+  if (outLen > 1) {
+    return {
+      x: chosen.x + (outX / outLen) * 0.4,
+      y: chosen.y + (outY / outLen) * 0.4,
+    }
+  }
+  return chosen
+}
+
 export type QuickOverlayViewModel = {
   layoutMode: 'callout' | 'keypad'
   isMouse: boolean

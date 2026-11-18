@@ -10,7 +10,8 @@ const assets = registerHooks({
   },
 })
 
-const { buildQuickOverlayView, summarizeQuickTrigger } = await import('../src/components/quickOverlayModel.ts')
+const { buildQuickOverlayView, pickPerimeterAttachment, summarizeQuickTrigger } =
+  await import('../src/components/quickOverlayModel.ts')
 const { applyLocalCustomDevices } = await import('../src/cloud/deviceModelCatalog.ts')
 
 test('quick overlay view resolves trigger exit key, preserves full prompt text, and excludes trigger key from executable cards', () => {
@@ -191,10 +192,7 @@ test('summarizeQuickTrigger highlights embedded prompt inside multi-step sequenc
   assert.equal(detail.text, '解释当前报错原因并给出最小修复方案')
   assert.match(detail.stepsSummary ?? '', /粘贴文本/)
 
-  assert.equal(
-    summarizeQuickTrigger('click', [{ id: '1', type: 'key', key: 'A', enabled: false }], 'macos'),
-    null,
-  )
+  assert.equal(summarizeQuickTrigger('click', [{ id: '1', type: 'key', key: 'A', enabled: false }], 'macos'), null)
 })
 
 test('callout layout balances left/right columns in vertical order and keypad layout maps K18 4x5 matrix', () => {
@@ -282,6 +280,45 @@ test('callout layout balances left/right columns in vertical order and keypad la
     { row: 4, col: 5, status: 'configured' },
   )
   assert.equal(k18View.keypadSlots[17].triggers[0].text, 'Esc')
+})
+
+test('pickPerimeterAttachment terminates on button outer ring and avoids shared sibling seams', () => {
+  const makeCircle = (cx, cy, r, samples = 72) =>
+    Array.from({ length: samples }, (_, i) => {
+      const a = (i / samples) * Math.PI * 2
+      return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }
+    })
+
+  // 1. Standalone circular button: terminates right on the outer circumference, never inside.
+  const circle = makeCircle(200, 120, 20)
+  const hit = pickPerimeterAttachment({ x: 80, y: 120 }, { x: 200, y: 120 }, circle, [])
+  assert.ok(hit)
+  const radiusAtHit = Math.hypot(hit.x - 200, hit.y - 120)
+  assert.ok(radiusAtHit >= 19.8 && radiusAtHit <= 21, `expected attachment on outer circle, got r=${radiusAtHit}`)
+  assert.ok(Math.abs(hit.y - 120) < 0.5)
+
+  // 2. Shared-seam upper/lower rocker: upper half avoids the y=200 shared seam with lower half.
+  const makeRect = (left, top, right, bottom, perEdge = 16) => {
+    const pts = []
+    for (let i = 0; i < perEdge; i++) pts.push({ x: left + ((right - left) * i) / perEdge, y: top })
+    for (let i = 0; i < perEdge; i++) pts.push({ x: right, y: top + ((bottom - top) * i) / perEdge })
+    for (let i = 0; i < perEdge; i++) pts.push({ x: right - ((right - left) * i) / perEdge, y: bottom })
+    for (let i = 0; i < perEdge; i++) pts.push({ x: left, y: bottom - ((bottom - top) * i) / perEdge })
+    return pts
+  }
+  const upperHalf = makeRect(200, 150, 250, 200)
+  const lowerHalf = makeRect(200, 200, 250, 250)
+  const rockerHit = pickPerimeterAttachment({ x: 320, y: 235 }, { x: 225, y: 175 }, upperHalf, [lowerHalf])
+  assert.ok(rockerHit)
+  assert.ok(rockerHit.y <= 192, `expected upper half attachment clearly above y=200 seam, got y=${rockerHit.y}`)
+
+  // 3. Enclosed center circle (like D-pad confirm surrounded by ring): falls back to its own circle perimeter.
+  const innerCircle = makeCircle(200, 200, 26)
+  const surroundingRing = makeCircle(200, 200, 26.5)
+  const enclosedHit = pickPerimeterAttachment({ x: 80, y: 200 }, { x: 200, y: 200 }, innerCircle, [surroundingRing])
+  assert.ok(enclosedHit)
+  const enclosedR = Math.hypot(enclosedHit.x - 200, enclosedHit.y - 200)
+  assert.ok(enclosedR >= 25.8 && enclosedR <= 27)
 
   assets.deregister()
 })

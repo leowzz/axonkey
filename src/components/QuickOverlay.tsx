@@ -19,8 +19,10 @@ import { iconFor } from './InputIcon'
 import { MouseInputModel } from './MouseMapping'
 import {
   buildQuickOverlayView,
+  pickPerimeterAttachment,
   type QuickOverlayCalloutItem,
   type QuickOverlayKeypadSlot,
+  type QuickOverlayPoint as Point,
   type QuickOverlaySessionPayload,
 } from './quickOverlayModel'
 import './QuickOverlay.css'
@@ -28,9 +30,61 @@ import './QuickOverlay.css'
 type CalloutWire = {
   id: string
   path: string
-  x2: number
-  y2: number
   isExit: boolean
+}
+
+function sampleSvgOutline(outlineEl: SVGGeometryElement, stageRect: DOMRect, samples: number): Point[] {
+  const total = outlineEl.getTotalLength()
+  const ctm = outlineEl.getScreenCTM()
+  if (!(total > 0) || !ctm) return []
+  const points: Point[] = []
+  for (let i = 0; i < samples; i++) {
+    const pt = outlineEl.getPointAtLength((i / samples) * total)
+    points.push({
+      x: ctm.a * pt.x + ctm.c * pt.y + ctm.e - stageRect.left,
+      y: ctm.b * pt.x + ctm.d * pt.y + ctm.f - stageRect.top,
+    })
+  }
+  return points
+}
+
+function sampleRoundedRectOutline(el: HTMLElement, stageRect: DOMRect): Point[] {
+  const rect = el.getBoundingClientRect()
+  if (!(rect.width > 0) || !(rect.height > 0)) return []
+  const style = window.getComputedStyle(el)
+  const maxR = Math.min(rect.width, rect.height) / 2
+  const parseRadius = (raw: string) => {
+    const n = Number.parseFloat(raw)
+    return Number.isFinite(n) ? Math.max(0, Math.min(maxR, n)) : 0
+  }
+  const tl = parseRadius(style.borderTopLeftRadius)
+  const tr = parseRadius(style.borderTopRightRadius)
+  const br = parseRadius(style.borderBottomRightRadius)
+  const bl = parseRadius(style.borderBottomLeftRadius)
+
+  const left = rect.left - stageRect.left
+  const top = rect.top - stageRect.top
+  const right = left + rect.width
+  const bottom = top + rect.height
+
+  const points: Point[] = []
+  const pushArc = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
+    if (r <= 0.5) {
+      points.push({ x: cx, y: cy })
+      return
+    }
+    const steps = 10
+    for (let i = 0; i <= steps; i++) {
+      const a = startAngle + ((endAngle - startAngle) * i) / steps
+      points.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r })
+    }
+  }
+
+  pushArc(left + tl, top + tl, tl, Math.PI, Math.PI * 1.5)
+  pushArc(right - tr, top + tr, tr, -Math.PI * 0.5, 0)
+  pushArc(right - br, bottom - br, br, 0, Math.PI * 0.5)
+  pushArc(left + bl, bottom - bl, bl, Math.PI * 0.5, Math.PI)
+  return points
 }
 
 function detectFallbackPlatform(): Platform {
@@ -179,6 +233,33 @@ export function QuickOverlay() {
     const svgRect = svgEl?.getBoundingClientRect()
     const diagramRect = diagram.getBoundingClientRect()
 
+    const remoteOutlines = new Map<string, Point[]>()
+    const remoteKeyEls = new Map<string, SVGGraphicsElement>()
+    if (!view.isMouse && svgEl) {
+      for (const el of svgEl.querySelectorAll<SVGGraphicsElement>('[data-remote-key]')) {
+        const keyId = el.getAttribute('data-remote-key')
+        if (!keyId) continue
+        remoteKeyEls.set(keyId, el)
+        const outlineEl = el.querySelector<SVGGeometryElement>('.remote-key-outline')
+        if (outlineEl) {
+          const pts = sampleSvgOutline(outlineEl, stageRect, 72)
+          if (pts.length >= 3) remoteOutlines.set(keyId, pts)
+        }
+      }
+    }
+
+    const mouseOutlines = new Map<string, Point[]>()
+    const mousePartEls = new Map<string, HTMLElement>()
+    if (view.isMouse) {
+      for (const el of diagram.querySelectorAll<HTMLElement>('[data-mouse-control]')) {
+        const ctrlId = el.getAttribute('data-mouse-control')
+        if (!ctrlId) continue
+        mousePartEls.set(ctrlId, el)
+        const pts = sampleRoundedRectOutline(el, stageRect)
+        if (pts.length >= 3) mouseOutlines.set(ctrlId, pts)
+      }
+    }
+
     const nextWires: CalloutWire[] = []
     for (const item of allCallouts) {
       const cardEl = cardRefs.current[item.inputId]
@@ -189,17 +270,35 @@ export function QuickOverlay() {
       const x1 = (item.side === 'left' ? cardRect.right : cardRect.left) - stageRect.left
       const y1 = cardRect.top + cardRect.height / 2 - stageRect.top
 
-      let x2: number | null = null
-      let y2: number | null = null
+      const deviceEdgeX = item.side === 'left' ? diagramRect.left - stageRect.left : diagramRect.right - stageRect.left
+      const gap = item.side === 'left' ? deviceEdgeX - x1 : x1 - deviceEdgeX
+      const elbowOffset = Math.max(8, Math.min(20, gap * 0.55))
+      const elbow = item.side === 'left' ? x1 + elbowOffset : x1 - elbowOffset
+      const elbowPt: Point = { x: elbow, y: y1 }
+
+      let attached: Point | null = null
 
       if (item.target.kind === 'mouse') {
-        const partEl = diagram.querySelector<HTMLElement>(`[data-mouse-control="${item.target.controlId}"]`)
+        const controlId = item.target.controlId
+        const partEl = mousePartEls.get(controlId)
         const partRect = partEl?.getBoundingClientRect()
         if (partRect && partRect.width > 0) {
-          x2 =
-            (item.side === 'left' ? partRect.left + partRect.width * 0.25 : partRect.right - partRect.width * 0.25) -
-            stageRect.left
-          y2 = partRect.top + partRect.height / 2 - stageRect.top
+          const centerPt: Point = {
+            x: partRect.left + partRect.width / 2 - stageRect.left,
+            y: partRect.top + partRect.height / 2 - stageRect.top,
+          }
+          const outlinePts = mouseOutlines.get(controlId)
+          if (outlinePts) {
+            const siblings: Point[][] = []
+            for (const [id, pts] of mouseOutlines) {
+              if (id !== controlId) siblings.push(pts)
+            }
+            attached = pickPerimeterAttachment(elbowPt, centerPt, outlinePts, siblings)
+          }
+          attached ??= {
+            x: (item.side === 'left' ? partRect.left : partRect.right) - stageRect.left,
+            y: centerPt.y,
+          }
         }
       } else if (
         item.target.kind === 'remote' &&
@@ -211,34 +310,38 @@ export function QuickOverlay() {
         const targetId = item.target.id
         const anchor = view.remoteView.keyRegions[targetId]?.anchor
         const { width: vbW, height: vbH } = view.remoteView.viewBox
-        const keyEl = Array.from(diagram.querySelectorAll<SVGGraphicsElement>('[data-remote-key]')).find(
-          el => el.getAttribute('data-remote-key') === targetId,
-        )
-        const keyRect = keyEl?.getBoundingClientRect()
+        const keyRect = remoteKeyEls.get(targetId)?.getBoundingClientRect()
+        let centerPt: Point | null = null
         if (anchor && vbW > 0 && vbH > 0) {
-          const cx = svgRect.left - stageRect.left + (anchor.x / vbW) * svgRect.width
-          const cy = svgRect.top - stageRect.top + (anchor.y / vbH) * svgRect.height
-          const pull = keyRect ? Math.min(keyRect.width * 0.3, 10) : 0
-          x2 = cx + (item.side === 'left' ? -pull : pull)
-          y2 = cy
+          centerPt = {
+            x: svgRect.left - stageRect.left + (anchor.x / vbW) * svgRect.width,
+            y: svgRect.top - stageRect.top + (anchor.y / vbH) * svgRect.height,
+          }
         } else if (keyRect && keyRect.width > 0) {
-          x2 = keyRect.left + keyRect.width / 2 - stageRect.left
-          y2 = keyRect.top + keyRect.height / 2 - stageRect.top
+          centerPt = {
+            x: keyRect.left + keyRect.width / 2 - stageRect.left,
+            y: keyRect.top + keyRect.height / 2 - stageRect.top,
+          }
+        }
+
+        if (centerPt) {
+          const outlinePts = remoteOutlines.get(targetId)
+          if (outlinePts) {
+            const siblings: Point[][] = []
+            for (const [id, pts] of remoteOutlines) {
+              if (id !== targetId) siblings.push(pts)
+            }
+            attached = pickPerimeterAttachment(elbowPt, centerPt, outlinePts, siblings)
+          }
+          attached ??= centerPt
         }
       }
 
-      if (x2 === null || y2 === null) continue
-
-      const deviceEdgeX = item.side === 'left' ? diagramRect.left - stageRect.left : diagramRect.right - stageRect.left
-      const gap = item.side === 'left' ? deviceEdgeX - x1 : x1 - deviceEdgeX
-      const elbowOffset = Math.max(8, Math.min(20, gap * 0.55))
-      const elbow = item.side === 'left' ? x1 + elbowOffset : x1 - elbowOffset
+      if (!attached) continue
 
       nextWires.push({
         id: item.inputId,
-        path: `M ${x1.toFixed(1)} ${y1.toFixed(1)} H ${elbow.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`,
-        x2,
-        y2,
+        path: `M ${x1.toFixed(1)} ${y1.toFixed(1)} H ${elbow.toFixed(1)} L ${attached.x.toFixed(1)} ${attached.y.toFixed(1)}`,
         isExit: item.isExitTrigger,
       })
     }
@@ -519,7 +622,6 @@ export function QuickOverlay() {
                   className={`quick-overlay-wire${wire.isExit ? ' is-exit' : ''}${highlighted ? ' is-active' : ''}${pressed ? ' is-pressed' : ''}`}
                 >
                   <path d={wire.path} />
-                  <circle cx={wire.x2} cy={wire.y2} r={highlighted ? 3.8 : 2.8} />
                 </g>
               )
             })}
@@ -529,7 +631,28 @@ export function QuickOverlay() {
             {view.leftCallouts.map(renderCalloutCard)}
           </div>
 
-          <div ref={diagramWrapRef} className="quick-overlay-center-device" aria-label="设备按键位置">
+          <div
+            ref={diagramWrapRef}
+            className="quick-overlay-center-device"
+            aria-label="设备按键位置"
+            onPointerOver={event => {
+              const el = (event.target as Element | null)?.closest?.('[data-remote-key], [data-mouse-control]')
+              if (!el) return
+              const remoteKey = el.getAttribute('data-remote-key')
+              if (remoteKey) {
+                setHoveredInputId(remoteKey)
+                return
+              }
+              const mouseCtrl = el.getAttribute('data-mouse-control')
+              if (mouseCtrl) {
+                const matched = [...view.leftCallouts, ...view.rightCallouts].find(
+                  item => item.target.kind === 'mouse' && item.target.controlId === mouseCtrl,
+                )
+                if (matched) setHoveredInputId(matched.inputId)
+              }
+            }}
+            onPointerLeave={() => setHoveredInputId('')}
+          >
             {view.isMouse ? (
               <div className="quick-overlay-mouse-wrap">
                 <MouseInputModel

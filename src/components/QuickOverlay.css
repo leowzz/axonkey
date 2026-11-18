@@ -178,8 +178,8 @@ html.quick-overlay-window,
 
 .quick-overlay-wire path {
   fill: none;
-  stroke: rgb(148 163 184 / 42%);
-  stroke-width: 1.35px;
+  stroke: rgb(96 165 250 / 64%);
+  stroke-width: 1.45px;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition:
@@ -187,49 +187,24 @@ html.quick-overlay-window,
     stroke-width 120ms ease;
 }
 
-.quick-overlay-wire circle {
-  fill: #93c5fd;
-  stroke: rgb(15 23 42 / 85%);
-  stroke-width: 1.2px;
-  transition:
-    fill 120ms ease,
-    r 120ms ease;
-}
-
 .quick-overlay-wire.is-exit path {
-  stroke: rgb(251 191 36 / 52%);
-  stroke-dasharray: 3 3;
-}
-
-.quick-overlay-wire.is-exit circle {
-  fill: #fbbf24;
+  stroke: rgb(245 158 11 / 78%);
+  stroke-dasharray: 3.5 3.5;
 }
 
 .quick-overlay-wire.is-active path {
   stroke: #60a5fa;
-  stroke-width: 2.1px;
+  stroke-width: 2px;
   stroke-dasharray: none;
-}
-
-.quick-overlay-wire.is-active circle {
-  fill: #60a5fa;
 }
 
 .quick-overlay-wire.is-exit.is-active path {
   stroke: #fbbf24;
 }
 
-.quick-overlay-wire.is-exit.is-active circle {
-  fill: #fde68a;
-}
-
 .quick-overlay-wire.is-pressed path {
   stroke: #34d399;
-  stroke-width: 2.3px;
-}
-
-.quick-overlay-wire.is-pressed circle {
-  fill: #34d399;
+  stroke-width: 2.2px;
 }
 
 .quick-overlay-center-device {
