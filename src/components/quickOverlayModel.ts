@@ -962,6 +962,7 @@ function compileGenericSvgSurface(
   triggerInputId: string,
   triggerMeta: MappingInput<string> | undefined,
   triggerShort: string | undefined,
+  includeUnconfiguredAxes: boolean,
 ): QuickOverlaySurfaceLayout {
   const viewBox = pkg.remoteView?.viewBox ?? { width: 420, height: 1000 }
   const aspectRatio = viewBox.width / Math.max(1, viewBox.height)
@@ -982,7 +983,7 @@ function compileGenericSvgSurface(
     const hasEnabledOrRaw = Boolean(configured || isTrigger || normalizedBehaviors.has(input.id))
     // Keep non-axis hardware buttons on the ceramic chassis so physical shape stays recognizable;
     // omit unconfigured analog stick axis directions to avoid visual clutter.
-    if (!hasEnabledOrRaw && kindTag === 'axis') return
+    if (!includeUnconfiguredAxes && !hasEnabledOrRaw && kindTag === 'axis') return
 
     const region = pkg.remoteView?.keyRegions[input.id]
     let nx = 0.5
@@ -1074,7 +1075,11 @@ function compileGenericSvgSurface(
   }
 }
 
-export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platform: Platform): QuickOverlayViewModel {
+export function buildQuickOverlayView(
+  session: QuickOverlaySessionPayload,
+  platform: Platform,
+  { includeUnconfiguredAxes = false } = {},
+): QuickOverlayViewModel {
   const isMouse = session.deviceKind === 'mouse'
   const pkg = isMouse ? null : resolveSessionPackage(session)
   const inputs: readonly MappingInput<string>[] = isMouse ? mouseOverlayInputs : (pkg?.inputs ?? [])
@@ -1136,7 +1141,15 @@ export function buildQuickOverlayView(session: QuickOverlaySessionPayload, platf
   const itemById = new Map(items.map(item => [item.inputId, item]))
   const surface: QuickOverlaySurfaceLayout = isMouse
     ? buildMouseSurfaceLayout(normalizedBehaviors, triggerInputId, platform)
-    : compileGenericSvgSurface(pkg!, normalizedBehaviors, itemById, triggerInputId, triggerMeta, triggerShort)
+    : compileGenericSvgSurface(
+        pkg!,
+        normalizedBehaviors,
+        itemById,
+        triggerInputId,
+        triggerMeta,
+        triggerShort,
+        includeUnconfiguredAxes,
+      )
 
   return {
     isMouse,

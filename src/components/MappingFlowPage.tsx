@@ -38,8 +38,6 @@ export function MappingFlowPage({
   behaviorEditorProps,
   remoteView,
   quickOverlayContext,
-  isEditingQuickProfile,
-  quickProfileBanner,
   inputWarnings,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
@@ -91,7 +89,6 @@ export function MappingFlowPage({
         </aside>
 
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射流程图工作区">
-          {quickProfileBanner}
           <WorkflowAxonkey
             header={
               <>
@@ -149,7 +146,6 @@ export function MappingFlowPage({
             toolboxCategory={toolboxCategory}
             onToolboxCategoryChange={setToolboxCategory}
             quickOverlayContext={quickOverlayContext}
-            isEditingQuickProfile={isEditingQuickProfile}
           />
         </section>
       </div>

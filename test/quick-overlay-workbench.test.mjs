@@ -16,6 +16,14 @@ import {
 } from '../src/components/workflowStepEditing.ts'
 import { behaviorSummary } from '../src/behaviorSummary.ts'
 import { createBehavior } from '../src/behaviorModel.ts'
+import { createSavedSequence } from '../src/savedSequences.ts'
+import {
+  insertQuickOverlaySteps,
+  moveQuickOverlayStep,
+  quickOverlayAllowsToolboxStep,
+  quickOverlayClickBehaviors,
+  quickOverlayToolboxInsertion,
+} from '../src/components/quickOverlayConfiguration.ts'
 
 test('workflow action icons and step editing support quickOverlay draft-to-saved lifecycle', () => {
   const icons = createWorkflowActionIconUrls('macos')
@@ -93,4 +101,40 @@ test('workflow action icons and step editing support quickOverlay draft-to-saved
     type: 'quickOverlay',
     profileId: 'profile-ai-prompts',
   })
+})
+
+test('quick configuration inserts the toolbox macro and reorders steps independently of other triggers', () => {
+  const delay = createBehavior({ id: 'old-delay', type: 'delay', ms: 120 })
+  const legacyDouble = createBehavior({ id: 'old-double', type: 'key', key: 'Space' })
+  const { additions, needsEdit } = quickOverlayToolboxInsertion(
+    { type: 'textAndEnter', name: '输入文本并回车', componentType: 'task', properties: {} },
+    'macos',
+    'new-text',
+  )
+  assert.equal(needsEdit, true)
+  assert.deepEqual(additions.map(step => step.type), ['paste', 'delay', 'key'])
+  const click = insertQuickOverlaySteps([delay], 0, [{ ...additions[0], text: 'hello' }, ...additions.slice(1)])
+  const reordered = moveQuickOverlayStep(click, delay.id, 0)
+  assert.deepEqual(reordered.map(step => step.type), ['delay', 'paste', 'delay', 'key'])
+  assert.equal(moveQuickOverlayStep(reordered, delay.id, 1), reordered)
+  const stored = { confirm: { click: reordered, doubleClick: [legacyDouble], longPress: [] } }
+  assert.deepEqual(quickOverlayClickBehaviors(stored), {
+    confirm: { click: reordered, doubleClick: [], longPress: [] },
+  })
+  assert.deepEqual(stored.confirm.doubleClick, [legacyDouble])
+})
+
+test('quick configuration accepts reusable actions without nested configuration switches', () => {
+  const key = createBehavior({ id: 'key', type: 'key', key: 'Enter' })
+  const overlay = createBehavior({ id: 'overlay', type: 'quickOverlay', profileId: 'quick-other' })
+  const saved = behaviors => ({
+    type: 'savedSequence', name: '已保存', componentType: 'task',
+    properties: createSavedSequence('已保存', behaviors),
+  })
+  assert.equal(quickOverlayAllowsToolboxStep(saved([key])), true)
+  assert.equal(quickOverlayAllowsToolboxStep(saved([overlay])), false)
+
+  const disabled = createBehavior({ type: 'disabled' })
+  assert.deepEqual(insertQuickOverlaySteps([key], 0, [disabled]), [disabled])
+  assert.deepEqual(insertQuickOverlaySteps([disabled], 1, [key]), [key])
 })

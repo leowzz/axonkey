@@ -161,6 +161,7 @@ test('InstanceWorkspace isolates per-key warnings, renders valid steps safely, a
   const { InstanceWorkspace } = compile(
     'src/devices/integration/InstanceWorkspace.tsx',
     {
+      '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
       'react-dom': { createPortal: node => node },
       '@tauri-apps/api/core': { invoke: async () => null },
       '@tauri-apps/api/event': { listen: async () => () => {} },

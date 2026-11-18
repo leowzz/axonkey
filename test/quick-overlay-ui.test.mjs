@@ -315,8 +315,7 @@ test('geometry compiler transforms bundled remotes, bridge remotes, dual-view si
   assert.deepEqual({ row: k01?.row, col: k01?.col, status: k01?.status }, { row: 1, col: 3, status: 'trigger' })
 
   // 5. Xbox controller -> geometry compiler detects controller variant with shoulders, center, D-pad & ABXY diamond
-  const xboxView = buildQuickOverlayView(
-    {
+  const xboxSession = {
       revision: 13,
       sourceId: 'xb-1',
       deviceKind: 'xboxBluetooth',
@@ -330,14 +329,19 @@ test('geometry compiler transforms bundled remotes, bridge remotes, dual-view si
         'xbox.a': { click: [{ id: '1', enabled: true, type: 'key', key: 'Space' }] },
         'xbox.lt': { click: [{ id: '2', enabled: true, type: 'key', key: 'Left' }] },
       },
-    },
-    'macos',
-  )
+  }
+  const xboxView = buildQuickOverlayView(xboxSession, 'macos')
   assert.equal(xboxView.surface.variant, 'controller')
   assert.equal(xboxView.surface.leftShoulders.length, 2)
   assert.equal(xboxView.surface.rightShoulders.length, 2)
   assert.ok(xboxView.surface.leftPod.some(b => b.kind === 'cross'))
   assert.ok(xboxView.surface.rightPod.some(b => b.kind === 'cross'))
+  const xboxEditorView = buildQuickOverlayView(xboxSession, 'macos', { includeUnconfiguredAxes: true })
+  assert.equal(xboxEditorView.surface.variant, 'controller')
+  for (const axis of ['xbox.ls.up', 'xbox.ls.left', 'xbox.rs.right', 'xbox.rs.down']) {
+    assert.ok(JSON.stringify(xboxEditorView.surface).includes(`"inputId":"${axis}"`))
+    assert.ok(!JSON.stringify(xboxView.surface).includes(`"inputId":"${axis}"`))
+  }
 })
 
 test('cloud-delivered descriptorSvg on session dynamically compiles brand-new unregistered SVG models into ceramic surfaces', () => {

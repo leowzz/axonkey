@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { CornerDownLeft, MousePointerClick, Sparkles, X } from 'lucide-react'
+import { CornerDownLeft, Sparkles, X } from 'lucide-react'
 import type { Platform } from '../appTypes'
 import {
   activateCatalogDeviceDescriptors,
@@ -12,9 +12,8 @@ import {
   type LocalCustomDeviceEntry,
 } from '../cloud/deviceModelCatalog'
 import { getSupportPackages, subscribeSupportPackages } from '../devices/integration/model'
-import { railKeyGlyphText } from '../devices/integration/railOverview'
 import { logError } from '../runtimeLogging'
-import { iconFor } from './InputIcon'
+import { conciseSlotShort, QuickOverlaySurface, renderKeyGlyph, slotKindClass } from './QuickOverlaySurface'
 import {
   buildQuickOverlayView,
   type QuickOverlayKeySlot,
@@ -22,42 +21,12 @@ import {
   type QuickOverlaySessionPayload,
   type QuickOverlaySurfaceBlock,
   type QuickOverlayTriggerPreview,
+  type QuickOverlayViewModel,
 } from './quickOverlayModel'
-import './QuickOverlay.css'
 
 function detectFallbackPlatform(): Platform {
   if (typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)) return 'macos'
   return 'windows'
-}
-
-function renderKeyGlyph(slot: Pick<QuickOverlayKeySlot, 'inputId' | 'label' | 'short' | 'icon'>) {
-  const glyph = railKeyGlyphText({ id: slot.inputId, label: slot.label, icon: slot.icon }, slot.short)
-  if (glyph) {
-    // Skip duplicate badge text when it matches short verbatim (e.g. K01, Y, X, A, B, 侧上).
-    if (glyph === slot.short) return null
-    return <span className="ceramic-key-glyph-text">{glyph}</span>
-  }
-  if (slot.inputId.startsWith('mouse.') && slot.icon === 'center') {
-    return <MousePointerClick size={12} strokeWidth={2.1} />
-  }
-  return iconFor(slot.icon, 12)
-}
-
-function conciseSlotShort(slot: Pick<QuickOverlayKeySlot, 'short' | 'label'>): string {
-  const raw = (slot.short?.trim() || slot.label.trim()).replace(/（.*?）|\(.*?\)/g, '').trim()
-  const dpadDir: Record<string, string> = { UP: '上', DOWN: '下', LEFT: '左', RIGHT: '右' }
-  const dpadMatch = raw.match(/^DPAD\.(UP|DOWN|LEFT|RIGHT)$/i)
-  if (dpadMatch) return `十字${dpadDir[dpadMatch[1].toUpperCase()]}`
-  const stickMatch = raw.match(/^(LS|RS)\.(UP|DOWN|LEFT|RIGHT)$/i)
-  if (stickMatch) return `${stickMatch[1].toUpperCase()}${dpadDir[stickMatch[2].toUpperCase()]}`
-  const mouseTrimmed = raw.replace(/^鼠标/, '').trim()
-  if (/^(左键|右键|中键|侧键)$/.test(mouseTrimmed)) return mouseTrimmed
-  return mouseTrimmed.replace(/键$/, '').trim() || slot.short || slot.label
-}
-
-function slotKindClass(kind?: 'prompt' | 'action' | 'sequence'): string {
-  if (!kind) return ''
-  return ` kind-${kind}`
 }
 
 function formatScopedMetaLabel(entry: QuickOverlayScopedEntry): string {
@@ -148,7 +117,6 @@ export function QuickOverlay() {
   useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const [platform, setPlatform] = useState<Platform>(detectFallbackPlatform)
   const [session, setSession] = useState<QuickOverlaySessionPayload | null>(null)
-  const [hoveredSlotId, setHoveredSlotId] = useState<string>('')
 
   useEffect(() => {
     const hydrateCatalog = () => {
@@ -219,7 +187,6 @@ export function QuickOverlay() {
   const revision = session?.revision ?? 0
   useEffect(() => {
     if (!revision) return
-    setHoveredSlotId('')
     void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
@@ -237,23 +204,6 @@ export function QuickOverlay() {
 
   const view = useMemo(() => (session ? buildQuickOverlayView(session, platform) : null), [session, platform])
 
-  const { defaultDetailSlot, slotLookup } = useMemo(() => {
-    if (!view) {
-      return {
-        defaultDetailSlot: null as QuickOverlayKeySlot | null,
-        slotLookup: new Map<string, QuickOverlayKeySlot>(),
-      }
-    }
-    const allSlots = collectAllSlots(view.surface)
-    const map = new Map<string, QuickOverlayKeySlot>()
-    let firstDetail: QuickOverlayKeySlot | null = null
-    for (const slot of allSlots) {
-      map.set(slot.slotId, slot)
-      if (!firstDetail && slotDetailCandidate(slot)) firstDetail = slot
-    }
-    return { defaultDetailSlot: firstDetail, slotLookup: map }
-  }, [view])
-
   if (!session || !view) return null
 
   const dismiss = () => {
@@ -268,6 +218,40 @@ export function QuickOverlay() {
       inputId,
     }).catch(error => logError('Failed to trigger quick overlay input', error))
   }
+
+  return (
+    <QuickOverlayPresentation
+      key={session.revision}
+      view={view}
+      preview={session.preview}
+      onDismiss={dismiss}
+      onTrigger={triggerInput}
+    />
+  )
+}
+
+export function QuickOverlayPresentation({
+  view,
+  preview,
+  onDismiss,
+  onTrigger,
+}: {
+  view: QuickOverlayViewModel
+  preview: boolean
+  onDismiss: () => void
+  onTrigger?: (inputId: string) => void
+}) {
+  const [hoveredSlotId, setHoveredSlotId] = useState('')
+  const { defaultDetailSlot, slotLookup } = useMemo(() => {
+    const allSlots = collectAllSlots(view.surface)
+    const map = new Map<string, QuickOverlayKeySlot>()
+    let firstDetail: QuickOverlayKeySlot | null = null
+    for (const slot of allSlots) {
+      map.set(slot.slotId, slot)
+      if (!firstDetail && slotDetailCandidate(slot)) firstDetail = slot
+    }
+    return { defaultDetailSlot: firstDetail, slotLookup: map }
+  }, [view])
 
   const hoveredSlot = hoveredSlotId ? slotLookup.get(hoveredSlotId) : undefined
   const activeDetail =
@@ -317,7 +301,7 @@ export function QuickOverlay() {
           onMouseLeave={() => setHoveredSlotId('')}
           onFocus={() => setHoveredSlotId(slot.slotId)}
           onBlur={() => setHoveredSlotId('')}
-          onClick={dismiss}
+          onClick={onDismiss}
         >
           <div className="ceramic-key-top">
             <span className="ceramic-key-code">
@@ -360,9 +344,10 @@ export function QuickOverlay() {
                   type="button"
                   className={`ceramic-scoped-btn${entry.isExitTrigger ? ' is-exit' : ''}${entryPressed ? ' is-pressed' : ''}`}
                   aria-label={`${slot.label} ${formatScopedMetaLabel(entry)}`}
+                  aria-disabled={!entry.isExitTrigger && !onTrigger ? true : undefined}
                   onFocus={() => setHoveredSlotId(slot.slotId)}
                   onBlur={() => setHoveredSlotId('')}
-                  onClick={() => (entry.isExitTrigger ? dismiss() : triggerInput(entry.inputId))}
+                  onClick={() => (entry.isExitTrigger ? onDismiss() : onTrigger?.(entry.inputId))}
                 >
                   <span className="ceramic-scoped-badge">{entry.contextLabel ?? '全局'}</span>
                   <strong className="ceramic-scoped-text">
@@ -388,11 +373,12 @@ export function QuickOverlay() {
         className={`ceramic-key is-configured${slotKindClass(slot.primaryKind)}${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}${extraClass ? ` ${extraClass}` : ''}`}
         style={inlineStyle}
         aria-label={`${fullTitle}：${slot.triggers.map(t => `${t.triggerLabel} ${t.text}`).join('；')}`}
+        aria-disabled={!onTrigger ? true : undefined}
         onMouseEnter={() => setHoveredSlotId(slot.slotId)}
         onMouseLeave={() => setHoveredSlotId('')}
         onFocus={() => setHoveredSlotId(slot.slotId)}
         onBlur={() => setHoveredSlotId('')}
-        onClick={() => triggerInput(slot.inputId)}
+        onClick={() => onTrigger?.(slot.inputId)}
       >
         <div className="ceramic-key-top">
           <span className="ceramic-key-code">
@@ -418,142 +404,6 @@ export function QuickOverlay() {
     )
   }
 
-  const renderCrossWell = (well: Extract<QuickOverlaySurfaceBlock, { kind: 'cross' }>, idx: number) => (
-    <div key={`cross-${idx}`} className="ceramic-cross-well">
-      {well.up && renderKeySlot(well.up, 'cross-slot is-up')}
-      {well.left && renderKeySlot(well.left, 'cross-slot is-left')}
-      {well.center && renderKeySlot(well.center, 'cross-slot is-center')}
-      {well.right && renderKeySlot(well.right, 'cross-slot is-right')}
-      {well.down && renderKeySlot(well.down, 'cross-slot is-down')}
-    </div>
-  )
-
-  const renderBlocks = (blocks: readonly QuickOverlaySurfaceBlock[]) =>
-    blocks.map((block, idx) => {
-      if (block.kind === 'cross') return renderCrossWell(block, idx)
-      if (block.kind === 'bridge') {
-        return (
-          <div key={`bridge-${idx}`} className="ceramic-bridge-block">
-            <div className="ceramic-bridge-stack">
-              {renderKeySlot(block.leftStack[0])}
-              {renderKeySlot(block.leftStack[1])}
-            </div>
-            {renderKeySlot(block.center, 'ceramic-bridge-center')}
-            <div className="ceramic-bridge-stack">
-              {renderKeySlot(block.rightStack[0])}
-              {renderKeySlot(block.rightStack[1])}
-            </div>
-          </div>
-        )
-      }
-      if (block.columns === 1 && block.align) {
-        const colPos = block.align === 'left' ? 1 : block.align === 'right' ? 3 : 2
-        return (
-          <div key={`row-${idx}`} className="ceramic-row cols-3">
-            {renderKeySlot(block.slots[0], '', { gridColumn: colPos })}
-          </div>
-        )
-      }
-      return (
-        <div key={`row-${idx}`} className={`ceramic-row cols-${block.columns}`}>
-          {block.slots.map(slot => renderKeySlot(slot))}
-        </div>
-      )
-    })
-
-  const renderSurfaceChassis = () => {
-    const { surface } = view
-
-    if (surface.variant === 'matrix') {
-      return (
-        <div
-          className="ceramic-chassis is-matrix"
-          style={{
-            gridTemplateColumns: `repeat(${surface.cols}, minmax(0, 1fr))`,
-            gridTemplateRows: `repeat(${surface.rows}, minmax(74px, 1fr))`,
-          }}
-        >
-          {surface.oledSpan && (
-            <div
-              className="ceramic-matrix-oled"
-              style={{
-                gridRow: surface.oledSpan.row,
-                gridColumn: `${surface.oledSpan.colStart} / span ${surface.oledSpan.colSpan}`,
-              }}
-              aria-hidden="true"
-            >
-              <span className="ceramic-oled-eyebrow">{view.deviceName}</span>
-              <strong>{view.profileName}</strong>
-              <span>{view.items.length} 键已就绪</span>
-            </div>
-          )}
-          {surface.cells.map(cell => renderKeySlot(cell, '', { gridColumn: cell.col, gridRow: cell.row }))}
-        </div>
-      )
-    }
-
-    if (surface.variant === 'mouse') {
-      return (
-        <div className="ceramic-chassis is-mouse">
-          <div className="ceramic-mouse-thumb">{surface.thumbStack.map(slot => renderKeySlot(slot))}</div>
-          <div className="ceramic-mouse-body">
-            <div className="ceramic-mouse-primary">
-              {surface.primaryPair.map(slot => renderKeySlot(slot, 'is-primary-click'))}
-            </div>
-            {renderCrossWell(surface.wheelWell, 0)}
-          </div>
-        </div>
-      )
-    }
-
-    if (surface.variant === 'controller') {
-      return (
-        <div className="ceramic-chassis is-controller">
-          <div className="ceramic-controller-shoulders">
-            <div className="ceramic-shoulder-pair">{surface.leftShoulders.map(slot => renderKeySlot(slot))}</div>
-            <div className="ceramic-shoulder-pair">{surface.rightShoulders.map(slot => renderKeySlot(slot))}</div>
-          </div>
-          {surface.centerRow.length > 0 && (
-            <div className="ceramic-controller-center">{surface.centerRow.map(slot => renderKeySlot(slot))}</div>
-          )}
-          <div className="ceramic-controller-pods">
-            <div className="ceramic-pod">{renderBlocks(surface.leftPod)}</div>
-            <div className="ceramic-pod">{renderBlocks(surface.rightPod)}</div>
-          </div>
-        </div>
-      )
-    }
-
-    const mainColumn = (
-      <div className={`ceramic-panel-main density-${surface.density}`}>{renderBlocks(surface.blocks)}</div>
-    )
-    if (!surface.sideRail) {
-      return <div className={`ceramic-chassis is-panel density-${surface.density}`}>{mainColumn}</div>
-    }
-    const sideRailEl = (
-      <div className="ceramic-side-rail" aria-label="侧面按键区">
-        {surface.sideRail.slots.map(slot => renderKeySlot(slot, 'is-side-key'))}
-      </div>
-    )
-    return (
-      <div
-        className={`ceramic-chassis is-panel has-side-rail side-${surface.sideRail.side} density-${surface.density}`}
-      >
-        {surface.sideRail.side === 'left' ? (
-          <>
-            {sideRailEl}
-            {mainColumn}
-          </>
-        ) : (
-          <>
-            {mainColumn}
-            {sideRailEl}
-          </>
-        )}
-      </div>
-    )
-  }
-
   const shellVariantClass =
     view.surface.variant === 'panel' && view.surface.sideRail ? 'variant-panel-rail' : `variant-${view.surface.variant}`
 
@@ -561,7 +411,7 @@ export function QuickOverlay() {
     <div
       className="quick-overlay-backdrop"
       onClick={event => {
-        if (event.target === event.currentTarget) dismiss()
+        if (event.target === event.currentTarget) onDismiss()
       }}
     >
       <aside
@@ -571,9 +421,9 @@ export function QuickOverlay() {
       >
         <header className="quick-overlay-header">
           <div className="quick-overlay-identity">
-            <span className={`quick-overlay-mode-pill${session.preview ? ' is-preview' : ''}`}>
+            <span className={`quick-overlay-mode-pill${preview ? ' is-preview' : ''}`}>
               <Sparkles size={12} aria-hidden="true" />
-              <span>{session.preview ? '预览' : '快捷交互'}</span>
+              <span>{preview ? '预览' : '快捷交互'}</span>
             </span>
             <strong className="quick-overlay-profile-name">{view.profileName}</strong>
             <span className="quick-overlay-device-name">{view.deviceName}</span>
@@ -581,12 +431,13 @@ export function QuickOverlay() {
           <div className="quick-overlay-actions">
             {view.triggerLabel ? (
               <span className="quick-overlay-exit-hint">
-                再按 <kbd>{view.triggerLabel}</kbd> 退出
+                {onTrigger ? '再按' : '唤起与退出键'} <kbd>{view.triggerLabel}</kbd>
+                {onTrigger && ' 退出'}
               </span>
-            ) : (
+            ) : onTrigger ? (
               <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
-            )}
-            <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={dismiss}>
+            ) : null}
+            <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={onDismiss}>
               <X size={15} aria-hidden="true" />
             </button>
           </div>
@@ -598,7 +449,9 @@ export function QuickOverlay() {
             <span>在主窗口选择「{view.profileName}」即可为按键配置提示词或快捷行为</span>
           </div>
         ) : (
-          <div className="quick-surface-scroll">{renderSurfaceChassis()}</div>
+          <div className="quick-surface-scroll">
+            <QuickOverlaySurface view={view} renderKeySlot={renderKeySlot} />
+          </div>
         )}
 
         {activeDetail && (

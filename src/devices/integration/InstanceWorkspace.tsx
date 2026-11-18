@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Info, LayoutGrid, RefreshCw, Settings2, TriangleAlert } from 'lucide-react'
+import { ChevronDown, Info, RefreshCw, Settings2, TriangleAlert } from 'lucide-react'
 import type { QuickOverlayEditorContext } from '../../components/BehaviorEditor'
+import { QuickOverlayConfigurator } from '../../components/QuickOverlayConfigurator'
 import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
 import { iconFor } from '../../components/InputIcon'
@@ -70,9 +71,11 @@ import {
 } from './instanceProfiles'
 import type { InstanceBehaviorHistoryAction, InstanceProfileBehaviors } from './instanceProfiles'
 
-function countConfiguredInputs(behaviors: InstanceProfileBehaviors): number {
+function countConfiguredInputs(behaviors: InstanceProfileBehaviors, quick?: boolean): number {
   return Object.values(behaviors).filter(sequences =>
-    triggerTypes.some(trigger => (sequences?.[trigger]?.filter(step => step.enabled).length ?? 0) > 0),
+    (quick ? (['click'] as const) : triggerTypes).some(
+      trigger => (sequences?.[trigger]?.filter(step => step.enabled).length ?? 0) > 0,
+    ),
   ).length
 }
 
@@ -80,7 +83,6 @@ function findQuickTriggerBinding(
   instance: DeviceInstance,
   sanitizedProfiles: ReadonlyMap<string, SanitizedProfileBehaviors>,
   targetProfileId: string,
-  inputs: readonly MappingInput<string>[],
 ) {
   for (const candidate of instance.profiles) {
     if (candidate.quick || candidate.id === targetProfileId) continue
@@ -92,11 +94,7 @@ function findQuickTriggerBinding(
             step => step.enabled && step.type === 'quickOverlay' && step.profileId === targetProfileId,
           )
         ) {
-          return {
-            profileName: candidate.name,
-            inputId,
-            inputLabel: inputs.find(item => item.id === inputId)?.label ?? inputId,
-          }
+          return inputId
         }
       }
     }
@@ -225,7 +223,6 @@ export function InstanceWorkspace({
     ? (instance.profiles.find(p => p.id === editingQuickProfileId) ?? null)
     : null
   const profile = editingProfileOverride ?? permanentProfile
-  const isEditingQuickModeProfile = Boolean(profile.quick || editingProfileOverride)
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ??
     pkg.inputs[0] ?? {
       id: selected || 'pending',
@@ -491,7 +488,9 @@ export function InstanceWorkspace({
       historyRef.current = replaced
       setHistory(replaced)
     }
-    const triggers = removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
+    const triggers = profile.quick
+      ? []
+      : removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
     if (triggers.length) {
       setPendingDeletion({ profileId: profile.id, inputId: id, triggers, sequences })
       return false
@@ -512,10 +511,7 @@ export function InstanceWorkspace({
       if (!target) return
       const behaviorsForPreview =
         target.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(target.id)?.behaviors ?? {})
-      const triggerInput =
-        explicitTriggerInput ??
-        findQuickTriggerBinding(instance, sanitizedProfiles, target.id, pkg.inputs)?.inputId ??
-        ''
+      const triggerInput = explicitTriggerInput ?? findQuickTriggerBinding(instance, sanitizedProfiles, target.id) ?? ''
       if (!native) {
         onToast?.('桌面应用中可打开顶层快捷交互窗预览')
         return
@@ -532,12 +528,19 @@ export function InstanceWorkspace({
         onToast?.('无法打开快捷交互窗预览')
       })
     },
-    [activeBehaviors, instance, native, onToast, pkg.inputs, profile.id, sanitizedProfiles],
+    [activeBehaviors, instance, native, onToast, profile.id, sanitizedProfiles],
   )
-  const quickTriggerBinding = useMemo(
-    () =>
-      isEditingQuickModeProfile ? findQuickTriggerBinding(instance, sanitizedProfiles, profile.id, pkg.inputs) : null,
-    [instance, isEditingQuickModeProfile, pkg.inputs, profile.id, sanitizedProfiles],
+  const createQuickProfile = useCallback(
+    async (name?: string, sourceProfileId?: string) => {
+      let createdId: string | null = null
+      await controller.update(instance.id, item => {
+        const result = addQuickInstanceProfile(item, name, sourceProfileId)
+        createdId = result.profileId
+        return result.instance
+      })
+      return createdId
+    },
+    [controller, instance.id],
   )
   const quickOverlayContext = useMemo<QuickOverlayEditorContext>(
     () => ({
@@ -548,21 +551,14 @@ export function InstanceWorkspace({
         quick: item.quick,
         configuredCount: countConfiguredInputs(
           item.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(item.id)?.behaviors ?? {}),
+          item.quick,
         ),
       })),
-      onCreateQuickProfile: async name => {
-        let createdId: string | null = null
-        await controller.update(instance.id, item => {
-          const result = addQuickInstanceProfile(item, name)
-          createdId = result.profileId
-          return result.instance
-        })
-        return createdId
-      },
+      onCreateQuickProfile: createQuickProfile,
       onEditProfile: targetId => setEditingQuickProfileId(targetId),
       onPreviewProfile: (targetId, triggerInputId) => previewQuickProfile(targetId, triggerInputId),
     }),
-    [activeBehaviors, controller, instance.id, instance.profiles, previewQuickProfile, profile.id, sanitizedProfiles],
+    [activeBehaviors, createQuickProfile, instance.profiles, previewQuickProfile, profile.id, sanitizedProfiles],
   )
   const mapped = Object.keys(activeBehaviors).filter(id =>
     Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
@@ -606,7 +602,7 @@ export function InstanceWorkspace({
     !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
-    if (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected) return
+    if (!profile.quick && (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected)) return
     const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const target = event.target
@@ -638,6 +634,7 @@ export function InstanceWorkspace({
     canUndo,
     isScreenSelected,
     pendingDeletion,
+    profile.quick,
     pendingSwitch,
     redoBehaviorChange,
     settings,
@@ -655,6 +652,33 @@ export function InstanceWorkspace({
           : driverRunning
             ? '正在安装按键驱动，请完成 Windows 管理员授权…'
             : '按键驱动未安装，请先安装此设备的按键驱动。'
+  if (profile.quick) {
+    return (
+      <QuickOverlayConfigurator
+        key={profile.id}
+        deviceKind={instance.kind}
+        deviceName={instance.name}
+        profileId={profile.id}
+        profileName={profile.name}
+        triggerInput={findQuickTriggerBinding(instance, sanitizedProfiles, profile.id) ?? undefined}
+        inputs={pkg.inputs}
+        behaviors={activeBehaviors}
+        platform={platform}
+        onChange={changeSequence}
+        onRename={renameProfile}
+        onDuplicate={() => {
+          void createQuickProfile(undefined, profile.id)
+            .then(id => {
+              if (id) setEditingQuickProfileId(id)
+            })
+            .catch(() => {})
+        }}
+        onDelete={deleteProfile}
+        onClose={() => setEditingQuickProfileId(null)}
+        history={{ canUndo, canRedo, onUndo: undoBehaviorChange, onRedo: redoBehaviorChange }}
+      />
+    )
+  }
   return (
     <div
       ref={workspaceRef}
@@ -699,28 +723,15 @@ export function InstanceWorkspace({
                 update(item => addInstanceProfile(item, false, applicationProfile?.application.id))
               }}
               onCreateQuickProfile={() => {
-                void controller
-                  .update(instance.id, item => {
-                    const result = addQuickInstanceProfile(item)
-                    setEditingQuickProfileId(result.profileId)
-                    return result.instance
+                void createQuickProfile()
+                  .then(id => {
+                    if (id) setEditingQuickProfileId(id)
                   })
                   .catch(() => {})
               }}
-              onDuplicateProfile={() => {
-                if (profile.quick) {
-                  void controller
-                    .update(instance.id, item => {
-                      const result = addQuickInstanceProfile(item, `${profile.name} 副本`, profile.id)
-                      setEditingQuickProfileId(result.profileId)
-                      return result.instance
-                    })
-                    .catch(() => {})
-                  return
-                }
-                setEditingQuickProfileId(null)
+              onDuplicateProfile={() =>
                 update(item => addInstanceProfile(item, true, applicationProfile?.application.id))
-              }}
+              }
               onRenameProfile={renameProfile}
               onDeleteProfile={deleteProfile}
             />
@@ -990,34 +1001,6 @@ export function InstanceWorkspace({
               )}
             </div>
           )}
-          {isEditingQuickModeProfile && (
-            <div className="quick-profile-editing-bar" role="region" aria-label="快捷交互配置编辑状态">
-              <div className="quick-profile-editing-info">
-                <span className="quick-profile-editing-badge">
-                  <LayoutGrid size={13} aria-hidden="true" />
-                  快捷交互配置
-                </span>
-                <strong>{profile.name}</strong>
-                <span className="quick-profile-editing-trigger">
-                  {quickTriggerBinding
-                    ? `由「${quickTriggerBinding.profileName} · ${quickTriggerBinding.inputLabel}」唤起，再按退出`
-                    : '独立单次配置 · 可在常驻配置按键中添加「快捷交互窗」绑定唤起'}
-                </span>
-              </div>
-              <div className="quick-profile-editing-actions">
-                <button
-                  type="button"
-                  className="reset-button"
-                  onClick={() => previewQuickProfile(profile.id, quickTriggerBinding?.inputId)}
-                >
-                  预览交互窗
-                </button>
-                <button type="button" className="reset-button" onClick={() => setEditingQuickProfileId(null)}>
-                  返回「{permanentProfile.name}」
-                </button>
-              </div>
-            </div>
-          )}
           {isScreenSelected ? (
             <KivoScreenEditor
               instance={instance}
@@ -1093,7 +1076,6 @@ export function InstanceWorkspace({
               toolboxCategory={toolboxCategory}
               onToolboxCategoryChange={setToolboxCategory}
               quickOverlayContext={quickOverlayContext}
-              isEditingQuickProfile={Boolean(profile.quick)}
             />
           )}
         </section>

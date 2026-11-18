@@ -529,6 +529,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
   min-width: 0;
   min-height: 0;
   border-radius: 10px;
+  outline: none;
   background: transparent;
   overflow: hidden;
 }

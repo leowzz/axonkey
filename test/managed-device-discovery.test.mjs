@@ -648,6 +648,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -1184,6 +1185,7 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -1609,6 +1611,7 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -1830,6 +1833,7 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {

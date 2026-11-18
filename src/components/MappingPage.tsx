@@ -54,8 +54,6 @@ export type MappingPageProps = {
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
   remoteView?: RemoteView
   quickOverlayContext?: QuickOverlayEditorContext
-  isEditingQuickProfile?: boolean
-  quickProfileBanner?: ReactNode
   inputWarnings?: Readonly<Record<string, string>>
 }
 
@@ -85,7 +83,6 @@ export function MappingPage({
   rowRefs,
   behaviorEditorProps,
   remoteView,
-  quickProfileBanner,
   inputWarnings,
 }: MappingPageProps) {
   return (
@@ -135,7 +132,6 @@ export function MappingPage({
         </aside>
 
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
-          {quickProfileBanner}
           <section className="key-picker" aria-labelledby="key-picker-title">
             <div className="key-picker-head">
               <div className="key-picker-heading">

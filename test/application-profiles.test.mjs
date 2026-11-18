@@ -326,6 +326,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: nullComponent },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
     '../kivo-k18-lite/KivoScreenEditor': { KivoScreenEditor: nullComponent },

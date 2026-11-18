@@ -10,6 +10,7 @@ import {
   ClipboardPaste,
   Copy,
   Clock3,
+  Eye,
   FolderOpen,
   Globe,
   Keyboard,
@@ -714,11 +715,13 @@ function QuickOverlayEditorFields({
   triggerInputId,
   context,
   onSelectProfile,
+  onSaveBeforeEdit,
 }: {
   profileId: string
   triggerInputId: string
   context?: QuickOverlayEditorContext
   onSelectProfile: (profileId: string) => void
+  onSaveBeforeEdit?: () => void
 }) {
   const candidates = useMemo(() => {
     const list = (context?.profiles ?? []).filter(item => item.id !== context?.currentProfileId)
@@ -751,7 +754,7 @@ function QuickOverlayEditorFields({
   }
 
   return (
-    <div className="settings-form-fields behavior-dialog-form">
+    <div className="settings-form-fields behavior-dialog-form behavior-quick-overlay-form">
       <div className="settings-form-row">
         <div className="behavior-launch-label">
           <label htmlFor={creating ? 'behavior-quick-profile-name' : 'behavior-quick-profile-select'}>关联配置：</label>
@@ -759,10 +762,10 @@ function QuickOverlayEditorFields({
             按下此键唤起所选的独立配置文件，并在桌面顶层显示该配置下其他按键的功能预览；按下其他按键执行对应行为并退出模式，再次按下此触发键直接退出。
           </SettingsHelp>
         </div>
-        <div className="settings-form-control" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div className="settings-form-control">
           {!creating && candidates.length > 0 ? (
             <>
-              <div className="manual-key-select" style={{ minWidth: 210 }}>
+              <div className="manual-key-select">
                 <select
                   id="behavior-quick-profile-select"
                   value={profileId}
@@ -793,8 +796,8 @@ function QuickOverlayEditorFields({
                 </span>
               </div>
               {context && (
-                <button type="button" className="reset-button" onClick={() => setCreating(true)}>
-                  <Plus size={13} /> 新建快捷配置
+                <button type="button" className="dialog-secondary" onClick={() => setCreating(true)}>
+                  <Plus size={14} aria-hidden="true" /> 新建快捷配置
                 </button>
               )}
             </>
@@ -836,19 +839,27 @@ function QuickOverlayEditorFields({
       {selectedTarget && context && (context.onEditProfile || context.onPreviewProfile) && (
         <div className="settings-form-row">
           <span className="settings-form-label">配置内容：</span>
-          <div className="settings-form-control" style={{ flexWrap: 'wrap', gap: 8 }}>
-            {context.onEditProfile && (
-              <button type="button" className="reset-button" onClick={() => context.onEditProfile?.(selectedTarget.id)}>
-                <LayoutGrid size={13} /> 编辑「{selectedTarget.name}」按键（已配 {selectedTarget.configuredCount} 键）
+          <div className="settings-form-control">
+            {selectedTarget.quick && context.onEditProfile && (
+              <button
+                type="button"
+                className="dialog-secondary behavior-quick-overlay-edit"
+                onClick={() => {
+                  onSaveBeforeEdit?.()
+                  context.onEditProfile?.(selectedTarget.id)
+                }}
+              >
+                <LayoutGrid size={14} aria-hidden="true" />{' '}
+                {onSaveBeforeEdit ? '保存并配置交互窗按键' : '配置交互窗按键'}
               </button>
             )}
             {context.onPreviewProfile && (
               <button
                 type="button"
-                className="reset-button"
+                className="dialog-secondary"
                 onClick={() => context.onPreviewProfile?.(selectedTarget.id, triggerInputId)}
               >
-                预览交互窗
+                <Eye size={14} aria-hidden="true" /> 预览交互窗
               </button>
             )}
           </div>
@@ -1349,6 +1360,7 @@ export function BehaviorEditDialog({
               profileId={behavior.profileId}
               triggerInputId={button.id}
               context={quickOverlayContext}
+              onSaveBeforeEdit={draft ? onSave : undefined}
               onSelectProfile={nextProfileId =>
                 onUpdate(current =>
                   current.type === 'quickOverlay' ? { ...current, profileId: nextProfileId } : current,
