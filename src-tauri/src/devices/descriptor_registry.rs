@@ -61,6 +61,7 @@ struct DynamicRegistry {
     interned_kinds: BTreeMap<String, &'static str>,
     interned_descriptors: BTreeMap<(String, [u8; 32]), &'static DeviceDescriptor>,
     cloud_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
+    cloud_entries: BTreeMap<&'static str, String>,
     local_active: BTreeMap<&'static str, ([u8; 32], &'static DeviceDescriptor)>,
     local_entries: Vec<LocalCustomDeviceEntry>,
 }
@@ -172,6 +173,7 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut next_active = BTreeMap::new();
+    let mut next_cloud_entries = BTreeMap::new();
     let mut valid_items = Vec::new();
 
     for (kind, svg, hash, descriptor) in parsed_entries {
@@ -184,6 +186,7 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
             continue;
         };
         next_active.insert(static_kind, (hash, static_descriptor));
+        next_cloud_entries.insert(static_kind, svg.clone());
         valid_items.push(CloudDescriptorSvg { kind, svg });
     }
 
@@ -193,6 +196,7 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         });
     let applied = next_active.len();
     guard.cloud_active = next_active;
+    guard.cloud_entries = next_cloud_entries;
     if changed {
         warn_local_cloud_overrides(&guard);
     }
@@ -590,6 +594,15 @@ pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescripto
         }
     }
     bundled_descriptor_for_kind(kind)
+}
+
+/// Return the raw dynamic SVG for a kind (local custom override preferred over cloud descriptor).
+pub(crate) fn dynamic_svg_for_kind(kind: &str) -> Option<String> {
+    let guard = dynamic_registry().read().ok()?;
+    if let Some(entry) = guard.local_entries.iter().find(|entry| entry.kind == kind) {
+        return Some(entry.svg.clone());
+    }
+    guard.cloud_entries.get(kind).cloned()
 }
 
 pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescriptor> {
@@ -1306,6 +1319,10 @@ mod tests {
             kind: "localTestPad".into(),
             svg: active_svg.clone(),
         }]);
+        assert_eq!(
+            dynamic_svg_for_kind("localTestPad").as_deref(),
+            Some(active_svg.trim())
+        );
         {
             let guard = dynamic_registry().read().unwrap();
             assert_eq!(
@@ -1317,8 +1334,12 @@ mod tests {
         let updated_cloud_svg = active_svg.replace("自定义遥控器 X", "云端更新版遥控器");
         let _ = sync_cloud_descriptors(&[CloudDescriptorSvg {
             kind: "localTestPad".into(),
-            svg: updated_cloud_svg,
+            svg: updated_cloud_svg.clone(),
         }]);
+        assert_eq!(
+            dynamic_svg_for_kind("localTestPad").as_deref(),
+            Some(active_svg.trim())
+        );
         {
             let guard = dynamic_registry().read().unwrap();
             assert_eq!(
@@ -1338,8 +1359,13 @@ mod tests {
             assert!(collect_local_cloud_overrides(&guard).is_empty());
         }
         assert!(descriptor_for_kind("localTestPad").is_some());
+        assert_eq!(
+            dynamic_svg_for_kind("localTestPad").as_deref(),
+            Some(updated_cloud_svg.trim())
+        );
         let _ = sync_cloud_descriptors(&[]);
         assert!(descriptor_for_kind("localTestPad").is_none());
+        assert!(dynamic_svg_for_kind("localTestPad").is_none());
 
         clear_local_custom_descriptors_for_test();
         let _ = fs::remove_dir_all(&dir);

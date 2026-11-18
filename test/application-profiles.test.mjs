@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { activeApplicationProfile, selectInstanceProfile, setApplicationProfile } from '../src/devices/integration/applicationProfiles.ts'
-import { bindMouseApplication, deleteMouseProfile } from '../src/mouseProfiles.ts'
+import { addMouseApplicationForEditing, bindMouseApplication, deleteMouseProfile } from '../src/mouseProfiles.ts'
 import { addApplicationForEditing, addInstanceProfile, deleteInstanceProfile } from '../src/devices/integration/instanceProfiles.ts'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -86,6 +86,45 @@ test('deleting the mouse global profile moves its app bindings to the new global
   assert.deepEqual(deleted.profiles[0].applicationIds, [chrome.id])
 })
 
+test('adding a mouse app defaults to the global profile without creating extra profiles, and manual profile creation rebinds only that app', () => {
+  const initialProfiles = [
+    { id: 'global', name: '默认配置', deviceId: 'mouse', behaviors: {} },
+    { id: 'browser', name: '浏览器', deviceId: 'mouse', behaviors: {} },
+  ]
+  const first = addMouseApplicationForEditing(initialProfiles, chrome.id, 'global', false)
+  assert.equal(first.profiles.length, 2)
+  assert.equal(first.profileId, 'global')
+  assert.equal(first.autoSwitching, true)
+  assert.deepEqual(first.profiles[0].applicationIds, [chrome.id])
+  assert.deepEqual(first.profiles[1].applicationIds, [])
+
+  const reused = bindMouseApplication(first.profiles, chrome.id, 'browser')
+  assert.equal(reused.length, 2)
+  assert.deepEqual(reused[0].applicationIds, [])
+  assert.deepEqual(reused[1].applicationIds, [chrome.id])
+
+  const repeatExisting = addMouseApplicationForEditing(reused, chrome.id, 'global', false)
+  assert.equal(repeatExisting.profileId, 'browser')
+  assert.equal(repeatExisting.autoSwitching, false)
+  assert.deepEqual(repeatExisting.profiles[1].applicationIds, [chrome.id])
+
+  const second = addMouseApplicationForEditing(reused, code.id, 'global', false)
+  assert.equal(second.profiles.length, 2)
+  assert.equal(second.profileId, 'global')
+  assert.equal(second.autoSwitching, false)
+  assert.deepEqual(second.profiles[0].applicationIds, [code.id])
+  assert.deepEqual(second.profiles[1].applicationIds, [chrome.id])
+
+  const manualCreated = bindMouseApplication(
+    [...second.profiles, { id: 'editor', name: '新配置', deviceId: 'mouse', behaviors: {} }],
+    code.id,
+    'editor',
+  )
+  assert.deepEqual(manualCreated[0].applicationIds, [])
+  assert.deepEqual(manualCreated[1].applicationIds, [chrome.id])
+  assert.deepEqual(manualCreated[2].applicationIds, [code.id])
+})
+
 function compile(path, imports = {}, globals = {}) {
   const require = createRequire(import.meta.url)
   const module = { exports: {} }
@@ -98,21 +137,40 @@ function compile(path, imports = {}, globals = {}) {
   return module.exports
 }
 
-test('adding an app creates an independent editable copy and preserves the global selection', () => {
+test('adding an app defaults to the global profile without creating extra profiles, and manual creation switches it to the new profile', () => {
   const original = instance()
   original.profiles[0].behaviors = { voice: { click: [{ id: 'key', enabled: true, type: 'key', key: 'RAlt' }], doubleClick: [], longPress: [] } }
   const added = addApplicationForEditing(original, chrome)
   assert.equal(added.activeProfileId, 'global')
-  assert.equal(added.profiles.at(-1).name, 'Chrome 配置')
-  assert.equal(added.applicationProfiles[0].profileId, added.profiles.at(-1).id)
-  added.profiles.at(-1).behaviors.voice.click[0].key = 'Enter'
-  assert.equal(original.profiles[0].behaviors.voice.click[0].key, 'RAlt')
+  assert.equal(added.profiles.length, original.profiles.length)
+  assert.equal(added.applicationProfiles[0].profileId, 'global')
+  assert.equal(added.appProfileSwitching, true)
   assert.equal(addApplicationForEditing(added, chrome), added)
-  const paused = { ...added, appProfileSwitching: false }
+
+  const reused = selectInstanceProfile(added, 'browser', chrome.id)
+  assert.equal(reused.profiles.length, original.profiles.length)
+  assert.equal(reused.applicationProfiles[0].profileId, 'browser')
+  assert.equal(reused.activeProfileId, 'global')
+
+  const paused = addApplicationForEditing({ ...added, appProfileSwitching: false }, code)
+  assert.equal(paused.profiles.length, original.profiles.length)
+  assert.equal(paused.applicationProfiles[1].profileId, 'global')
+  assert.equal(paused.appProfileSwitching, false)
+
   const copied = addInstanceProfile(paused, true, chrome.id)
   assert.equal(copied.activeProfileId, 'global')
+  assert.equal(copied.profiles.length, original.profiles.length + 1)
   assert.equal(copied.applicationProfiles[0].profileId, copied.profiles.at(-1).id)
+  assert.equal(copied.applicationProfiles[1].profileId, 'global')
   assert.equal(copied.appProfileSwitching, false)
+  copied.profiles.at(-1).behaviors.voice.click[0].key = 'Enter'
+  assert.equal(original.profiles[0].behaviors.voice.click[0].key, 'RAlt')
+
+  const blank = addInstanceProfile(paused, false, code.id)
+  assert.equal(blank.activeProfileId, 'global')
+  assert.equal(blank.applicationProfiles[0].profileId, 'global')
+  assert.equal(blank.applicationProfiles[1].profileId, blank.profiles.at(-1).id)
+  assert.equal(blank.profiles.at(-1).behaviors.voice.click.length, 0)
 })
 
 test('toolbar loads application icons automatically, selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
@@ -171,7 +229,8 @@ test('toolbar loads application icons automatically, selects recent apps directl
     assert.equal(selected, chrome.id)
     assert.equal(trigger().findByType('img').props.src, iconsById[chrome.id])
     assert.equal(current.activeProfileId, 'global')
-    assert.equal(current.applicationProfiles[0].profileId, current.profiles.at(-1).id)
+    assert.equal(current.profiles.length, 3)
+    assert.equal(current.applicationProfiles[0].profileId, 'global')
     assert.equal(iconRequests.length, 1, 'polling or moving an app to bindings must not re-fetch cached icons')
 
     await act(async () => view.root.findByProps({ 'aria-label': '配置' }).props.onChange({ target: { value: 'editor' } }))
@@ -193,10 +252,14 @@ test('toolbar loads application icons automatically, selects recent apps directl
       [{ id: code.id, path: code.path }],
     ])
     assert.equal(current.applicationProfiles.length, 2)
+    assert.equal(current.profiles.length, 3)
+    assert.equal(current.applicationProfiles[1].profileId, 'global')
     assert.equal(current.appProfileSwitching, false)
     assert.equal(view.root.findAllByType('dialog').length, 0, 'file selection immediately adds and opens the app')
 
     await act(async () => trigger().props.onClick())
+    const boundCodeOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes('VS Code'))
+    assert.ok(nodeText(boundCodeOption).includes('global'))
     const globalOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node) === '全局')
     await act(async () => globalOption.props.onClick())
     assert.equal(selected, '')
@@ -263,6 +326,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: nullComponent },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
     '../kivo-k18-lite/KivoScreenEditor': { KivoScreenEditor: nullComponent },
@@ -304,6 +368,13 @@ test('workspace edits the explicitly selected app while paused and does not foll
     assert.equal(current.applicationProfiles[0].profileId, 'global')
     assert.equal(toolbar().props.editingApplicationId, chrome.id)
     assert.equal(toolbar().props.profileId, 'global')
+    await act(async () => toolbar().props.onCreateProfile())
+    const createdProfileId = current.profiles.at(-1).id
+    assert.notEqual(createdProfileId, 'global')
+    assert.equal(current.activeProfileId, 'global')
+    assert.equal(current.applicationProfiles[0].profileId, createdProfileId)
+    assert.equal(toolbar().props.profileId, createdProfileId)
+    assert.equal(workflow().props.sequences.click.length, 0)
     await act(async () => toolbar().props.onSelectApplication(''))
     assert.equal(toolbar().props.profileId, 'global')
     assert.equal(workflow().props.sequences.click[0].ms, 100)

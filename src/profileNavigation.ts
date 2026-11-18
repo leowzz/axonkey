@@ -15,12 +15,12 @@ import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProf
 export type ProfileSwitchRequest = { deviceId: DeviceId; direction: ProfileDirection; wrap: boolean }
 
 export function adjacentProfileId(
-  profiles: readonly { id: string; deviceId: DeviceId }[],
+  profiles: readonly { id: string; deviceId: DeviceId; quick?: boolean }[],
   activeId: string,
   request: Pick<ProfileSwitchRequest, 'deviceId' | 'direction' | 'wrap'>,
 ): string | null {
   if (request.direction !== 'previous' && request.direction !== 'next') return null
-  const deviceProfiles = profiles.filter(profile => profile.deviceId === request.deviceId)
+  const deviceProfiles = profiles.filter(profile => profile.deviceId === request.deviceId && !profile.quick)
   const index = deviceProfiles.findIndex(profile => profile.id === activeId)
   if (index < 0 || deviceProfiles.length < 2) return null
   let next = index + (request.direction === 'previous' ? -1 : 1)
@@ -50,7 +50,7 @@ export function changeProfileState(current: ProfileState, id: string): ProfileSt
 export function profileSwitchTargets(current: ProfileState, inputId: InputId, trigger: TriggerType) {
   const deviceId = deviceForInput(inputId).id
   return current.profiles
-    .filter(profile => profile.deviceId === deviceId)
+    .filter(profile => profile.deviceId === deviceId && !profile.quick)
     .map(profile => ({
       id: profile.id,
       name: profile.name,
@@ -69,7 +69,7 @@ export function applySharedProfileSwitch(
   const deviceId = deviceForInput(inputId).id
   const profiles = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors).map(
     profile => {
-      if (profile.deviceId !== deviceId) return profile
+      if (profile.deviceId !== deviceId || profile.quick) return profile
       const behaviors = profile.behaviors
       behaviors[inputId][trigger] = [createBehavior({ ...behavior, id: undefined })]
       return { ...profile, behaviors }
@@ -105,7 +105,7 @@ export function removeSharedProfileSwitch(current: ProfileState, deletion: Profi
     return current
   const profiles = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors).map(
     profile => {
-      if (profile.deviceId !== deviceId) return profile
+      if (profile.deviceId !== deviceId || profile.quick) return profile
       const source = profile.behaviors
       const behaviors = cloneBehaviorMap(
         profile.id === deletion.profileId ? { ...source, [deletion.inputId]: deletion.sequences } : source,

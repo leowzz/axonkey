@@ -24,7 +24,7 @@ export function createCloudSnapshot(
           instance =>
             memory[`${instance.kind}/${instance.id}`] ||
             instance.profiles.some(
-              profile => hasBehaviors(profile.behaviors) || hasCustomProfileDisplay(profile.display),
+              profile => profile.quick || hasBehaviors(profile.behaviors) || hasCustomProfileDisplay(profile.display),
             ) ||
             instance.applicationProfiles?.length ||
             hasNonDefaultDeviceDisplay(instance.display),
@@ -46,6 +46,7 @@ export function createCloudSnapshot(
                 id: profile.id,
                 name: profile.name,
                 ...(profile.applicationIds ? { applicationIds: [...profile.applicationIds] } : {}),
+                ...(profile.quick ? { quick: true } : {}),
                 behaviors: profile.keys,
               })),
             ...(kind === 'mouse' && backup.applicationProfileSwitching
@@ -68,7 +69,9 @@ export function createCloudSnapshot(
 function hasLegacyData(backup: BackupDocument, kind: keyof typeof legacyKeys): boolean {
   const profiles = backup.profiles.filter(profile => profile.deviceId === kind)
   const hasApplicationMappings = profiles.some(profile => profile.applicationIds?.length)
-  if (!profiles.some(profile => hasBehaviors(profile.keys)) && !hasApplicationMappings) return false
+  const hasQuickProfiles = profiles.some(profile => profile.quick)
+  if (!profiles.some(profile => hasBehaviors(profile.keys)) && !hasApplicationMappings && !hasQuickProfiles)
+    return false
   const defaults: Record<string, TriggerBehaviors> = createDefaultBehaviorMap()
   return (
     profiles.length > 1 ||
@@ -200,6 +203,7 @@ export function prepareCloudRestore(
             id: item.id,
             name: item.name,
             ...(item.applicationIds ? { applicationIds: [...item.applicationIds] } : {}),
+            ...(item.quick ? { quick: true } : {}),
             behaviors: item.keys,
           }))
       : target!.profiles
@@ -209,11 +213,19 @@ export function prepareCloudRestore(
         mouse: config.appProfileSwitching,
       }
     }
+    const restoredIdMap = new Map<string, string>()
+    for (const item of profiles) {
+      const prior = metadata[profileMetadataKey(targetKey, item.id)]
+      if (prior?.restored_from?.device_config_id === document.id) {
+        restoredIdMap.set(prior.restored_from.profile_id, item.id)
+      }
+    }
+    const newlyRestored: (typeof profiles)[number][] = []
     for (const id of selected.profileIds) {
       const profile = config.profiles.find(item => item.id === id) as
         (DeviceInstance['profiles'][number] & { app_version?: string | null; applicationIds?: string[] }) | undefined
       if (!profile) throw new Error('所选云端方案已不存在，请刷新后重试')
-      const already = profiles.some(item => {
+      const already = profiles.find(item => {
         const prior = metadata[profileMetadataKey(targetKey, item.id)]
         return (
           prior?.restored_from?.device_config_id === document.id &&
@@ -222,8 +234,13 @@ export function prepareCloudRestore(
           prior.source_content === profileContent(profile)
         )
       })
-      if (already) continue
-      const restored = { ...profile, id: crypto.randomUUID() }
+      if (already) {
+        restoredIdMap.set(profile.id, already.id)
+        continue
+      }
+      const restored = { ...structuredClone(profile), id: crypto.randomUUID() }
+      restoredIdMap.set(profile.id, restored.id)
+      newlyRestored.push(restored)
       const origin: RestoreSource = {
         device_config_id: document.id,
         profile_id: profile.id,
@@ -239,9 +256,6 @@ export function prepareCloudRestore(
         source_content: profileContent(profile),
       }
       if (profiles.some(item => item.name === restored.name)) restored.name += '（云端副本）'
-      // The display name belongs to this local copy; keep the source content version.
-      metadata[profileMetadataKey(targetKey, restored.id)].content = profileContent(restored)
-      metadata[profileMetadataKey(targetKey, restored.id)].restored_content = profileContent(restored)
       profiles.push(restored)
       if (target) {
         if (target.display === undefined && config.display !== undefined)
@@ -270,11 +284,36 @@ export function prepareCloudRestore(
           name: restored.name,
           deviceId: legacyKind,
           ...(restored.applicationIds ? { applicationIds: [...restored.applicationIds] } : {}),
+          ...(restored.quick ? { quick: true } : {}),
           keys: restored.behaviors,
         })
     }
+    for (const restored of newlyRestored) {
+      for (const triggers of Object.values(restored.behaviors)) {
+        for (const trigger of triggerTypes) {
+          triggers[trigger] = triggers[trigger].map(action =>
+            action.type === 'quickOverlay' && restoredIdMap.has(action.profileId)
+              ? { ...action, profileId: restoredIdMap.get(action.profileId)! }
+              : action,
+          )
+        }
+      }
+      // The display name and local quickOverlay links belong to this local copy; keep the source content version.
+      metadata[profileMetadataKey(targetKey, restored.id)].content = profileContent(restored)
+      metadata[profileMetadataKey(targetKey, restored.id)].restored_content = profileContent(restored)
+    }
     if (target) {
-      if (!target.activeProfileId) target.activeProfileId = target.profiles[0].id
+      if (!target.profiles.some(item => !item.quick)) {
+        const firstNonQuick = config.profiles.find(item => !item.quick)
+        if (firstNonQuick) {
+          target.profiles.unshift({ ...structuredClone(firstNonQuick), id: crypto.randomUUID() })
+        } else if (target.profiles[0]) {
+          delete target.profiles[0].quick
+        }
+      }
+      if (!target.activeProfileId || !target.profiles.some(item => item.id === target.activeProfileId && !item.quick)) {
+        target.activeProfileId = (target.profiles.find(item => !item.quick) ?? target.profiles[0]).id
+      }
       targets.set(selected.targetId, target)
     }
   }
@@ -356,6 +395,7 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
       (!Array.isArray(profile.applicationIds) || profile.applicationIds.some((id: unknown) => typeof id !== 'string'))
     )
       return fail()
+    if (profile.quick !== undefined && typeof profile.quick !== 'boolean') return fail()
     if (profile.display !== undefined) {
       if (!profile.display || typeof profile.display !== 'object' || Array.isArray(profile.display)) return fail()
       const pDisplay = profile.display as Record<string, unknown>

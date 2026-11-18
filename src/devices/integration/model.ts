@@ -1,3 +1,4 @@
+import { appStorage } from '../../appStorage.ts'
 import type { TriggerBehaviors } from '../../behaviorModel'
 import type { ApplicationProfile } from '../../applications'
 import type { BuiltinDeviceKind, DeviceKind, DeviceSupportPackage } from '../types.ts'
@@ -45,6 +46,7 @@ export type InstanceProfile = {
   name: string
   behaviors: Record<string, TriggerBehaviors>
   display?: ProfileDisplayConfig
+  quick?: boolean
 }
 export type DeviceInstance = {
   id: string
@@ -105,6 +107,7 @@ export type DeviceSnapshot = {
       effectiveProfileId?: string
       driverInstalled?: boolean
       driverState?: string
+      mappingErrors?: Record<string, Record<string, string>>
     }
   >
   error: string | null
@@ -463,7 +466,7 @@ export const systemMouseCardId = 'system-mouse'
 export function getStoredDeviceCardOrder(): string[] {
   if (typeof window === 'undefined') return []
   try {
-    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
+    const value = JSON.parse(appStorage.getItem(deviceCardOrderKey) ?? '[]')
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
   } catch {
     return []
@@ -472,7 +475,7 @@ export function getStoredDeviceCardOrder(): string[] {
 
 export function saveDeviceCardOrder(order: string[]) {
   try {
-    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
+    appStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
   } catch {
     /* UI preference is best-effort. */
   }

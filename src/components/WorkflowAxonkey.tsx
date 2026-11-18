@@ -3,17 +3,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
-import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
+import type { DesignerApi, Step, StepDefinition } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
-import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
-import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
-import { defaultCursorDistance, normalizeBehavior, serializeSequence } from '../behaviorModel'
+import { behaviorSummary, triggerLabels } from '../appConfig'
+import { appStorage } from '../appStorage'
+import type { MappingInput, Platform } from '../appTypes'
+import { normalizeBehavior, serializeSequence } from '../behaviorModel'
 import type { Behavior, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import { writeClipboardText } from '../clipboard'
-import { macosShortcutPresets } from '../macosShortcutPresets'
 import { createSavedSequence, parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
 import type { SavedSequence } from '../savedSequences'
-import { SequencePasteDialog } from './BehaviorEditor'
+import { SequencePasteDialog, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
 import { createTriggerRootExtension, defaultWorkflowTriggers, isTriggerRoot } from './WorkflowTriggerRoot'
 import {
@@ -30,10 +30,10 @@ import {
 } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
+import { workflowToolboxPalettes } from './workflowToolboxPalettes'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
 import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
 import {
-  defaultWorkflowDelayMs,
   findWorkflowStepEditor,
   isEditableWorkflowStep,
   workflowBehaviorProperties,
@@ -41,7 +41,6 @@ import {
 } from './workflowStepEditing'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
-import type { WorkflowActionChoicePreset } from './workflowActionChoices'
 import { fixedWorkflowViewport } from './WorkflowViewport'
 import { bindWorkflowSelection } from './workflowSelection'
 import { createWorkflowDraggedSteps } from './WorkflowDraggedSteps'
@@ -77,13 +76,7 @@ type WorkflowAxonkeyProps<Id extends string> = {
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
   onToolboxCategoryChange: (category: string) => void
-}
-
-type WorkflowAction = {
-  preset:
-    CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | 'switchProfile' | WorkflowActionChoicePreset
-  name: string
-  description?: string
+  quickOverlayContext?: QuickOverlayEditorContext
 }
 
 export function WorkflowAxonkey<Id extends string = InputId>({
@@ -98,6 +91,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   onRequestProfileSwitch,
   toolboxCategory,
   onToolboxCategoryChange,
+  quickOverlayContext,
 }: WorkflowAxonkeyProps<Id>) {
   const triggers = button.triggerLabel
     ? [{ id: 'click' as const, label: button.triggerLabel }]
@@ -120,7 +114,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const [reload, setReload] = useState(0)
   const [library, setLibrary] = useState<{ items: SavedSequence[]; error: string }>(() => {
     try {
-      return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' }
+      return { items: parseSavedSequences(appStorage.getItem(savedSequencesStorageKey)), error: '' }
     } catch {
       return { items: [], error: '无法读取已保存的序列，请重新打开页面重试。' }
     }
@@ -140,98 +134,23 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const [dialogStep, setDialogStep] = useState<WorkflowStepEdit | null>(null)
   const [designerApi, setDesignerApi] = useState<DesignerApi | null>(null)
   const iconUrls = useMemo(() => createWorkflowActionIconUrls(platform), [platform])
-
-  const palettes = useMemo<WorkflowToolboxPalette[]>(() => {
-    const commonActions: WorkflowAction[] = [
-      { preset: 'escape', name: '返回 / 关闭', description: 'Esc' },
-      { preset: 'enter', name: '确认 / 回车', description: 'Enter' },
-      { preset: 'space', name: '空格', description: 'Space' },
-      ...rightModifierChoices().map(({ preset, key }) => ({ preset, name: keyDisplayName(key, platform) })),
-      { preset: 'previousTab', name: '上一标签页', description: `${keyDisplayName('Ctrl', platform)} + Shift + Tab` },
-      { preset: 'nextTab', name: '下一标签页', description: `${keyDisplayName('Ctrl', platform)} + Tab` },
-      { preset: 'arrowUp', name: '方向上' },
-      { preset: 'arrowDown', name: '方向下' },
-      { preset: 'arrowLeft', name: '方向左' },
-      { preset: 'arrowRight', name: '方向右' },
-      { preset: 'tab', name: '切换焦点', description: 'Tab' },
-      { preset: 'backspace', name: '向前删除', description: 'Backspace' },
-      { preset: 'delete', name: '向后删除', description: 'Delete' },
-      { preset: 'keyHome', name: '跳到开头', description: 'Home' },
-      { preset: 'keyEnd', name: '跳到结尾', description: 'End' },
-      { preset: 'pageUp', name: '向上翻页', description: 'Page Up' },
-      { preset: 'pageDown', name: '向下翻页', description: 'Page Down' },
-    ]
-    const compositeActions: WorkflowAction[] = [
-      { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
-      {
-        preset: 'deleteAllText',
-        name: '删除全部文本',
-        description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X`,
-      },
-    ]
-    const controlActions: WorkflowAction[] = [
-      { preset: 'switchProfile', name: '切换配置文件', description: '上一个或下一个配置文件，可设置到边缘自动循环' },
-      {
-        preset: 'disabled',
-        name: '禁用此触发方式',
-        description: '替换当前泳道的序列，不发送任何输入；清空泳道可取消禁用',
-      },
-      { preset: 'delay', name: '等待' },
-      { preset: 'paste', name: '粘贴文本' },
-      { preset: 'typeText', name: '模拟输入文字' },
-      { preset: 'openPath', name: '打开文件或文件夹' },
-      { preset: 'openApp', name: '打开应用' },
-      { preset: 'openWebsite', name: '打开网站' },
-    ]
-    const keyboardActions: WorkflowAction[] = [
-      { preset: 'customKey', name: '按键/组合键', description: '录入按键或组合键' },
-    ]
-    const mouseActions: WorkflowAction[] = []
-    if (platform === 'windows' || platform === 'macos') {
-      mouseActions.push(
-        { preset: 'wheel', name: '鼠标滚动', description: '选择向上、向下、向左或向右滚动' },
-        { preset: 'mouseButton', name: '鼠标按键', description: '选择左键或右键' },
-        { preset: 'cursorMove', name: '光标移动', description: `选择移动方向，默认 ${defaultCursorDistance} 像素` },
-      )
+  const profileNamesMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of quickOverlayContext?.profiles ?? []) {
+      map.set(item.id, item.name)
     }
-    const mediaActions: WorkflowAction[] = [
-      { preset: 'mediaPlayPause', name: '播放 / 暂停' },
-      { preset: 'mediaTrack', name: '曲目切换', description: '选择上一首或下一首' },
-    ]
-    if (platform === 'windows') mediaActions.push({ preset: 'mediaStop', name: '停止播放' })
-    mediaActions.push({ preset: 'volumeControl', name: '音量控制', description: '选择增大音量、减小音量或静音' })
-    const macosActions = [...macosShortcutPresets(platform)]
-    const actionGroups = [
-      { name: '控制', actions: controlActions },
-      ...(macosActions.length ? [{ name: 'macOS', actions: macosActions }] : []),
-      { name: '键盘', actions: keyboardActions },
-      { name: '鼠标', actions: mouseActions },
-      { name: '媒体控制', actions: mediaActions },
-    ]
-    const toGroup = (group: { name: string; actions: WorkflowAction[] }): ToolboxGroupConfiguration => ({
-      name: group.name,
-      steps: group.actions.map(({ preset, name, description }) => ({
-        componentType: 'task',
-        type: preset,
-        name,
-        properties: {
-          preset,
-          description: description ?? '',
-          ...(preset === 'delay' ? { ms: defaultWorkflowDelayMs } : {}),
-        },
-      })),
-    })
-    return [
-      { name: '基础', groups: actionGroups.map(toGroup) },
-      { name: '常用行为', groups: [toGroup({ name: '常用行为', actions: commonActions })] },
-      { name: '组合行为', groups: [toGroup({ name: '组合行为', actions: compositeActions })] },
-    ]
-  }, [platform])
+    return map
+  }, [quickOverlayContext?.profiles])
+  const profileNamesRef = useRef(profileNamesMap)
+  profileNamesRef.current = profileNamesMap
+
+  const palettes = useMemo(() => workflowToolboxPalettes(platform), [platform])
 
   useLayoutEffect(() => {
     if (!canvasRef.current) return
 
-    const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
+    const label = (behavior: Parameters<typeof behaviorSummary>[0]) =>
+      behaviorSummary(behavior, platform, profileNamesRef.current)
     const definition = behaviorsToWorkflow(sequences, label)
     let acceptedBranches = structuredClone(workflowBranches(definition))
     savedRef.current = workflowSequenceSignature(sequences)
@@ -287,7 +206,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
           if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
           if (pendingLibraryAddition) current.step.properties.pendingLibraryAddition = pendingLibraryAddition
+          if (savedBehavior.type === 'quickOverlay' && savedBehavior.enabled !== false) {
+            const branch = workflowBranches(api.editor.getDefinition())[current.trigger]
+            branch.splice(0, branch.length, current.step)
+          }
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+          const next = workflowToBehaviors(api.editor.getDefinition())
+          if (next) persist(next)
           setEditingStep(current => (current?.stepId === stepId ? { ...current, behavior: savedBehavior } : current))
           if (dialog) setDialogStep(null)
         },
@@ -330,14 +255,24 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         isDraggable: canDragStep,
         isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowStepLocked(step, source),
         isDuplicable: (step, source) =>
-          step.type !== 'switchProfile' && !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
-        canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
+          step.type !== 'switchProfile' &&
+          step.type !== 'quickOverlay' &&
+          !isTriggerRoot(step) &&
+          !isWorkflowLaneDisabled(source),
+        canInsertStep: (step, target) =>
+          !target.some(isTriggerRoot) &&
+          !isWorkflowLaneDisabled(target) &&
+          (step.type === 'disabled' ||
+            step.type === 'quickOverlay' ||
+            !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false)),
         canMoveStep: (source, step, target) =>
           step.type !== 'switchProfile' &&
+          step.type !== 'quickOverlay' &&
           !isTriggerRoot(step) &&
           !target.some(isTriggerRoot) &&
           !isWorkflowLaneDisabled(source) &&
-          !isWorkflowLaneDisabled(target),
+          !isWorkflowLaneDisabled(target) &&
+          !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false),
       },
       extensions: [
         fixedWorkflowViewport,
@@ -586,7 +521,11 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         )
         return
       }
-      if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
+      if (
+        nodes.length === 1 &&
+        (nodes[0].type === 'disabled' || nodes[0].type === 'quickOverlay') &&
+        nodes[0].properties.enabled !== false
+      ) {
         branch.splice(0, branch.length, ...nodes)
       } else branch.splice(index, 1, ...nodes)
       api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
@@ -700,6 +639,25 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   }, [activeTrigger, button.triggerLabel])
 
   useEffect(() => {
+    if (!designerApi) return
+    const definition = designerApi.editor.getDefinition()
+    let updated = false
+    for (const branch of Object.values(workflowBranches(definition))) {
+      for (const node of branch) {
+        if (node.type !== 'quickOverlay') continue
+        const behavior = workflowStepBehavior(node)
+        if (!behavior) continue
+        const nextName = `${behavior.enabled ? '' : '已停用 · '}${behaviorSummary(behavior, platform, profileNamesMap)}`
+        if (node.name !== nextName) {
+          node.name = nextName
+          updated = true
+        }
+      }
+    }
+    if (updated) designerApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+  }, [designerApi, platform, profileNamesMap])
+
+  useEffect(() => {
     // An import, reset, or shared undo replaces the view. Our own save echo keeps
     // the current designer and its viewport intact.
     if (workflowSequenceSignature(sequences) !== savedRef.current) setReload(value => value + 1)
@@ -708,7 +666,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const storeLibrary = (items: SavedSequence[]): string | null => {
     if (library.error) return library.error
     try {
-      window.localStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
+      appStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
       setLibrary({ items, error: '' })
       return null
     } catch {
@@ -778,6 +736,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
               button={button}
               onClose={closeEditor}
               inline
+              quickOverlayContext={quickOverlayContext}
             />
           ) : (
             <p className="workflow-editor-empty">选择泳道中的行为进行编辑</p>
@@ -824,6 +783,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
             platform={platform}
             button={button}
             onClose={() => setDialogStep(null)}
+            quickOverlayContext={quickOverlayContext}
           />,
           document.body,
         )}

@@ -32,7 +32,7 @@ kill:
 	fi
 
 clean:
-	rm -rf src-tauri/target/release/bundle/macos/Axonkey.app
+	rm -rf src-tauri/target/release/bundle/macos/Axonkey.app src-tauri/target/debug/Axonkey.app
 
 build:
 	ENV_FILE="$(ENV_FILE)" node ./scripts/build.mjs

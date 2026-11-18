@@ -740,6 +740,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
     '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
+    '../../appStorage.ts': require('../src/appStorage.ts'),
   })
   const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
     '../devices/bundledModelCatalog.json': JSON.parse(readFileSync('src/devices/bundledModelCatalog.json', 'utf8')),
@@ -757,11 +758,13 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../../openExternalUrl': openExternalMod,
   })
   const remoteControlMod = compile('src/devices/shared/RemoteControl.tsx', {
+    '../../appStorage.ts': require('../src/appStorage.ts'),
     '../xiaomi-remote/view.ts': require('../src/devices/xiaomi-remote/view.ts'),
   })
   const controls = compile('src/devices/integration/IntegrationControls.tsx')
   const battery = compile('src/components/BatteryIndicator.tsx')
   const deviceHubMod = compile('src/devices/integration/DeviceHub.tsx', {
+    '../../appStorage': require('../src/appStorage.ts'),
     '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
     '../../cloud/useDeviceModelCatalog': useCatalogMod,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },

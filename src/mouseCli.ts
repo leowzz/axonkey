@@ -28,6 +28,7 @@ export async function processMouseCliRequest(
     id: item.id,
     name: item.name,
     active: item.id === state.globalProfileId,
+    ...(item.quick ? { quick: true } : {}),
   })
   const target = { device: 'mouse', profile: identity(profile) }
   let result: Record<string, unknown>
@@ -47,22 +48,33 @@ export async function processMouseCliRequest(
     const name = stringParam(params.name, 'name')
     if (!name || name.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
     if (mouse.some(item => item.name === name)) throw new InstanceCliError('invalid_target', '配置名称已存在')
+    const quick = booleanParam(params.quick, 'quick')
     const behaviors = createEmptyBehaviorMap()
-    for (const input of devices.find(device => device.id === 'mouse')!.inputIds)
-      for (const trigger of triggers)
-        behaviors[input][trigger] = profile.behaviors[input][trigger]
-          .filter(behavior => behavior.type === 'switchProfile')
-          .map(behavior => createBehavior({ ...behavior, id: undefined }))
-    const created = { id: crypto.randomUUID(), name, deviceId: 'mouse' as const, behaviors }
+    if (!quick) {
+      for (const input of devices.find(device => device.id === 'mouse')!.inputIds)
+        for (const trigger of triggers)
+          behaviors[input][trigger] = profile.behaviors[input][trigger]
+            .filter(behavior => behavior.type === 'switchProfile')
+            .map(behavior => createBehavior({ ...behavior, id: undefined }))
+    }
+    const created = {
+      id: crypto.randomUUID(),
+      name,
+      deviceId: 'mouse' as const,
+      behaviors,
+      ...(quick ? { quick: true } : {}),
+    }
     next.profiles = [...profiles, created]
-    next.globalProfileId = created.id
+    if (!quick) next.globalProfileId = created.id
     result = {
       device: 'mouse',
-      profile: { ...identity(created), active: true },
+      profile: { ...identity(created), active: !quick },
       previousActiveProfileId: state.globalProfileId,
     }
   } else if (method === 'profile.activate') {
     if (!profileValue) throw new InstanceCliError('invalid_arguments', '激活配置需要 --profile')
+    if (profile.quick)
+      throw new InstanceCliError('invalid_target', '快捷交互配置仅用于按键单次唤起，不能设为常驻生效配置')
     next.globalProfileId = profile.id
     result = {
       ...target,
@@ -132,6 +144,12 @@ export async function processMouseCliRequest(
     const switchBehavior = sequence.find(item => item.type === 'switchProfile')
     if (switchBehavior && sequence.length !== 1)
       throw new InstanceCliError('invalid_behavior', '切换配置必须是唯一行为')
+    const quickBehavior = sequence.find(item => item.type === 'quickOverlay')
+    if (quickBehavior) {
+      if (sequence.length !== 1) throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是唯一行为')
+      const targetProfile = resolveProfile(quickBehavior.profileId, mouse, state.globalProfileId)
+      quickBehavior.profileId = targetProfile.id
+    }
     if (switchBehavior) next = { ...next, ...applySharedProfileSwitch(next, input, trigger, switchBehavior) }
     else if (profile.behaviors[input][trigger].some(item => item.type === 'switchProfile'))
       next = {

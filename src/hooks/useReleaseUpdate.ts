@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushAppStorage } from '../appStorage'
 import { createReleaseChecker, isNewerRelease } from '../releaseUpdate'
 import { createNativeReleaseChecker, initialUpdateState } from '../nativeReleaseUpdate'
 import { invoke } from '@tauri-apps/api/core'
@@ -27,7 +28,10 @@ export function useReleaseUpdate(aboutVisible: boolean, debugMode = false) {
             const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>('check_release_update')
             return metadata ? new Update(metadata) : null
           },
-          relaunch: () => invoke<void>('restart_app'),
+          relaunch: async () => {
+            await flushAppStorage().catch(error => logError('Failed to flush app configuration before restart', error))
+            await invoke<void>('restart_app')
+          },
           onError: (stage, error) => logError(`Update ${stage} failed`, error),
         })
       : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }), {

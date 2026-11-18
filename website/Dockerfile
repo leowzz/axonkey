@@ -1,4 +1,5 @@
-FROM node:22.23.4-alpine AS build
+# The static output can be copied into either target architecture's image.
+FROM --platform=$BUILDPLATFORM node:22.23.4-alpine AS build
 WORKDIR /app
 
 # Reuse the repository lockfile, including the Vite version used locally.

@@ -34,7 +34,7 @@ const source = ts.transpileModule(readFileSync(new URL('../src/devices/shared/Re
 vm.runInNewContext(source, {
   module, exports: module.exports,
   window: testWindow, document: testDocument,
-  require: name => name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
+  require: name => name === '../../appStorage.ts' ? { appStorage: { getItem: key => testWindow.localStorage.getItem(key), setItem: (key, value) => testWindow.localStorage.setItem(key, value), removeItem: key => storage.delete(key) } } : name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
 })
 const { RemoteControl } = module.exports
 const buttons = xiaomiRemoteView.buttons

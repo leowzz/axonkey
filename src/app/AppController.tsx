@@ -28,6 +28,7 @@ import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
+import { appStorage, flushAppStorage } from '../appStorage'
 import { clearLocalData } from '../localDataReset'
 import { getStoredDeviceInput, storeDeviceInput } from '../deviceInputSelection'
 import type { ParsedBackup } from '../dataBackup'
@@ -50,6 +51,7 @@ import { processMouseCliRequest } from '../mouseCli'
 import { useCliRequests } from '../useCliRequests'
 import { useForegroundApplications } from '../useForegroundApplications'
 import {
+  addMouseApplicationForEditing,
   bindMouseApplication,
   deleteMouseProfile,
   effectiveMouseProfileId,
@@ -67,6 +69,7 @@ import {
   createEmptyBehaviorMap,
   defaultCursorDistance,
   createMappingExport,
+  inspectBehaviorMapWarnings,
   serializeSequence,
   moveBehavior,
   parseMappingImport,
@@ -82,6 +85,7 @@ import type {
   TriggerType,
   SwitchProfileBehavior,
 } from '../behaviorModel'
+import { QuickOverlayConfigurator } from '../components/QuickOverlayConfigurator'
 import { updateWorkflowInput } from '../components/workflowBehaviorBridge'
 import { macosShortcutPresets } from '../macosShortcutPresets'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
@@ -131,7 +135,12 @@ import { MouseApplicationProfileToolbar } from '../components/MouseApplicationPr
 import { HomeDashboard } from '../components/HomeDashboard'
 import { AppBottomBar, type AppBottomBarProps } from '../components/AppBottomBar'
 import { AppSettingsPanel } from '../components/AppSettingsPanel'
-import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
+import {
+  BehaviorEditDialog,
+  SequencePasteDialog,
+  TextInputPresetDialog,
+  type QuickOverlayEditorContext,
+} from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../devices/registry'
 import { DeviceSettingsDrawer } from '../devices/shared/DeviceSettingsDrawer'
@@ -263,7 +272,11 @@ function AppController({
   const [activeId, setActiveId] = useState<ButtonId>(initialUiState.activeId)
   const [storedProfiles] = useState(getStoredProfiles)
   const [profiles, setProfiles] = useState<MappingProfile[]>(storedProfiles.profiles)
+  const [quickProfileEditRequest, setQuickProfileEditRequest] = useState<string | null>(null)
   const [activeProfileIds, setActiveProfileIds] = useState(storedProfiles.activeProfileIds)
+  const [permanentProfileIds, setPermanentProfileIds] = useState(storedProfiles.activeProfileIds)
+  const permanentProfileIdsRef = useRef(permanentProfileIds)
+  permanentProfileIdsRef.current = permanentProfileIds
   const [mouseGlobalProfileId, setMouseGlobalProfileId] = useState(storedProfiles.activeProfileIds.mouse)
   const mouseGlobalProfileRef = useRef(mouseGlobalProfileId)
   mouseGlobalProfileRef.current = mouseGlobalProfileId
@@ -295,11 +308,42 @@ function AppController({
     mouseApplicationProfileSwitching,
     foregroundApplications.current?.id,
   )
-  const runtimeBehaviors = useMemo(() => {
+  const { runtimeBehaviors, runtimeQuickProfiles } = useMemo(() => {
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
-    const mouse = saved.find(profile => profile.id === runtimeMouseProfileId)!
-    return mergeDeviceBehaviors(behaviors, 'mouse', mouse.behaviors)
-  }, [profiles, activeProfileIds, behaviors, runtimeMouseProfileId])
+    let nextRuntime = behaviors
+    for (const device of devices) {
+      if (device.id === 'mouse') {
+        const mouse = saved.find(profile => profile.id === runtimeMouseProfileId)
+        if (mouse) nextRuntime = mergeDeviceBehaviors(nextRuntime, 'mouse', mouse.behaviors)
+        continue
+      }
+      const editorProfile = saved.find(profile => profile.id === activeProfileIds[device.id])
+      if (editorProfile?.quick) {
+        const permanent =
+          saved.find(profile => profile.id === permanentProfileIds[device.id] && !profile.quick) ??
+          saved.find(profile => profile.deviceId === device.id && !profile.quick)
+        if (permanent) nextRuntime = mergeDeviceBehaviors(nextRuntime, device.id, permanent.behaviors)
+      }
+    }
+    const quickList = saved.map(profile => {
+      const device = devices.find(item => item.id === profile.deviceId)
+      const scoped: Record<string, TriggerBehaviors> = {}
+      for (const inputId of device?.inputIds ?? []) {
+        const seq = profile.behaviors[inputId]
+        if (seq && (seq.click.length > 0 || seq.doubleClick.length > 0 || seq.longPress.length > 0)) {
+          scoped[inputId] = seq
+        }
+      }
+      return {
+        id: profile.id,
+        name: profile.name,
+        deviceId: profile.deviceId,
+        deviceName: profile.deviceId === 'mouse' ? '系统鼠标' : (device?.name ?? profile.deviceId),
+        behaviors: scoped,
+      }
+    })
+    return { runtimeBehaviors: nextRuntime, runtimeQuickProfiles: quickList }
+  }, [profiles, activeProfileIds, behaviors, runtimeMouseProfileId, permanentProfileIds])
   const profileStateRef = useRef({ profiles, activeProfileIds, behaviors })
   profileStateRef.current = { profiles, activeProfileIds, behaviors }
   const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
@@ -552,6 +596,11 @@ function AppController({
     profileStateRef.current = next
     setProfiles(next.profiles)
     setActiveProfileIds(next.activeProfileIds)
+    if (!target.quick) {
+      const nextPermanent = { ...permanentProfileIdsRef.current, [target.deviceId]: target.id }
+      permanentProfileIdsRef.current = nextPermanent
+      setPermanentProfileIds(nextPermanent)
+    }
     if (target.deviceId === selectedDeviceId) {
       dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
       setCapturingBehaviorId(null)
@@ -575,6 +624,13 @@ function AppController({
     setToast(`已切换到“${target.name}”`)
     window.setTimeout(() => setToast(''), 1800)
   }
+
+  useEffect(() => {
+    if (!quickProfileEditRequest) return
+    // The behavior dialog can save its trigger binding in the same click that opens this page.
+    setQuickProfileEditRequest(null)
+    switchMappingProfile(quickProfileEditRequest)
+  }, [quickProfileEditRequest])
 
   const profileSwitchRef = useRef<(request: ProfileSwitchRequest) => void>(() => {})
   profileSwitchRef.current = request => {
@@ -624,10 +680,12 @@ function AppController({
 
   const activateNewProfile = (profile: MappingProfile) => {
     const current = profileStateRef.current
-    for (const input of devices.find(device => device.id === profile.deviceId)!.inputIds) {
-      for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
-        const shared = current.behaviors[input][trigger].find(behavior => behavior.type === 'switchProfile')
-        if (shared) profile.behaviors[input][trigger] = [createBehavior({ ...shared, id: undefined })]
+    if (!profile.quick) {
+      for (const input of devices.find(device => device.id === profile.deviceId)!.inputIds) {
+        for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
+          const shared = current.behaviors[input][trigger].find(behavior => behavior.type === 'switchProfile')
+          if (shared) profile.behaviors[input][trigger] = [createBehavior({ ...shared, id: undefined })]
+        }
       }
     }
     const next = {
@@ -635,12 +693,17 @@ function AppController({
       activeProfileIds: { ...current.activeProfileIds, [profile.deviceId]: profile.id },
       behaviors: mergeDeviceBehaviors(current.behaviors, profile.deviceId, profile.behaviors),
     }
-    if (profile.deviceId === 'mouse') {
-      if (mouseEditingApplicationId)
-        next.profiles = bindMouseApplication(next.profiles, mouseEditingApplicationId, profile.id)
-      else {
-        mouseGlobalProfileRef.current = profile.id
-        setMouseGlobalProfileId(profile.id)
+    if (!profile.quick) {
+      const nextPermanent = { ...permanentProfileIdsRef.current, [profile.deviceId]: profile.id }
+      permanentProfileIdsRef.current = nextPermanent
+      setPermanentProfileIds(nextPermanent)
+      if (profile.deviceId === 'mouse') {
+        if (mouseEditingApplicationId)
+          next.profiles = bindMouseApplication(next.profiles, mouseEditingApplicationId, profile.id)
+        else {
+          mouseGlobalProfileRef.current = profile.id
+          setMouseGlobalProfileId(profile.id)
+        }
       }
     }
     profileStateRef.current = next
@@ -662,10 +725,44 @@ function AppController({
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  const createQuickMappingProfileFromToolbar = () => {
+    const next = createMappingProfile(
+      profileName('快捷交互', deviceProfiles),
+      createEmptyBehaviorMap(),
+      selectedDeviceId,
+      true,
+    )
+    activateNewProfile(next)
+    setAutoSaveState('saving')
+    setToast(`已新增快捷交互配置“${next.name}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const createQuickMappingProfileInline = (name: string): string => {
+    const current = profileStateRef.current
+    const existing = current.profiles.filter(item => item.deviceId === selectedDeviceId)
+    const next = createMappingProfile(
+      profileName(name || '快捷交互', existing),
+      createEmptyBehaviorMap(),
+      selectedDeviceId,
+      true,
+    )
+    const saved = [...snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors), next]
+    profileStateRef.current = { ...current, profiles: saved }
+    setProfiles(saved)
+    setAutoSaveState('saving')
+    return next.id
+  }
+
   const duplicateMappingProfile = () => {
     const current = profiles.find(profile => profile.id === activeProfileId)
     if (!current) return
-    const next = createMappingProfile(profileName(`${current.name} 副本`, deviceProfiles), behaviors, selectedDeviceId)
+    const next = createMappingProfile(
+      profileName(`${current.name} 副本`, deviceProfiles),
+      behaviors,
+      selectedDeviceId,
+      current.quick,
+    )
     activateNewProfile(next)
     setAutoSaveState('saving')
     setToast(`已复制为“${next.name}”`)
@@ -711,9 +808,10 @@ function AppController({
   }
 
   const deleteMappingProfile = () => {
-    if (deviceProfiles.length <= 1) return
     const current = profiles.find(profile => profile.id === activeProfileId)
-    if (!current || !window.confirm(`确定删除配置文件“${current.name}”吗？`)) return
+    const regularCount = deviceProfiles.filter(profile => !profile.quick).length
+    if (!current || (!current.quick && regularCount <= 1)) return
+    if (!window.confirm(`确定删除配置文件“${current.name}”吗？`)) return
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     const deleted =
       selectedDeviceId === 'mouse'
@@ -724,7 +822,9 @@ function AppController({
           }
     const remaining = deleted.profiles
     const nextGlobalProfileId = deleted.globalProfileId
-    const next = remaining.find(profile => profile.deviceId === selectedDeviceId)!
+    const next =
+      remaining.find(profile => profile.deviceId === selectedDeviceId && !profile.quick) ??
+      remaining.find(profile => profile.deviceId === selectedDeviceId)!
     if (selectedDeviceId === 'mouse') {
       mouseGlobalProfileRef.current = nextGlobalProfileId
       setMouseGlobalProfileId(nextGlobalProfileId)
@@ -732,8 +832,12 @@ function AppController({
     const editorProfileId =
       selectedDeviceId === 'mouse'
         ? (mouseApplicationProfile(remaining, mouseEditingApplicationId)?.id ?? nextGlobalProfileId)
-        : next.id
+        : (remaining.find(profile => profile.id === permanentProfileIdsRef.current[selectedDeviceId] && !profile.quick)
+            ?.id ?? next.id)
     const editorProfile = remaining.find(profile => profile.id === editorProfileId) ?? next
+    const nextPermanent = { ...permanentProfileIdsRef.current, [selectedDeviceId]: editorProfile.id }
+    permanentProfileIdsRef.current = nextPermanent
+    setPermanentProfileIds(nextPermanent)
     const nextState = {
       profiles: remaining,
       activeProfileIds: { ...activeProfileIds, [selectedDeviceId]: editorProfile.id },
@@ -760,10 +864,13 @@ function AppController({
 
   const updateWorkflow = useCallback((inputId: InputId, sequences: TriggerBehaviors) => {
     const current = profileStateRef.current
-    const triggers = removedProfileSwitchTriggers(current.behaviors[inputId], sequences)
+    const deviceId = deviceForInput(inputId).id
+    const profileId = current.activeProfileIds[deviceId]
+    const isQuick = current.profiles.find(profile => profile.id === profileId)?.quick
+    const triggers = isQuick ? [] : removedProfileSwitchTriggers(current.behaviors[inputId], sequences)
     if (triggers.length) {
       setPendingProfileSwitchDeletion({
-        profileId: current.activeProfileIds[deviceForInput(inputId).id],
+        profileId,
         inputId,
         triggers,
         sequences: cloneBehaviorMap({ ...current.behaviors, [inputId]: sequences })[inputId],
@@ -778,6 +885,7 @@ function AppController({
     showRecordingOverlay,
     cmiotA15RecordingMode,
     behaviors: runtimeBehaviors,
+    quickProfiles: runtimeQuickProfiles,
     enabled,
     mouseEnabled,
     mouseKeyHoldMs,
@@ -791,6 +899,7 @@ function AppController({
     showRecordingOverlay,
     cmiotA15RecordingMode,
     behaviors: runtimeBehaviors,
+    quickProfiles: runtimeQuickProfiles,
     enabled,
     mouseEnabled,
     mouseKeyHoldMs,
@@ -869,6 +978,11 @@ function AppController({
                   scope: 'instanceProfiles',
                   exclusive: true,
                   inheritedByNewProfiles: true,
+                },
+                {
+                  type: 'quickOverlay',
+                  fields: ['profileId'],
+                  exclusive: true,
                 },
                 { type: 'disabled', fields: [] },
               ],
@@ -1055,7 +1169,7 @@ function AppController({
               foregroundApplications.current?.id,
             )
             const runtime = composeActiveProfileBehaviors(next.profiles, { ...editorIds, mouse: runtimeId })
-            window.localStorage.setItem(
+            appStorage.setItem(
               profilesStorageKey,
               JSON.stringify({
                 version: 2,
@@ -1065,6 +1179,7 @@ function AppController({
                 applicationProfileSwitching: { mouse: next.autoSwitching },
               }),
             )
+            await flushAppStorage()
             profileStateRef.current = {
               profiles: next.profiles,
               activeProfileIds: editorIds,
@@ -1076,7 +1191,26 @@ function AppController({
             setMouseGlobalProfileId(next.globalProfileId)
             setMouseApplicationProfileSwitching(next.autoSwitching)
             dispatchBehaviorHistory({ type: 'replace', present: editorBehaviors })
-            await invoke('update_input_settings', { settings: { ...inputSettingsRef.current, behaviors: runtime } })
+            const cliQuickProfiles = next.profiles.map(profile => {
+              const device = devices.find(item => item.id === profile.deviceId)
+              const scoped: Record<string, TriggerBehaviors> = {}
+              for (const inputId of device?.inputIds ?? []) {
+                const seq = profile.behaviors[inputId]
+                if (seq && (seq.click.length > 0 || seq.doubleClick.length > 0 || seq.longPress.length > 0)) {
+                  scoped[inputId] = seq
+                }
+              }
+              return {
+                id: profile.id,
+                name: profile.name,
+                deviceId: profile.deviceId,
+                deviceName: profile.deviceId === 'mouse' ? '系统鼠标' : (device?.name ?? profile.deviceId),
+                behaviors: scoped,
+              }
+            })
+            await invoke('update_input_settings', {
+              settings: { ...inputSettingsRef.current, behaviors: runtime, quickProfiles: cliQuickProfiles },
+            })
           },
         )
         await respond({ ok: true, result })
@@ -1139,7 +1273,7 @@ function AppController({
   }, [nativeRuntime, platform])
 
   useEffect(() => {
-    window.localStorage.setItem(
+    appStorage.setItem(
       settingsStorageKey,
       JSON.stringify({
         showRecordingOverlay,
@@ -1167,6 +1301,7 @@ function AppController({
               showRecordingOverlay,
               cmiotA15RecordingMode,
               behaviors: runtimeBehaviors,
+              quickProfiles: runtimeQuickProfiles,
               enabled,
               mouseEnabled,
               mouseKeyHoldMs,
@@ -1195,6 +1330,7 @@ function AppController({
     showRemoteKeyGrid,
     showMouseKeyGrid,
     runtimeBehaviors,
+    runtimeQuickProfiles,
     enabled,
     mouseEnabled,
     mouseKeyHoldMs,
@@ -1209,12 +1345,12 @@ function AppController({
   useEffect(() => {
     const persistedProfiles = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     try {
-      window.localStorage.setItem(
+      appStorage.setItem(
         profilesStorageKey,
         JSON.stringify({
           version: 2,
           migrationReviewed: true,
-          activeProfileIds: { ...activeProfileIds, mouse: mouseGlobalProfileId },
+          activeProfileIds: { ...permanentProfileIds, mouse: mouseGlobalProfileId },
           profiles: persistedProfiles,
           applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
         }),
@@ -1222,7 +1358,14 @@ function AppController({
     } catch (error) {
       logError('Failed to save mapping profiles', error)
     }
-  }, [profiles, activeProfileIds, behaviors, mouseApplicationProfileSwitching, mouseGlobalProfileId])
+  }, [
+    profiles,
+    activeProfileIds,
+    permanentProfileIds,
+    behaviors,
+    mouseApplicationProfileSwitching,
+    mouseGlobalProfileId,
+  ])
 
   useEffect(
     () => () => {
@@ -1510,7 +1653,7 @@ function AppController({
         activeProfileIds: globalIds,
         behaviors: composeActiveProfileBehaviors(saved, globalIds),
         applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
-        savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
+        savedSequences: parseSavedSequences(appStorage.getItem(savedSequencesStorageKey)),
         settings: {
           showRecordingOverlay,
           cmiotA15RecordingMode,
@@ -1532,9 +1675,9 @@ function AppController({
     )
   }
 
-  const restoreDataBackup = (backup: ParsedBackup) => {
+  const restoreDataBackup = async (backup: ParsedBackup) => {
     restoreBackupStorage(
-      window.localStorage,
+      appStorage,
       backup,
       {
         profiles: profilesStorageKey,
@@ -1552,6 +1695,7 @@ function AppController({
       activePage: 'settings',
       settingsSection: 'backup',
     }
+    await flushAppStorage()
     window.location.reload()
   }
 
@@ -1586,7 +1730,8 @@ function AppController({
       )
     },
     clearLocalData: async () => {
-      await clearLocalData(window.localStorage, deviceInstances)
+      await clearLocalData(appStorage, deviceInstances)
+      await flushAppStorage()
       // A queued scroll-save may run while the reload navigation starts.
       uiStateRef.current = getStoredUiState()
       window.location.reload()
@@ -1599,6 +1744,7 @@ function AppController({
         selection,
       )
       saveProfileMetadata(restored.metadata)
+      await flushAppStorage()
       let restoredCount = 0
       try {
         for (const instance of restored.instances) {
@@ -1612,7 +1758,7 @@ function AppController({
           selection.savedBehaviors ||
           selection.devices.some(item => item.targetId.startsWith('legacy:'))
         )
-          restoreDataBackup(restored.backup)
+          await restoreDataBackup(restored.backup)
       } catch (error) {
         throw new Error(`恢复未完成（已恢复 ${restoredCount} 个设备）：${String(error)}。请重试。`)
       }
@@ -2064,6 +2210,20 @@ function AppController({
     window.setTimeout(() => setToast(''), 2400)
   }
 
+  const startCurrentAppDrag = async () => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
+      setToast('桌面版支持直接拖动 Axonkey.app')
+      window.setTimeout(() => setToast(''), 2000)
+      return
+    }
+    try {
+      await invoke('start_current_app_drag')
+    } catch (error) {
+      logError('Failed to start Axonkey file drag', error)
+      void revealCurrentApp()
+    }
+  }
+
   const openLogDirectory = async () => {
     try {
       const info = await invoke<{ directory: string; currentFile: string }>('open_log_directory')
@@ -2232,10 +2392,31 @@ function AppController({
     }
   }
 
+  const prevHelperPermissionsRef = useRef(macPermissions)
+
   useEffect(() => {
     document.body.classList.toggle('permission-helper-mode', permissionHelperKind !== null)
     return () => document.body.classList.remove('permission-helper-mode')
   }, [permissionHelperKind])
+
+  useEffect(() => {
+    if (!permissionHelperKind || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    const interval = window.setInterval(() => void probeSystemState(false), 1_000)
+    return () => window.clearInterval(interval)
+  }, [permissionHelperKind])
+
+  useEffect(() => {
+    const prev = prevHelperPermissionsRef.current
+    prevHelperPermissionsRef.current = macPermissions
+    if (!permissionHelperKind) return
+    if (!prev.inputMonitoring && macPermissions.inputMonitoring && !macPermissions.accessibility) {
+      setPermissionHelperKind('accessibility')
+      void openSystemSettings('accessibility')
+    } else if (!prev.accessibility && macPermissions.accessibility && !macPermissions.inputMonitoring) {
+      setPermissionHelperKind('inputMonitoring')
+      void openSystemSettings('inputMonitoring')
+    }
+  }, [macPermissions, permissionHelperKind])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -2323,17 +2504,25 @@ function AppController({
       }
 
   if (permissionHelperKind) {
-    const activePermission = !macPermissions.inputMonitoring
-      ? 'inputMonitoring'
-      : !macPermissions.accessibility
-        ? 'accessibility'
-        : permissionHelperKind
+    const activePermission = !macPermissions[permissionHelperKind]
+      ? permissionHelperKind
+      : !macPermissions.inputMonitoring
+        ? 'inputMonitoring'
+        : !macPermissions.accessibility
+          ? 'accessibility'
+          : permissionHelperKind
     return (
       <>
         <MacPermissionHelperWindow
           activePermission={activePermission}
           permissions={macPermissions}
+          nativeTitlebar={nativeRuntime && platform === 'macos'}
+          onSelectPermission={kind => {
+            setPermissionHelperKind(kind)
+            void openSystemSettings(kind)
+          }}
           onOpenSettings={kind => void openSystemSettings(kind)}
+          onStartAppDrag={() => void startCurrentAppDrag()}
           onRevealApp={() => void revealCurrentApp()}
           onRefresh={() => void probeSystemState(false)}
           onClose={() => void closePermissionHelper()}
@@ -2370,39 +2559,127 @@ function AppController({
   }
   const addMouseApplication = (application: Application) => {
     const current = profileStateRef.current
-    const applicationId = application.id
-    const existing = mouseApplicationProfile(current.profiles, applicationId)
-    if (existing) {
-      setMouseEditingApplicationId(applicationId)
-      switchMappingProfile(existing.id)
-      return
-    }
     const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
-    const global = saved.find(profile => profile.id === mouseGlobalProfileRef.current)!
-    const profile = createMappingProfile(
-      profileName(`${application.name} 配置`, deviceProfiles),
-      global.behaviors,
-      'mouse',
+    const added = addMouseApplicationForEditing(
+      saved,
+      application.id,
+      mouseGlobalProfileRef.current,
+      mouseApplicationProfileSwitching,
     )
-    const nextProfiles = bindMouseApplication([...saved, profile], applicationId, profile.id)
-    profileStateRef.current = { ...current, profiles: nextProfiles }
-    setProfiles(nextProfiles)
-    setMouseEditingApplicationId(applicationId)
-    if (!saved.some(item => item.deviceId === 'mouse' && item.applicationIds?.length))
-      setMouseApplicationProfileSwitching(true)
-    switchMappingProfile(profile.id)
+    profileStateRef.current = { ...current, profiles: added.profiles }
+    setProfiles(added.profiles)
+    setMouseEditingApplicationId(application.id)
+    setMouseApplicationProfileSwitching(added.autoSwitching)
+    switchMappingProfile(added.profileId)
   }
   const switchMouseProfile = (id: string) => {
-    if (mouseEditingApplicationId) {
-      const nextProfiles = bindMouseApplication(profileStateRef.current.profiles, mouseEditingApplicationId, id)
-      profileStateRef.current = { ...profileStateRef.current, profiles: nextProfiles }
-      setProfiles(nextProfiles)
-    } else {
-      mouseGlobalProfileRef.current = id
-      setMouseGlobalProfileId(id)
+    const target = profileStateRef.current.profiles.find(profile => profile.id === id)
+    if (!target?.quick) {
+      if (mouseEditingApplicationId) {
+        const nextProfiles = bindMouseApplication(profileStateRef.current.profiles, mouseEditingApplicationId, id)
+        profileStateRef.current = { ...profileStateRef.current, profiles: nextProfiles }
+        setProfiles(nextProfiles)
+      } else {
+        mouseGlobalProfileRef.current = id
+        setMouseGlobalProfileId(id)
+      }
     }
     switchMappingProfile(id)
   }
+
+  const activeMappingProfile = deviceProfiles.find(profile => profile.id === activeProfileId) ?? deviceProfiles[0]
+  const isEditingQuickMappingProfile = Boolean(activeMappingProfile?.quick)
+  const permanentMappingProfileId = isMouse
+    ? (mouseApplicationProfile(profiles, mouseEditingApplicationId)?.id ?? mouseGlobalProfileId)
+    : permanentProfileIds[selectedDeviceId]
+  const permanentMappingProfile =
+    deviceProfiles.find(profile => profile.id === permanentMappingProfileId && !profile.quick) ??
+    deviceProfiles.find(profile => !profile.quick) ??
+    deviceProfiles[0]
+
+  const countDeviceConfiguredInputs = (map: BehaviorMap, deviceId: DeviceId, quick?: boolean) => {
+    const dev = devices.find(item => item.id === deviceId)
+    if (!dev) return 0
+    return dev.inputIds.filter(inputId => {
+      const seq = map[inputId]
+      return Boolean(
+        seq &&
+        (seq.click.some(b => b.enabled) ||
+          (!quick && (seq.doubleClick.some(b => b.enabled) || seq.longPress.some(b => b.enabled)))),
+      )
+    }).length
+  }
+
+  const findDeviceQuickTrigger = (targetProfileId: string) => {
+    const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
+    for (const candidate of saved) {
+      if (candidate.deviceId !== selectedDeviceId || candidate.quick || candidate.id === targetProfileId) continue
+      for (const inputId of selectedDevice.inputIds) {
+        const seq = candidate.behaviors[inputId]
+        if (
+          seq.click.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
+          seq.doubleClick.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
+          seq.longPress.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId)
+        ) {
+          return inputId
+        }
+      }
+    }
+    return null
+  }
+
+  const previewDeviceQuickProfile = (targetProfileId: string, explicitTriggerInput?: string) => {
+    const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
+    const target = saved.find(item => item.id === targetProfileId)
+    if (!target) return
+    const triggerInput = explicitTriggerInput ?? findDeviceQuickTrigger(target.id) ?? ''
+    if (!nativeRuntime) {
+      setToast('桌面应用中可打开顶层快捷交互窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+      return
+    }
+    const scoped: Record<string, TriggerBehaviors> = {}
+    for (const inputId of selectedDevice.inputIds) {
+      const seq = target.behaviors[inputId]
+      if (seq && (seq.click.length > 0 || seq.doubleClick.length > 0 || seq.longPress.length > 0)) {
+        scoped[inputId] = seq
+      }
+    }
+    void invoke('preview_quick_overlay', {
+      sourceId: isMouse ? 'mouse' : `legacy-${selectedDeviceId}`,
+      deviceKind: selectedDeviceId,
+      deviceName: isMouse ? '系统鼠标' : selectedDevice.name,
+      profileId: target.id,
+      profileName: target.name,
+      triggerInput,
+      behaviors: scoped,
+    }).catch(() => {
+      setToast('无法打开快捷交互窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+    })
+  }
+
+  const mappingQuickOverlayContext: QuickOverlayEditorContext = {
+    currentProfileId: activeProfileId,
+    profiles: snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
+      .filter(item => item.deviceId === selectedDeviceId)
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        quick: item.quick,
+        configuredCount: countDeviceConfiguredInputs(item.behaviors, selectedDeviceId, item.quick),
+      })),
+    onCreateQuickProfile: name => createQuickMappingProfileInline(name),
+    onEditProfile: setQuickProfileEditRequest,
+    onPreviewProfile: (targetId, triggerInputId) => previewDeviceQuickProfile(targetId, triggerInputId),
+  }
+
+  const mappingInputWarnings = inspectBehaviorMapWarnings(
+    behaviors,
+    selectedDevice.inputIds,
+    new Set(deviceProfiles.map(item => item.id)),
+  )
+
   const profileControls = (
     <>
       {isMouse && (
@@ -2419,6 +2696,7 @@ function AppController({
           onSwitchProfile={switchMouseProfile}
           onToggle={() => setMouseApplicationProfileSwitching(value => !value)}
           onCreate={createMappingProfileFromScratch}
+          onCreateQuick={createQuickMappingProfileFromToolbar}
           onDuplicate={duplicateMappingProfile}
           onRename={renameMappingProfile}
           onDelete={deleteMappingProfile}
@@ -2445,6 +2723,7 @@ function AppController({
           activeProfileId={activeProfileId}
           onSwitch={switchMappingProfile}
           onCreate={createMappingProfileFromScratch}
+          onCreateQuick={createQuickMappingProfileFromToolbar}
           onDuplicate={duplicateMappingProfile}
           onRename={renameMappingProfile}
           onDelete={deleteMappingProfile}
@@ -2560,7 +2839,30 @@ function AppController({
               </section>
             )}
 
-            {workspacePage === 'mapping' ? (
+            {workspacePage === 'mapping' && isEditingQuickMappingProfile && permanentMappingProfile ? (
+              <QuickOverlayConfigurator
+                key={activeMappingProfile.id}
+                deviceKind={selectedDeviceId}
+                deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
+                profileId={activeMappingProfile.id}
+                profileName={activeMappingProfile.name}
+                triggerInput={findDeviceQuickTrigger(activeMappingProfile.id) ?? undefined}
+                inputs={isMouse ? mouseInputs : editableButtons}
+                behaviors={behaviors}
+                platform={platform}
+                onChange={updateWorkflow}
+                onRename={renameMappingProfile}
+                onDuplicate={duplicateMappingProfile}
+                onDelete={deleteMappingProfile}
+                onClose={() => switchMappingProfile(permanentMappingProfile.id)}
+                history={{
+                  canUndo: canUndoBehavior,
+                  canRedo: canRedoBehavior,
+                  onUndo: undoBehaviorChange,
+                  onRedo: redoBehaviorChange,
+                }}
+              />
+            ) : workspacePage === 'mapping' ? (
               <MappingPageComponent
                 activeDeviceId={selectedDeviceId === 'mouse' ? systemMouseCardId : undefined}
                 deviceOptions={buildWorkspaceDeviceOptions(deviceInstances.snapshot.store.instances)}
@@ -2590,6 +2892,7 @@ function AppController({
                 editableButtons={editableButtons}
                 pressedId={pressedId}
                 behaviors={behaviors}
+                inputWarnings={mappingInputWarnings}
                 onWorkflowChange={updateWorkflow}
                 onRequestProfileSwitch={requestProfileSwitch}
                 platform={platform}
@@ -2624,6 +2927,7 @@ function AppController({
                   },
                 }}
                 remoteView={selectedDevice.remoteView}
+                quickOverlayContext={mappingQuickOverlayContext}
               />
             ) : (
               <HomeDashboard
@@ -2863,6 +3167,7 @@ function AppController({
           button={selectedButton}
           trigger={selectedBehavior.trigger}
           behavior={editingBehavior}
+          quickOverlayContext={mappingQuickOverlayContext}
           capturing={capturingBehaviorId === editingBehavior.id}
           onStartCapture={() => setCapturingBehaviorId(editingBehavior.id)}
           onCancelCapture={() => setCapturingBehaviorId(null)}
@@ -2880,6 +3185,7 @@ function AppController({
           button={selectedButton}
           trigger={selectedBehavior.trigger}
           behavior={draftBehavior.behavior}
+          quickOverlayContext={mappingQuickOverlayContext}
           capturing={capturingBehaviorId === draftBehavior.behavior.id}
           draft
           onStartCapture={() => setCapturingBehaviorId(draftBehavior.behavior.id)}

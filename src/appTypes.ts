@@ -203,6 +203,7 @@ export type MappingProfile = {
   deviceId: DeviceId
   behaviors: BehaviorMap
   applicationIds?: string[]
+  quick?: boolean
 }
 
 export type StoredProfiles = {

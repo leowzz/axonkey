@@ -121,6 +121,7 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
         ...(Array.isArray(raw.applicationIds)
           ? { applicationIds: raw.applicationIds.filter((id): id is string => typeof id === 'string').slice(0, 100) }
           : {}),
+        ...(raw.quick === true ? { quick: true } : {}),
       },
     ]
   })
@@ -130,13 +131,13 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
     : { mouse: profiles.some(profile => profile.deviceId === 'mouse' && (profile.applicationIds?.length ?? 0) > 0) }
   const activeProfileIds = { ...fallback.activeProfileIds }
   for (const device of devices) {
-    if (!profiles.some(profile => profile.deviceId === device.id)) {
+    if (!profiles.some(profile => profile.deviceId === device.id && !profile.quick)) {
       const defaults = fallback.profiles.find(profile => profile.deviceId === device.id)!
       profiles.push({ ...defaults, id: uniqueId(defaults.id, defaults.id, ids) })
     }
-    const deviceProfiles = profiles.filter(profile => profile.deviceId === device.id)
+    const regularProfiles = profiles.filter(profile => profile.deviceId === device.id && !profile.quick)
     activeProfileIds[device.id] =
-      deviceProfiles.find(profile => profile.id === requested[device.id])?.id ?? deviceProfiles[0].id
+      regularProfiles.find(profile => profile.id === requested[device.id])?.id ?? regularProfiles[0].id
   }
   return { profiles, activeProfileIds, applicationProfileSwitching }
 }

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Axonkey · 快捷交互窗独立配置体验设计方案</title>
+  <link rel="icon" href="../../src-tauri/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="quick-overlay-config/styles.css">
+</head>
+<body>
+  <div class="studio-shell" id="studio-shell" data-scheme="01" data-stage="entry" data-device="rc003">
+    <header class="studio-topbar">
+      <div class="studio-brand">
+        <span class="studio-brand-mark" aria-hidden="true">AK</span>
+        <div class="studio-brand-copy">
+          <h1>快捷交互窗 · 独立配置 UX 方案</h1>
+          <span class="studio-brand-sub">入口直挂「快捷交互窗」行为 · 独立数据 · 仅单击拖拽组合</span>
+        </div>
+      </div>
+
+      <nav class="scheme-tabs" role="tablist" aria-label="配置界面设计方案">
+        <button class="scheme-tab" role="tab" type="button" aria-selected="true" data-scheme="01">
+          <span class="tab-num">01</span>专注模态工作台
+        </button>
+        <button class="scheme-tab" role="tab" type="button" aria-selected="false" data-scheme="02">
+          <span class="tab-num">02</span>阳极铝原地直编
+        </button>
+        <button class="scheme-tab" role="tab" type="button" aria-selected="false" data-scheme="03">
+          <span class="tab-num">03</span>沉浸子工作区
+        </button>
+        <button class="scheme-tab" role="tab" type="button" aria-selected="false" data-scheme="04">
+          <span class="tab-num">04</span>右侧分屏抽屉
+        </button>
+        <button class="scheme-tab is-overview" role="tab" type="button" aria-selected="false" data-scheme="all">
+          <span class="tab-num">⊞</span>4 套全景对比
+        </button>
+      </nav>
+
+      <div class="studio-controls">
+        <div class="seg-group" id="stage-switch" role="group" aria-label="交互阶段切换">
+          <button class="seg-btn is-active" type="button" data-stage="entry">入口：行为编辑</button>
+          <button class="seg-btn" type="button" data-stage="editor">展开：独立配置窗</button>
+        </div>
+
+        <div class="seg-group" id="device-switch" role="group" aria-label="预览硬件设备">
+          <button class="seg-btn is-active" type="button" data-device="rc003">RC003</button>
+          <button class="seg-btn" type="button" data-device="mouse">鼠标</button>
+          <button class="seg-btn" type="button" data-device="k18">K18</button>
+          <button class="seg-btn" type="button" data-device="xbox">Xbox</button>
+        </div>
+
+        <button class="diff-toggle-btn" id="legacy-diff-btn" type="button" aria-pressed="false">
+          旧版痛点对比
+        </button>
+      </div>
+    </header>
+
+    <section class="scheme-summary-bar" id="scheme-summary-bar" aria-live="polite"></section>
+
+    <!-- 可选：旧版与新版数据/流程结构对比浮动卡（默认收起，保持主舞台简洁） -->
+    <aside class="legacy-diff-popover" id="legacy-diff-popover" hidden aria-label="旧版痛点与新版结构对比">
+      <div class="legacy-diff-head">
+        <strong>为什么旧版快捷配置显得繁琐？</strong>
+        <button class="icon-close-btn" id="legacy-diff-close" type="button" aria-label="关闭对比">×</button>
+      </div>
+      <div class="legacy-diff-grid">
+        <div class="legacy-diff-col is-old">
+          <span class="diff-pill is-old">旧版 · 复用顶层 Profile</span>
+          <ul>
+            <li>需在「关联配置」下拉框区分「快捷交互配置」与「其他配置」，心智负担重</li>
+            <li>点「编辑按键」会跳离当前常规配置，顶部出现黄色横幅容易迷失</li>
+            <li>编辑器与预览窗同时出现 <s>双击 / 长按</s> 泳道，而交互窗本应单次直出</li>
+          </ul>
+        </div>
+        <div class="legacy-diff-col is-new">
+          <span class="diff-pill is-new">新版 · 独立配置附属在行为上</span>
+          <ul>
+            <li>「快捷交互窗」行为自带名称、单击速览与「配置交互窗按键」入口</li>
+            <li>顶层配置列表不再混入「快捷配置」，改完即回原按键与原配置</li>
+            <li>专用配置器彻底隐藏双击/长按，保留完整的<strong>拖拽 + 多步组合 + 工具箱</strong></li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主舞台：呈现真实 Axonkey 工作台 + 各方案交互编辑态 -->
+    <main class="studio-stage" id="studio-stage"></main>
+
+    <!-- 实时方案 05 阳极铝预览浮层（点「预览交互窗」触发，反映实时单点击编辑结果） -->
+    <div class="hud-preview-backdrop" id="hud-preview-backdrop" hidden></div>
+
+    <div class="studio-toast" id="studio-toast" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <script src="quick-overlay-config/data.js"></script>
+  <script src="quick-overlay-config/app.js"></script>
+</body>
+</html>

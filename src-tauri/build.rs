@@ -34,6 +34,7 @@ fn main() {
             .file("native/macos_overlay.m")
             .file("native/macos_oled_text.m")
             .file("native/macos_recording_overlay.m")
+            .file("native/macos_app_drag.m")
             .flag("-fobjc-arc")
             .compile("axonkey_macos_native");
         println!("cargo:rustc-link-lib=framework=AppKit");
@@ -55,6 +56,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos_overlay.m");
         println!("cargo:rerun-if-changed=native/macos_oled_text.m");
         println!("cargo:rerun-if-changed=native/macos_recording_overlay.m");
+        println!("cargo:rerun-if-changed=native/macos_app_drag.m");
     }
     tauri_build::build()
 }

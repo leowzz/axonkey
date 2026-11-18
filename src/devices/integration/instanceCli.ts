@@ -6,6 +6,7 @@ import type { DeviceInstance, DeviceSnapshot, InstanceProfile } from './model.ts
 import type { Application } from '../../applications.ts'
 import {
   addInstanceProfile,
+  addQuickInstanceProfile,
   applyInstanceProfileSwitch,
   removeInstanceProfileSwitch,
   updateInstanceSequence,
@@ -181,26 +182,31 @@ export async function processInstanceCliRequest(
   if (method === 'profile.create') {
     const name = stringParam(params.name, 'name')
     if (!name) throw new InstanceCliError('invalid_arguments', '新建配置需要 --name')
+    const quick = booleanParam(params.quick, 'quick')
     const create = (current: DeviceInstance) => {
       if (current.profiles.some(profile => profile.name === name))
         throw new InstanceCliError('invalid_target', '配置名称已存在：' + name)
+      if (quick) return addQuickInstanceProfile(current, name).instance
       const next = addInstanceProfile(current, false)
       next.profiles[next.profiles.length - 1].name = name
       return next
     }
     const saved = dryRun ? null : await update(instance.id, create)
     const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : create(instance)
+    const createdProfile = next.profiles[next.profiles.length - 1]
     return {
       ...target,
       ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
       revision: saved?.store.revision ?? snapshot.store.revision,
-      profile: profileIdentity(next, resolveProfile(next, '')),
+      profile: profileIdentity(next, quick ? createdProfile : resolveProfile(next, '')),
       previousActiveProfileId: instance.activeProfileId,
     }
   }
   const profile = resolveProfile(instance, profileValue)
   if (method === 'profile.activate') {
     if (!profileValue) throw new InstanceCliError('invalid_arguments', '激活配置需要 --profile')
+    if (profile.quick)
+      throw new InstanceCliError('invalid_target', '快捷交互配置仅用于按键单次唤起，不能设为常驻生效配置')
     if (dryRun)
       return {
         ...target,
@@ -261,6 +267,12 @@ export async function processInstanceCliRequest(
   const switchBehavior = behaviors.find(behavior => behavior.type === 'switchProfile')
   if (switchBehavior && behaviors.length !== 1)
     throw new InstanceCliError('invalid_behavior', '切换配置必须是该触发方式的唯一行为，并会应用到设备全部配置')
+  const quickBehavior = behaviors.find(behavior => behavior.type === 'quickOverlay')
+  if (quickBehavior) {
+    if (behaviors.length !== 1) throw new InstanceCliError('invalid_behavior', '快捷交互窗必须是该触发方式的唯一行为')
+    const targetProfile = resolveProfile(instance, quickBehavior.profileId)
+    quickBehavior.profileId = targetProfile.id
+  }
   const change = (current: DeviceInstance) => {
     const selected = resolveProfile(current, profile.id)
     const sequences = { ...(selected.behaviors[inputId] ?? emptyTriggers()), [trigger]: behaviors }
@@ -334,7 +346,12 @@ function instanceIdentity(instance: DeviceInstance) {
 }
 
 function profileIdentity(instance: DeviceInstance, profile: InstanceProfile) {
-  return { id: profile.id, name: profile.name, active: profile.id === instance.activeProfileId }
+  return {
+    id: profile.id,
+    name: profile.name,
+    active: profile.id === instance.activeProfileId,
+    ...(profile.quick ? { quick: true } : {}),
+  }
 }
 
 function publicSequence(sequence: Behavior[], platform: CliPlatform) {

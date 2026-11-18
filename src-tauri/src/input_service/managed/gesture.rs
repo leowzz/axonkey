@@ -9,7 +9,7 @@ struct Key {
     second: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TriggerKind {
+pub(crate) enum TriggerKind {
     Click,
     DoubleClick,
     LongPress,
@@ -25,7 +25,7 @@ impl TriggerKind {
     }
 }
 
-pub(super) struct Execution {
+pub(crate) struct Execution {
     pub input: String,
     pub trigger: TriggerKind,
     pub behaviors: Vec<NativeBehavior>,
@@ -33,7 +33,7 @@ pub(super) struct Execution {
 }
 
 #[derive(Default)]
-pub(super) struct Gestures {
+pub(crate) struct Gestures {
     keys: HashMap<String, Key>,
 }
 fn enabled(items: &[NativeBehavior]) -> bool {

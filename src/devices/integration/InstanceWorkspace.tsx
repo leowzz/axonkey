@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, TriangleAlert } from 'lucide-react'
+import type { QuickOverlayEditorContext } from '../../components/BehaviorEditor'
+import { QuickOverlayConfigurator } from '../../components/QuickOverlayConfigurator'
 import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
 import { iconFor } from '../../components/InputIcon'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
-import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
-import { triggerTypes } from '../../behaviorModel'
+import type {
+  ButtonId,
+  SanitizedProfileBehaviors,
+  SwitchProfileBehavior,
+  TriggerBehaviors,
+  TriggerType,
+} from '../../behaviorModel'
+import { inspectBehaviorMapWarnings, sanitizeProfileBehaviors, triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
 import { idleVoiceBarLevels, nextVoiceAmplitudeBars, type gainLevelTone } from '../../audioGain'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
@@ -52,14 +60,47 @@ import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
+  addQuickInstanceProfile,
   deleteInstanceProfile,
   applyInstanceProfileSwitch,
   createInstanceBehaviorHistory,
   instanceBehaviorHistoryReducer,
+  mergeEditedProfileBehaviors,
   removeInstanceProfileSwitch,
   replaceInstanceProfileBehaviors,
 } from './instanceProfiles'
 import type { InstanceBehaviorHistoryAction, InstanceProfileBehaviors } from './instanceProfiles'
+
+function countConfiguredInputs(behaviors: InstanceProfileBehaviors, quick?: boolean): number {
+  return Object.values(behaviors).filter(sequences =>
+    (quick ? (['click'] as const) : triggerTypes).some(
+      trigger => (sequences?.[trigger]?.filter(step => step.enabled).length ?? 0) > 0,
+    ),
+  ).length
+}
+
+function findQuickTriggerBinding(
+  instance: DeviceInstance,
+  sanitizedProfiles: ReadonlyMap<string, SanitizedProfileBehaviors>,
+  targetProfileId: string,
+) {
+  for (const candidate of instance.profiles) {
+    if (candidate.quick || candidate.id === targetProfileId) continue
+    const behaviors = sanitizedProfiles.get(candidate.id)?.behaviors ?? {}
+    for (const [inputId, sequences] of Object.entries(behaviors)) {
+      for (const trigger of triggerTypes) {
+        if (
+          sequences?.[trigger]?.some(
+            step => step.enabled && step.type === 'quickOverlay' && step.profileId === targetProfileId,
+          )
+        ) {
+          return inputId
+        }
+      }
+    }
+  }
+  return null
+}
 
 type Props = {
   instance: DeviceInstance
@@ -162,10 +203,26 @@ export function InstanceWorkspace({
   } | null>(null)
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
   const recordingRef = useRef({ instanceId: instance.id, recording: false })
+  const [editingQuickProfileId, setEditingQuickProfileId] = useState<string | null>(null)
+  useEffect(() => {
+    setEditingQuickProfileId(null)
+  }, [instance.id])
+  useEffect(() => {
+    if (editingQuickProfileId && !instance.profiles.some(item => item.id === editingQuickProfileId)) {
+      setEditingQuickProfileId(null)
+    }
+  }, [editingQuickProfileId, instance.profiles])
   const applicationProfile = instance.applicationProfiles?.find(
     binding => binding.application.id === editingApplicationId,
   )
-  const profile = instance.profiles.find(p => p.id === (applicationProfile?.profileId ?? instance.activeProfileId))!
+  const permanentProfile =
+    instance.profiles.find(p => !p.quick && p.id === (applicationProfile?.profileId ?? instance.activeProfileId)) ??
+    instance.profiles.find(p => !p.quick) ??
+    instance.profiles[0]
+  const editingProfileOverride = editingQuickProfileId
+    ? (instance.profiles.find(p => p.id === editingQuickProfileId) ?? null)
+    : null
+  const profile = editingProfileOverride ?? permanentProfile
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ??
     pkg.inputs[0] ?? {
       id: selected || 'pending',
@@ -298,7 +355,22 @@ export function InstanceWorkspace({
   useEffect(() => {
     setInput({ pressed: [], values: {} })
   }, [instance.enabled, profile.id, status?.state])
-  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, profile.behaviors))
+  const validProfileIds = useMemo(() => new Set(instance.profiles.map(item => item.id)), [instance.profiles])
+  const sanitizedProfiles = useMemo(
+    () => new Map(instance.profiles.map(item => [item.id, sanitizeProfileBehaviors(item.behaviors, validProfileIds)])),
+    [instance.profiles, validProfileIds],
+  )
+  const currentSanitized = useMemo(
+    () => sanitizedProfiles.get(profile.id) ?? sanitizeProfileBehaviors(profile.behaviors, validProfileIds),
+    [profile.behaviors, profile.id, sanitizedProfiles, validProfileIds],
+  )
+  const [cleanedInputs, setCleanedInputs] = useState<string[]>([])
+  const cleanedInputsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    cleanedInputsRef.current = new Set()
+    setCleanedInputs([])
+  }, [instance.id, profile.id])
+  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, currentSanitized.behaviors))
   const historyRef = useRef(history)
   historyRef.current = history
   const pendingSavesRef = useRef(0)
@@ -312,18 +384,30 @@ export function InstanceWorkspace({
   }, [])
   useEffect(() => {
     if (profile.id !== historyRef.current.profileId) {
-      applyHistoryAction({ type: 'replace', profileId: profile.id, present: profile.behaviors })
+      applyHistoryAction({ type: 'replace', profileId: profile.id, present: currentSanitized.behaviors })
       return
     }
     if (pendingSavesRef.current === 0) {
-      applyHistoryAction({ type: 'sync', profileId: profile.id, present: profile.behaviors })
+      applyHistoryAction({ type: 'sync', profileId: profile.id, present: currentSanitized.behaviors })
     }
-  }, [applyHistoryAction, profile.behaviors, profile.id])
+  }, [applyHistoryAction, currentSanitized.behaviors, profile.id])
   const saveProfileBehaviors = useCallback(
     (profileId: string, behaviors: InstanceProfileBehaviors) => {
       pendingSavesRef.current += 1
       void controller
-        .update(instance.id, item => replaceInstanceProfileBehaviors(item, profileId, behaviors))
+        .update(instance.id, item => {
+          const target = item.profiles.find(p => p.id === profileId)
+          const ids = new Set(item.profiles.map(p => p.id))
+          const sanitizedTarget = sanitizeProfileBehaviors(target?.behaviors, ids)
+          const merged = mergeEditedProfileBehaviors(
+            target?.behaviors,
+            sanitizedTarget.behaviors,
+            behaviors,
+            sanitizedTarget.droppedInputIds,
+            cleanedInputsRef.current,
+          )
+          return replaceInstanceProfileBehaviors(item, profileId, merged)
+        })
         .catch(() => {})
         .finally(() => {
           pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
@@ -331,9 +415,59 @@ export function InstanceWorkspace({
     },
     [controller, instance.id],
   )
-  const activeBehaviors = history.profileId === profile.id ? history.present : profile.behaviors
+  const activeBehaviors = history.profileId === profile.id ? history.present : currentSanitized.behaviors
+  const inputWarnings = useMemo(() => {
+    const cleanedSet = new Set(cleanedInputs)
+    const warnings = inspectBehaviorMapWarnings(
+      activeBehaviors,
+      pkg.inputs.map(item => item.id),
+      validProfileIds,
+    )
+    const appendWarning = (inputId: string, reason: string) => {
+      if (!warnings[inputId]) warnings[inputId] = reason
+      else if (!warnings[inputId].includes(reason)) warnings[inputId] = `${warnings[inputId]}；${reason}`
+    }
+    const isUnchangedFromDisk = (inputId: string) =>
+      !cleanedSet.has(inputId) &&
+      JSON.stringify(activeBehaviors[inputId] ?? emptyTriggers()) ===
+        JSON.stringify(currentSanitized.behaviors[inputId] ?? emptyTriggers())
+
+    for (const [inputId, reason] of Object.entries(currentSanitized.warnings)) {
+      if (isUnchangedFromDisk(inputId)) appendWarning(inputId, reason)
+    }
+    const runtimeProfileErrors = status?.mappingErrors?.[profile.id]
+    if (runtimeProfileErrors) {
+      for (const [inputId, reason] of Object.entries(runtimeProfileErrors)) {
+        if (isUnchangedFromDisk(inputId)) appendWarning(inputId, reason)
+      }
+    }
+    return warnings
+  }, [
+    activeBehaviors,
+    cleanedInputs,
+    currentSanitized.behaviors,
+    currentSanitized.warnings,
+    pkg.inputs,
+    profile.id,
+    status?.mappingErrors,
+    validProfileIds,
+  ])
+  const selectedHasDroppedItems =
+    currentSanitized.droppedInputIds.has(selected) &&
+    !cleanedInputs.includes(selected) &&
+    JSON.stringify(activeBehaviors[selected] ?? emptyTriggers()) ===
+      JSON.stringify(currentSanitized.behaviors[selected] ?? emptyTriggers())
   const canUndo = history.profileId === profile.id && history.past.length > 0
   const canRedo = history.profileId === profile.id && history.future.length > 0
+  const cleanInvalidInput = useCallback(
+    (inputId: string) => {
+      cleanedInputsRef.current.add(inputId)
+      setCleanedInputs(prev => (prev.includes(inputId) ? prev : [...prev, inputId]))
+      saveProfileBehaviors(profile.id, activeBehaviors)
+      onToast?.('已清理无效映射项')
+    },
+    [activeBehaviors, onToast, profile.id, saveProfileBehaviors],
+  )
   const undoBehaviorChange = useCallback(() => {
     if (historyRef.current.profileId !== profile.id) return
     const next = applyHistoryAction({ type: 'undo' })
@@ -350,11 +484,13 @@ export function InstanceWorkspace({
   }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
   const changeSequence = (id: string, sequences: TriggerBehaviors) => {
     if (historyRef.current.profileId !== profile.id) {
-      const replaced = createInstanceBehaviorHistory(profile.id, profile.behaviors)
+      const replaced = createInstanceBehaviorHistory(profile.id, currentSanitized.behaviors)
       historyRef.current = replaced
       setHistory(replaced)
     }
-    const triggers = removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
+    const triggers = profile.quick
+      ? []
+      : removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
     if (triggers.length) {
       setPendingDeletion({ profileId: profile.id, inputId: id, triggers, sequences })
       return false
@@ -365,11 +501,75 @@ export function InstanceWorkspace({
   }
   const renameProfile = (name: string) =>
     update(item => ({ ...item, profiles: item.profiles.map(p => (p.id === profile.id ? { ...p, name } : p)) }))
-  const deleteProfile = () => update(item => deleteInstanceProfile(item, profile.id))
+  const deleteProfile = () => {
+    if (editingQuickProfileId === profile.id) setEditingQuickProfileId(null)
+    update(item => deleteInstanceProfile(item, profile.id))
+  }
+  const previewQuickProfile = useCallback(
+    (targetProfileId: string, explicitTriggerInput?: string) => {
+      const target = instance.profiles.find(item => item.id === targetProfileId)
+      if (!target) return
+      const behaviorsForPreview =
+        target.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(target.id)?.behaviors ?? {})
+      const triggerInput = explicitTriggerInput ?? findQuickTriggerBinding(instance, sanitizedProfiles, target.id) ?? ''
+      if (!native) {
+        onToast?.('桌面应用中可打开顶层快捷交互窗预览')
+        return
+      }
+      void invoke('preview_quick_overlay', {
+        sourceId: instance.id,
+        deviceKind: instance.kind,
+        deviceName: instance.name,
+        profileId: target.id,
+        profileName: target.name,
+        triggerInput,
+        behaviors: behaviorsForPreview,
+      }).catch(() => {
+        onToast?.('无法打开快捷交互窗预览')
+      })
+    },
+    [activeBehaviors, instance, native, onToast, profile.id, sanitizedProfiles],
+  )
+  const createQuickProfile = useCallback(
+    async (name?: string, sourceProfileId?: string) => {
+      let createdId: string | null = null
+      await controller.update(instance.id, item => {
+        const result = addQuickInstanceProfile(item, name, sourceProfileId)
+        createdId = result.profileId
+        return result.instance
+      })
+      return createdId
+    },
+    [controller, instance.id],
+  )
+  const quickOverlayContext = useMemo<QuickOverlayEditorContext>(
+    () => ({
+      currentProfileId: profile.id,
+      profiles: instance.profiles.map(item => ({
+        id: item.id,
+        name: item.name,
+        quick: item.quick,
+        configuredCount: countConfiguredInputs(
+          item.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(item.id)?.behaviors ?? {}),
+          item.quick,
+        ),
+      })),
+      onCreateQuickProfile: createQuickProfile,
+      onEditProfile: targetId => setEditingQuickProfileId(targetId),
+      onPreviewProfile: (targetId, triggerInputId) => previewQuickProfile(targetId, triggerInputId),
+    }),
+    [activeBehaviors, createQuickProfile, instance.profiles, previewQuickProfile, profile.id, sanitizedProfiles],
+  )
   const mapped = Object.keys(activeBehaviors).filter(id =>
     Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const overviewItems = buildRailOverviewItems(pkg.inputs, activeBehaviors, platform, pkg.remoteView?.buttons)
+  const overviewItems = buildRailOverviewItems(
+    pkg.inputs,
+    activeBehaviors,
+    platform,
+    pkg.remoteView?.buttons,
+    inputWarnings,
+  )
   const diagramTabLabel = instance.kind === 'xboxBluetooth' ? '手柄' : singleLaneWorkspace ? '控制器' : '遥控器'
   const showCalibrationButton =
     !!voice &&
@@ -402,7 +602,7 @@ export function InstanceWorkspace({
     !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
-    if (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected) return
+    if (!profile.quick && (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected)) return
     const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const target = event.target
@@ -434,6 +634,7 @@ export function InstanceWorkspace({
     canUndo,
     isScreenSelected,
     pendingDeletion,
+    profile.quick,
     pendingSwitch,
     redoBehaviorChange,
     settings,
@@ -451,6 +652,33 @@ export function InstanceWorkspace({
           : driverRunning
             ? '正在安装按键驱动，请完成 Windows 管理员授权…'
             : '按键驱动未安装，请先安装此设备的按键驱动。'
+  if (profile.quick) {
+    return (
+      <QuickOverlayConfigurator
+        key={profile.id}
+        deviceKind={instance.kind}
+        deviceName={instance.name}
+        profileId={profile.id}
+        profileName={profile.name}
+        triggerInput={findQuickTriggerBinding(instance, sanitizedProfiles, profile.id) ?? undefined}
+        inputs={pkg.inputs}
+        behaviors={activeBehaviors}
+        platform={platform}
+        onChange={changeSequence}
+        onRename={renameProfile}
+        onDuplicate={() => {
+          void createQuickProfile(undefined, profile.id)
+            .then(id => {
+              if (id) setEditingQuickProfileId(id)
+            })
+            .catch(() => {})
+        }}
+        onDelete={deleteProfile}
+        onClose={() => setEditingQuickProfileId(null)}
+        history={{ canUndo, canRedo, onUndo: undoBehaviorChange, onRedo: redoBehaviorChange }}
+      />
+    )
+  }
   return (
     <div
       ref={workspaceRef}
@@ -472,18 +700,35 @@ export function InstanceWorkspace({
               platform={platform}
               editingApplicationId={applicationProfile?.application.id ?? ''}
               profileId={profile.id}
-              onSelectApplication={setEditingApplicationId}
+              onSelectApplication={id => {
+                setEditingQuickProfileId(null)
+                setEditingApplicationId(id)
+              }}
               onUpdate={change => controller.update(instance.id, change)}
-              onSwitchProfile={profileId =>
+              onSwitchProfile={nextId => {
+                const target = instance.profiles.find(item => item.id === nextId)
+                if (target?.quick) {
+                  setEditingQuickProfileId(target.id)
+                  return
+                }
+                setEditingQuickProfileId(null)
                 update(item =>
                   applicationProfile
-                    ? setApplicationProfile(item, applicationProfile.application, profileId)
-                    : { ...item, activeProfileId: profileId },
+                    ? setApplicationProfile(item, applicationProfile.application, nextId)
+                    : { ...item, activeProfileId: nextId },
                 )
-              }
-              onCreateProfile={() =>
+              }}
+              onCreateProfile={() => {
+                setEditingQuickProfileId(null)
                 update(item => addInstanceProfile(item, false, applicationProfile?.application.id))
-              }
+              }}
+              onCreateQuickProfile={() => {
+                void createQuickProfile()
+                  .then(id => {
+                    if (id) setEditingQuickProfileId(id)
+                  })
+                  .catch(() => {})
+              }}
               onDuplicateProfile={() =>
                 update(item => addInstanceProfile(item, true, applicationProfile?.application.id))
               }
@@ -630,6 +875,7 @@ export function InstanceWorkspace({
                     activeId={selected}
                     pressedIds={input.pressed}
                     mappedIds={mapped}
+                    warnings={inputWarnings}
                     onSelect={selectInput}
                     remoteView={pkg.remoteView}
                     screenRegion={pkg.screenRegion}
@@ -682,12 +928,13 @@ export function InstanceWorkspace({
                         type="button"
                         role="option"
                         aria-selected={isSelected}
-                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isPressed ? ' pressed' : ''}`}
+                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isPressed ? ' pressed' : ''}${item.warning ? ' has-warning' : ''}`}
                         onClick={() => selectInput(item.input.id)}
                       >
                         <span className="rail-keymap-head">
                           <strong>{item.input.label}</strong>
                           <span className="rail-keymap-glyph" aria-hidden="true">
+                            {item.warning && <TriangleAlert size={13} className="rail-keymap-warning-icon" />}
                             {glyphText ?? iconFor(item.input.icon, 14)}
                           </span>
                         </span>
@@ -787,6 +1034,17 @@ export function InstanceWorkspace({
                       />
                     </div>
                   </div>
+                  {inputWarnings[selected] && (
+                    <div className="key-picker-mapping-warning" role="status">
+                      <TriangleAlert size={14} aria-hidden="true" />
+                      <span>{inputWarnings[selected]}，已自动跳过无效项</span>
+                      {selectedHasDroppedItems && (
+                        <button type="button" onClick={() => cleanInvalidInput(selected)}>
+                          清理无效项
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {singleLaneWorkspace && (
                     <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
                       {triggerTypes.map(trigger => (
@@ -817,6 +1075,7 @@ export function InstanceWorkspace({
               }
               toolboxCategory={toolboxCategory}
               onToolboxCategoryChange={setToolboxCategory}
+              quickOverlayContext={quickOverlayContext}
             />
           )}
         </section>

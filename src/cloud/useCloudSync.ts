@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { appStorage } from '../appStorage'
 import { RelayClient, RelayError, relayFailureDetails } from './relayClient'
 import type { RelayResponse, RelaySession, RelayTransport } from './relayClient'
 import { fingerprint, readCloud, readCloudDocument, SyncConflict, uploadCloud } from './cloudSync'
@@ -38,7 +39,7 @@ export function useCloudSync(options: {
   const retryAt = useRef(0)
   const update = (value: CloudPreferences) => {
     const { session: _session, ...stored } = value
-    localStorage.setItem(storageKey, JSON.stringify(stored))
+    appStorage.setItem(storageKey, JSON.stringify(stored))
     current.current = value
     setPreferences(value)
   }
@@ -380,7 +381,7 @@ function isTemporarySyncFailure(error: unknown) {
 
 function readPreferences(): CloudPreferences {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null')
+    const value = JSON.parse(appStorage.getItem(storageKey) ?? 'null')
     if (!value || typeof value !== 'object') return defaults()
     return {
       session: null,
