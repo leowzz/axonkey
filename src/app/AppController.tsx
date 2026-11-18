@@ -2191,6 +2191,20 @@ function AppController({
     window.setTimeout(() => setToast(''), 2400)
   }
 
+  const startCurrentAppDrag = async () => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
+      setToast('桌面版支持直接拖动 Axonkey.app')
+      window.setTimeout(() => setToast(''), 2000)
+      return
+    }
+    try {
+      await invoke('start_current_app_drag')
+    } catch (error) {
+      logError('Failed to start Axonkey file drag', error)
+      void revealCurrentApp()
+    }
+  }
+
   const openLogDirectory = async () => {
     try {
       const info = await invoke<{ directory: string; currentFile: string }>('open_log_directory')
@@ -2359,10 +2373,31 @@ function AppController({
     }
   }
 
+  const prevHelperPermissionsRef = useRef(macPermissions)
+
   useEffect(() => {
     document.body.classList.toggle('permission-helper-mode', permissionHelperKind !== null)
     return () => document.body.classList.remove('permission-helper-mode')
   }, [permissionHelperKind])
+
+  useEffect(() => {
+    if (!permissionHelperKind || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    const interval = window.setInterval(() => void probeSystemState(false), 1_000)
+    return () => window.clearInterval(interval)
+  }, [permissionHelperKind])
+
+  useEffect(() => {
+    const prev = prevHelperPermissionsRef.current
+    prevHelperPermissionsRef.current = macPermissions
+    if (!permissionHelperKind) return
+    if (!prev.inputMonitoring && macPermissions.inputMonitoring && !macPermissions.accessibility) {
+      setPermissionHelperKind('accessibility')
+      void openSystemSettings('accessibility')
+    } else if (!prev.accessibility && macPermissions.accessibility && !macPermissions.inputMonitoring) {
+      setPermissionHelperKind('inputMonitoring')
+      void openSystemSettings('inputMonitoring')
+    }
+  }, [macPermissions, permissionHelperKind])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -2450,17 +2485,25 @@ function AppController({
       }
 
   if (permissionHelperKind) {
-    const activePermission = !macPermissions.inputMonitoring
-      ? 'inputMonitoring'
-      : !macPermissions.accessibility
-        ? 'accessibility'
-        : permissionHelperKind
+    const activePermission = !macPermissions[permissionHelperKind]
+      ? permissionHelperKind
+      : !macPermissions.inputMonitoring
+        ? 'inputMonitoring'
+        : !macPermissions.accessibility
+          ? 'accessibility'
+          : permissionHelperKind
     return (
       <>
         <MacPermissionHelperWindow
           activePermission={activePermission}
           permissions={macPermissions}
+          nativeTitlebar={nativeRuntime && platform === 'macos'}
+          onSelectPermission={kind => {
+            setPermissionHelperKind(kind)
+            void openSystemSettings(kind)
+          }}
           onOpenSettings={kind => void openSystemSettings(kind)}
+          onStartAppDrag={() => void startCurrentAppDrag()}
           onRevealApp={() => void revealCurrentApp()}
           onRefresh={() => void probeSystemState(false)}
           onClose={() => void closePermissionHelper()}
