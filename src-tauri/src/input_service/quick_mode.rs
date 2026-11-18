@@ -379,4 +379,18 @@ mod tests {
         assert!(!mode.is_active());
         assert!(matches!(mode.edge("back", false, 90), Intercept::Swallow));
     }
+
+    #[test]
+    fn external_dismissal_cancels_pending_gestures_and_resumes_regular_mapping_after_release() {
+        let settings = sample_settings();
+        let mut mode = QuickMode::default();
+        assert!(mode.enter_from_settings("dev", "rc003", "遥控器", "q1", "menu", false, &settings));
+        assert!(matches!(mode.edge("up", true, 100), Intercept::Swallow));
+        let revision = mode.session.as_ref().unwrap().revision;
+        let _ = crate::quick_overlay::close_revision(revision);
+        assert!(mode.tick(800).is_none());
+        assert!(!mode.is_active());
+        assert!(matches!(mode.edge("up", false, 850), Intercept::Swallow));
+        assert!(matches!(mode.edge("up", true, 900), Intercept::PassThrough));
+    }
 }

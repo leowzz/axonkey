@@ -198,6 +198,53 @@ test('quick configurator keeps default actions after click or drag insertion and
   } finally { harness.close() }
 })
 
+test('Escape dismisses live and simulated quick overlays and removes its listener after closing', () => {
+  const require = createRequire(import.meta.url)
+  const listeners = new Map()
+  const module = { exports: {} }
+  const source = ts.transpileModule(readFileSync('src/components/QuickOverlay.tsx', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText
+  vm.runInNewContext(source, {
+    module, exports: module.exports,
+    window: {
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      removeEventListener: (type, listener) => {
+        if (listeners.get(type) === listener) listeners.delete(type)
+      },
+    },
+    require(name) {
+      if (name === './quickOverlayModel') return { buildQuickOverlayView }
+      if (name === './QuickOverlaySurface') return { QuickOverlaySurface: () => null }
+      if (name.startsWith('../') || name.startsWith('@tauri-apps/')) return {}
+      return require(name)
+    },
+  })
+  const { QuickOverlayPresentation } = module.exports
+  const view = buildQuickOverlayView({
+    revision: 1, sourceId: 'dev', deviceKind: 'rc003', deviceName: '遥控器',
+    profileId: 'quick', profileName: '快捷配置', triggerInput: 'menu', behaviors: {}, pressed: [], preview: false,
+  }, 'windows')
+  let dismissals = 0
+  let prevented = 0
+  for (const preview of [false, true]) {
+    let renderer
+    act(() => { renderer = Renderer.create(React.createElement(QuickOverlayPresentation, {
+      view, preview, onDismiss: () => { dismissals++ },
+    })) })
+    try {
+      const before = dismissals
+      act(() => listeners.get('keydown')({ key: 'Enter', preventDefault() { prevented++ } }))
+      assert.equal(dismissals, before)
+      act(() => listeners.get('keydown')({ key: 'Escape', preventDefault() { prevented++ } }))
+      assert.equal(dismissals, before + 1)
+      assert.equal(renderer.root.findByProps({ className: 'quick-overlay-close' }).props['aria-keyshortcuts'], 'Escape')
+    } finally { act(() => renderer.unmount()) }
+    assert.equal(listeners.size, 0)
+  }
+  assert.equal(prevented, 2)
+})
+
 test('quick overlay view resolves trigger exit key, preserves full prompt text, and excludes trigger key from executable cards', () => {
   const longPrompt =
     '请作为资深架构师审查当前选中的代码，重点指出潜在的数据竞争、未处理的错误分支以及可简化的抽象，不要重写无关逻辑。'

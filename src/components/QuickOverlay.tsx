@@ -190,18 +190,6 @@ export function QuickOverlay() {
     void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
-  useEffect(() => {
-    if (!revision) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        void invoke('dismiss_quick_overlay', { revision }).catch(() => {})
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [revision])
-
   const view = useMemo(() => (session ? buildQuickOverlayView(session, platform) : null), [session, platform])
 
   if (!session || !view) return null
@@ -242,6 +230,15 @@ export function QuickOverlayPresentation({
   onTrigger?: (inputId: string) => void
 }) {
   const [hoveredSlotId, setHoveredSlotId] = useState('')
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      onDismiss()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onDismiss])
   const { defaultDetailSlot, slotLookup } = useMemo(() => {
     const allSlots = collectAllSlots(view.surface)
     const map = new Map<string, QuickOverlayKeySlot>()
@@ -437,7 +434,14 @@ export function QuickOverlayPresentation({
             ) : onTrigger ? (
               <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
             ) : null}
-            <button type="button" className="quick-overlay-close" aria-label="关闭快捷交互窗" onClick={onDismiss}>
+            <button
+              type="button"
+              className="quick-overlay-close"
+              aria-label="关闭快捷交互窗"
+              aria-keyshortcuts="Escape"
+              title="关闭快捷交互窗（Esc）"
+              onClick={onDismiss}
+            >
               <X size={15} aria-hidden="true" />
             </button>
           </div>

@@ -9,6 +9,10 @@ use std::{
 };
 use tauri::{Emitter, Manager};
 
+#[cfg(windows)]
+#[path = "quick_overlay/windows.rs"]
+mod windows_escape;
+
 const LABEL: &str = "quick-overlay";
 const EVENT: &str = "axonkey-quick-overlay";
 const WIDTH: f64 = 880.0;
@@ -85,6 +89,8 @@ impl SessionState {
 
 pub fn initialize(app: &tauri::AppHandle) {
     let _ = APP.set(app.clone());
+    #[cfg(windows)]
+    windows_escape::initialize_escape_listener();
     // Pre-create the hidden overlay webview so the first trigger opens with zero cold-start delay.
     if let Err(error) = ensure_overlay_window(app) {
         log::warn!(target: "axonkey::quick_overlay", "Cannot warm up quick overlay window: {error}");
@@ -119,9 +125,12 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow,
         let _ = app.run_on_main_thread(move || {
             if let Ok(ns_win) = win.ns_window() {
                 unsafe extern "C" {
-                    fn axonkey_configure_quick_overlay_window(window_ptr: *mut std::ffi::c_void);
+                    fn axonkey_configure_quick_overlay_window(
+                        window_ptr: *mut std::ffi::c_void,
+                        on_escape: extern "C" fn() -> bool,
+                    );
                 }
-                unsafe { axonkey_configure_quick_overlay_window(ns_win) };
+                unsafe { axonkey_configure_quick_overlay_window(ns_win, dismiss_on_escape) };
             }
         });
     }
@@ -255,6 +264,10 @@ pub(crate) fn close_revision(revision: u64) -> Option<QuickOverlaySession> {
         hide_window_if_idle();
     }
     removed
+}
+
+extern "C" fn dismiss_on_escape() -> bool {
+    close_revision(ACTIVE_REVISION.load(Ordering::Acquire)).is_some()
 }
 
 #[allow(dead_code)]

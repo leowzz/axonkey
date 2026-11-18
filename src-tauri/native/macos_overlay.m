@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
+#include <stdbool.h>
 
 @interface AxonkeyProfileSwitchPanel : NSPanel
 @property(nonatomic, strong) NSTextField *deviceLabel;
@@ -149,6 +150,8 @@ unsigned int axonkey_show_profile_switch_overlay(const char *device, const char 
 
 static AxonkeyQuickOverlayPanel *quickOverlayPanel;
 static __weak NSWindow *quickOverlaySourceWindow;
+static id quickOverlayGlobalEscapeMonitor;
+static id quickOverlayLocalEscapeMonitor;
 
 static AxonkeyQuickOverlayPanel *ensureQuickOverlayPanel(NSWindow *tauriWindow, double width, double height) {
     if (!quickOverlayPanel) {
@@ -198,11 +201,25 @@ static AxonkeyQuickOverlayPanel *ensureQuickOverlayPanel(NSWindow *tauriWindow, 
     return quickOverlayPanel;
 }
 
-void axonkey_configure_quick_overlay_window(void *window_ptr) {
+void axonkey_configure_quick_overlay_window(void *window_ptr, bool (*onEscape)(void)) {
     NSCAssert(NSThread.isMainThread, @"Quick overlay configuration requires AppKit's main thread");
     if (!window_ptr) return;
     NSWindow *tauriWindow = (__bridge NSWindow *)window_ptr;
     (void)ensureQuickOverlayPanel(tauriWindow, 880.0, 560.0);
+    // The panel cannot become key, so Escape normally goes to the foreground app.
+    if (!quickOverlayGlobalEscapeMonitor) {
+        quickOverlayGlobalEscapeMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+            handler:^(NSEvent *event) {
+                if (event.keyCode == 53) onEscape();
+            }];
+    }
+    if (!quickOverlayLocalEscapeMonitor) {
+        quickOverlayLocalEscapeMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+            handler:^NSEvent *(NSEvent *event) {
+                if (event.keyCode == 53 && onEscape()) return nil;
+                return event;
+            }];
+    }
 }
 
 unsigned int axonkey_show_quick_overlay_window(void *window_ptr, double width, double height) {
