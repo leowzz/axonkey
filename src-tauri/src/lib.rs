@@ -1,4 +1,5 @@
 mod app_restart;
+mod app_storage;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
@@ -2273,6 +2274,10 @@ pub fn run() {
             library_usage::initialize(app.handle());
             input_service::text_output::initialize(app.handle().clone());
             use tauri::Manager;
+            let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
+            app.manage(app_storage::AppConfigStore::open(
+                app_data_dir.join("app-config.json"),
+            ));
 
             let default_panic_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |panic| {
@@ -2391,6 +2396,8 @@ pub fn run() {
             quick_overlay::preview_quick_overlay,
             quick_overlay::trigger_quick_overlay_input,
             ping,
+            app_storage::load_app_config,
+            app_storage::update_app_config,
             get_platform,
             get_log_info,
             open_log_directory,

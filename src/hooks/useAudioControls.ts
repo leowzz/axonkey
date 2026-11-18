@@ -7,6 +7,7 @@ import {
   getStoredAudioGain,
   getStoredAudioStretchCompensation,
 } from '../appConfig'
+import { appStorage } from '../appStorage'
 import type { Platform } from '../appTypes'
 import { logError, logInfo } from '../runtimeLogging'
 
@@ -47,12 +48,12 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
   }
 
   useEffect(() => {
-    window.localStorage.setItem(audioSettingsStorageKey, JSON.stringify({ gain: audioGain, stretchCompensation }))
+    appStorage.setItem(audioSettingsStorageKey, JSON.stringify({ gain: audioGain, stretchCompensation }))
   }, [audioGain, stretchCompensation])
 
   useEffect(() => {
     if (platform === 'unsupported' || !nativeRuntime) return
-    void invoke('set_audio_gain', { gain: audioGain }).catch((error) => {
+    void invoke('set_audio_gain', { gain: audioGain }).catch(error => {
       logError('Failed to initialize audio gain', error)
       setGainError(`音频增益未生效：${String(error)}`)
     })
@@ -67,8 +68,11 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
     stretchRunning.current = true
     setStretchUpdating(true)
     void invoke('set_audio_stretch_compensation', { enabled: stretchCompensation })
-      .catch((error) => setStretchError(`拉伸补偿未生效：${String(error)}`))
-      .finally(() => { stretchRunning.current = false; setStretchUpdating(false) })
+      .catch(error => setStretchError(`拉伸补偿未生效：${String(error)}`))
+      .finally(() => {
+        stretchRunning.current = false
+        setStretchUpdating(false)
+      })
   }, [nativeRuntime, platform])
 
   const updateStretchCompensation = async (enabled: boolean) => {
@@ -93,7 +97,7 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
     setGainError('')
     if (platform === 'unsupported' || !nativeRuntime) return
     logInfo(`Updating audio gain from frontend: ${next} dB`)
-    void invoke('set_audio_gain', { gain: next }).catch((error) => {
+    void invoke('set_audio_gain', { gain: next }).catch(error => {
       logError('Failed to update audio gain', error)
       setGainError(`音频增益未生效：${String(error)}`)
       onToast(`音频增益未生效：${String(error)}`)
@@ -101,5 +105,16 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
     })
   }
 
-  return { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio }
+  return {
+    stretchCompensation,
+    stretchError,
+    stretchUpdating,
+    updateStretchCompensation,
+    audioGain,
+    gainError,
+    updateAudioGain,
+    audioRestarting,
+    audioRestartError,
+    restartAudio,
+  }
 }

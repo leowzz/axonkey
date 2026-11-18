@@ -6,6 +6,7 @@ import { Trash2 } from 'lucide-react'
 import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
 import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
+import { appStorage } from '../appStorage'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
 import { defaultCursorDistance, normalizeBehavior, serializeSequence } from '../behaviorModel'
 import type { Behavior, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
@@ -130,7 +131,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const [reload, setReload] = useState(0)
   const [library, setLibrary] = useState<{ items: SavedSequence[]; error: string }>(() => {
     try {
-      return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' }
+      return { items: parseSavedSequences(appStorage.getItem(savedSequencesStorageKey)), error: '' }
     } catch {
       return { items: [], error: '无法读取已保存的序列，请重新打开页面重试。' }
     }
@@ -780,7 +781,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   const storeLibrary = (items: SavedSequence[]): string | null => {
     if (library.error) return library.error
     try {
-      window.localStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
+      appStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
       setLibrary({ items, error: '' })
       return null
     } catch {

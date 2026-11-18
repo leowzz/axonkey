@@ -28,6 +28,7 @@ import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
+import { appStorage, flushAppStorage } from '../appStorage'
 import { clearLocalData } from '../localDataReset'
 import { getStoredDeviceInput, storeDeviceInput } from '../deviceInputSelection'
 import type { ParsedBackup } from '../dataBackup'
@@ -1155,7 +1156,7 @@ function AppController({
               foregroundApplications.current?.id,
             )
             const runtime = composeActiveProfileBehaviors(next.profiles, { ...editorIds, mouse: runtimeId })
-            window.localStorage.setItem(
+            appStorage.setItem(
               profilesStorageKey,
               JSON.stringify({
                 version: 2,
@@ -1165,6 +1166,7 @@ function AppController({
                 applicationProfileSwitching: { mouse: next.autoSwitching },
               }),
             )
+            await flushAppStorage()
             profileStateRef.current = {
               profiles: next.profiles,
               activeProfileIds: editorIds,
@@ -1258,7 +1260,7 @@ function AppController({
   }, [nativeRuntime, platform])
 
   useEffect(() => {
-    window.localStorage.setItem(
+    appStorage.setItem(
       settingsStorageKey,
       JSON.stringify({
         showRecordingOverlay,
@@ -1330,7 +1332,7 @@ function AppController({
   useEffect(() => {
     const persistedProfiles = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     try {
-      window.localStorage.setItem(
+      appStorage.setItem(
         profilesStorageKey,
         JSON.stringify({
           version: 2,
@@ -1638,7 +1640,7 @@ function AppController({
         activeProfileIds: globalIds,
         behaviors: composeActiveProfileBehaviors(saved, globalIds),
         applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
-        savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
+        savedSequences: parseSavedSequences(appStorage.getItem(savedSequencesStorageKey)),
         settings: {
           showRecordingOverlay,
           cmiotA15RecordingMode,
@@ -1660,9 +1662,9 @@ function AppController({
     )
   }
 
-  const restoreDataBackup = (backup: ParsedBackup) => {
+  const restoreDataBackup = async (backup: ParsedBackup) => {
     restoreBackupStorage(
-      window.localStorage,
+      appStorage,
       backup,
       {
         profiles: profilesStorageKey,
@@ -1680,6 +1682,7 @@ function AppController({
       activePage: 'settings',
       settingsSection: 'backup',
     }
+    await flushAppStorage()
     window.location.reload()
   }
 
@@ -1714,7 +1717,8 @@ function AppController({
       )
     },
     clearLocalData: async () => {
-      await clearLocalData(window.localStorage, deviceInstances)
+      await clearLocalData(appStorage, deviceInstances)
+      await flushAppStorage()
       // A queued scroll-save may run while the reload navigation starts.
       uiStateRef.current = getStoredUiState()
       window.location.reload()
@@ -1727,6 +1731,7 @@ function AppController({
         selection,
       )
       saveProfileMetadata(restored.metadata)
+      await flushAppStorage()
       let restoredCount = 0
       try {
         for (const instance of restored.instances) {
@@ -1740,7 +1745,7 @@ function AppController({
           selection.savedBehaviors ||
           selection.devices.some(item => item.targetId.startsWith('legacy:'))
         )
-          restoreDataBackup(restored.backup)
+          await restoreDataBackup(restored.backup)
       } catch (error) {
         throw new Error(`恢复未完成（已恢复 ${restoredCount} 个设备）：${String(error)}。请重试。`)
       }

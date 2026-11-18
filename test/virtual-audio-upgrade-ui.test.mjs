@@ -30,7 +30,7 @@ async function flow({ old = true, native = true, probe = true, installed = false
   vm.runInNewContext(source, { module, exports: module.exports,
     window: { localStorage: storage, ...(native ? { __TAURI_INTERNALS__: {} } : {}) },
     document: { activeElement: null, body: { style: { overflow: '' } } }, HTMLElement: class {},
-    require: name => name.endsWith('.css') ? {} : name === '../configMigration' ? migration
+    require: name => name.endsWith('.css') ? {} : name === '../appStorage' ? { appStorage: storage } : name === '../configMigration' ? migration
       : name === '@tauri-apps/api/core' ? { invoke: async (command, args) => {
         calls.push([command, args])
         const result = command === 'probe_legacy_audio_driver' ? probe : command === 'probe_windows_audio_driver' ? installed : command === 'launch_driver_action' ? install : command === 'uninstall_legacy_audio_driver' ? remove : assert.fail(command)

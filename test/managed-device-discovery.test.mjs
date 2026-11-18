@@ -31,6 +31,7 @@ const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
   './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
 })
 const modelImports = {
+  '../../appStorage.ts': require('../src/appStorage.ts'),
   '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
@@ -57,6 +58,7 @@ const modelMarkdown = compile('src/devices/integration/ModelMarkdown.tsx', {
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
+  '../../appStorage': require('../src/appStorage.ts'),
   '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
   '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
   './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
@@ -1426,6 +1428,7 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
   const { DeviceHub: TestHub, DeviceDiscoverySection: TestDiscovery } = compile('src/devices/integration/DeviceHub.tsx', {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../appStorage': require('../src/appStorage.ts'),
     '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
     '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },

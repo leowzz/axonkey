@@ -1,0 +1,314 @@
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+const CURRENT_VERSION: u32 = 1;
+const MAX_ENTRIES: usize = 128;
+const MAX_KEY_BYTES: usize = 128;
+const MAX_TOTAL_BYTES: usize = 4 * 1024 * 1024;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PersistedAppConfig {
+    version: u32,
+    entries: BTreeMap<String, String>,
+}
+
+impl Default for PersistedAppConfig {
+    fn default() -> Self {
+        Self {
+            version: CURRENT_VERSION,
+            entries: BTreeMap::new(),
+        }
+    }
+}
+
+pub(crate) struct AppConfigStore {
+    path: PathBuf,
+    entries: Mutex<BTreeMap<String, String>>,
+}
+
+impl AppConfigStore {
+    pub(crate) fn open(path: PathBuf) -> Self {
+        let entries = match read_with_recovery(&path) {
+            Ok(config) => config.entries,
+            Err(error) => {
+                log::error!(
+                    target: "axonkey::config",
+                    "Failed to load {}: {error}",
+                    path.display()
+                );
+                if path.exists() {
+                    let corrupt = path.with_extension("corrupt.json");
+                    let _ = std::fs::rename(&path, &corrupt);
+                }
+                BTreeMap::new()
+            }
+        };
+        Self {
+            path,
+            entries: Mutex::new(entries),
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<BTreeMap<String, String>, String> {
+        self.entries
+            .lock()
+            .map(|entries| entries.clone())
+            .map_err(|_| "软件配置状态不可用".into())
+    }
+
+    pub(crate) fn update(&self, updates: BTreeMap<String, Option<String>>) -> Result<(), String> {
+        let mut guard = self
+            .entries
+            .lock()
+            .map_err(|_| "软件配置状态不可用".to_string())?;
+        let mut next = guard.clone();
+        let mut changed = false;
+
+        for (key, value) in updates {
+            match value {
+                Some(content) => {
+                    validate_key(&key)?;
+                    if next.get(&key) != Some(&content) {
+                        next.insert(key, content);
+                        changed = true;
+                    }
+                }
+                None => {
+                    if next.remove(&key).is_some() {
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if !changed {
+            return Ok(());
+        }
+        validate_entries(&next)?;
+        write_atomic(
+            &self.path,
+            &PersistedAppConfig {
+                version: CURRENT_VERSION,
+                entries: next.clone(),
+            },
+        )?;
+        *guard = next;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn load_app_config(
+    state: tauri::State<'_, AppConfigStore>,
+) -> Result<BTreeMap<String, String>, String> {
+    state.snapshot()
+}
+
+#[tauri::command]
+pub(crate) fn update_app_config(
+    state: tauri::State<'_, AppConfigStore>,
+    updates: BTreeMap<String, Option<String>>,
+) -> Result<(), String> {
+    state.update(updates)
+}
+
+fn validate_key(key: &str) -> Result<(), String> {
+    if !key.starts_with("axonkey.") || key.len() > MAX_KEY_BYTES {
+        return Err(format!("不支持的配置键：{key}"));
+    }
+    if key.contains(".cache.") || key.contains(".preview.") {
+        return Err(format!("临时缓存或预览键不写入软件配置：{key}"));
+    }
+    Ok(())
+}
+
+fn validate_entries(entries: &BTreeMap<String, String>) -> Result<(), String> {
+    if entries.len() > MAX_ENTRIES {
+        return Err("配置项数量超过上限".into());
+    }
+    let total_bytes: usize = entries.iter().map(|(k, v)| k.len() + v.len()).sum();
+    if total_bytes > MAX_TOTAL_BYTES {
+        return Err("配置内容大小超过上限".into());
+    }
+    Ok(())
+}
+
+fn read_with_recovery(path: &Path) -> Result<PersistedAppConfig, String> {
+    let backup = path.with_extension("bak");
+    if path.exists() {
+        match read_config_file(path) {
+            Ok(config) => return Ok(config),
+            Err(primary_error) if backup.exists() => {
+                log::warn!(
+                    target: "axonkey::config",
+                    "Primary app-config unreadable ({primary_error}), attempting backup {}",
+                    backup.display()
+                );
+                return read_config_file(&backup);
+            }
+            Err(primary_error) => return Err(primary_error),
+        }
+    }
+    if backup.exists() {
+        return read_config_file(&backup);
+    }
+    Ok(PersistedAppConfig::default())
+}
+
+fn read_config_file(path: &Path) -> Result<PersistedAppConfig, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let parsed: PersistedAppConfig =
+        serde_json::from_slice(&bytes).map_err(|e| format!("无法解析配置文件：{e}"))?;
+    if parsed.version != CURRENT_VERSION {
+        return Err(format!("不支持的配置文件版本：{}", parsed.version));
+    }
+    Ok(parsed)
+}
+
+fn write_atomic(path: &Path, config: &PersistedAppConfig) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建软件数据目录：{e}"))?;
+    }
+    let temp = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temp)
+        .map_err(|e| format!("无法写入软件配置文件：{e}"))?;
+    let payload = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
+    file.write_all(&payload)
+        .map_err(|e| format!("无法写入软件配置文件：{e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("无法刷写软件配置文件：{e}"))?;
+    drop(file);
+
+    if path.exists() {
+        if backup.exists() {
+            std::fs::remove_file(&backup).map_err(|e| e.to_string())?;
+        }
+        std::fs::rename(path, &backup).map_err(|e| e.to_string())?;
+    }
+    if let Err(error) = std::fs::rename(&temp, path) {
+        let _ = std::fs::rename(&backup, path);
+        return Err(format!("无法更新软件配置文件：{error}"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_config_path(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "axonkey-app-storage-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("app-config.json")
+    }
+
+    #[test]
+    fn persists_updates_and_deletions_across_reopen() {
+        let path = temp_config_path("roundtrip");
+        let store = AppConfigStore::open(path.clone());
+        assert!(store.snapshot().unwrap().is_empty());
+
+        store
+            .update(BTreeMap::from([
+                (
+                    "axonkey.settings.v1".into(),
+                    Some("{\"enabled\":true}".into()),
+                ),
+                (
+                    "axonkey.mapping-profiles.v2".into(),
+                    Some("{\"version\":2}".into()),
+                ),
+            ]))
+            .unwrap();
+
+        let reopened = AppConfigStore::open(path.clone());
+        assert_eq!(
+            reopened.snapshot().unwrap().get("axonkey.settings.v1"),
+            Some(&"{\"enabled\":true}".to_string())
+        );
+
+        reopened
+            .update(BTreeMap::from([("axonkey.settings.v1".into(), None)]))
+            .unwrap();
+        let after_delete = AppConfigStore::open(path.clone());
+        assert!(!after_delete
+            .snapshot()
+            .unwrap()
+            .contains_key("axonkey.settings.v1"));
+        assert!(after_delete
+            .snapshot()
+            .unwrap()
+            .contains_key("axonkey.mapping-profiles.v2"));
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn recovers_from_backup_when_primary_file_is_missing_or_corrupt() {
+        let path = temp_config_path("recovery");
+        let backup = path.with_extension("bak");
+        write_atomic(
+            &backup,
+            &PersistedAppConfig {
+                version: CURRENT_VERSION,
+                entries: BTreeMap::from([(
+                    "axonkey.audio-settings.v2".into(),
+                    "{\"gain\":12}".into(),
+                )]),
+            },
+        )
+        .unwrap();
+
+        let from_missing = AppConfigStore::open(path.clone());
+        assert_eq!(
+            from_missing
+                .snapshot()
+                .unwrap()
+                .get("axonkey.audio-settings.v2"),
+            Some(&"{\"gain\":12}".to_string())
+        );
+
+        std::fs::write(&path, b"{not-json").unwrap();
+        let from_corrupt = AppConfigStore::open(path.clone());
+        assert_eq!(
+            from_corrupt
+                .snapshot()
+                .unwrap()
+                .get("axonkey.audio-settings.v2"),
+            Some(&"{\"gain\":12}".to_string())
+        );
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn rejects_cache_preview_and_foreign_keys() {
+        let path = temp_config_path("validation");
+        let store = AppConfigStore::open(path.clone());
+        for invalid in [
+            "other.key",
+            "axonkey.device-model-catalog.cache.v2",
+            "axonkey.device-instances.preview.v1",
+        ] {
+            assert!(store
+                .update(BTreeMap::from([(invalid.into(), Some("1".into()))]))
+                .is_err());
+        }
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+}

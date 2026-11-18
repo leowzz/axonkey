@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { appStorage } from '../../appStorage.ts'
 import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
 import type { DeviceScreenRegion, RemoteView } from '../types.ts'
 
@@ -29,7 +30,7 @@ export function RemoteControl({
   const [pointerPressedId, setPointerPressedId] = useState<string | null>(null)
   const [hintDismissed, setHintDismissed] = useState(() => {
     try {
-      return window.localStorage.getItem(hintDismissedKey) === '1'
+      return appStorage.getItem(hintDismissedKey) === '1'
     } catch {
       return false
     }
@@ -62,7 +63,7 @@ export function RemoteControl({
   const selectKey = (id: string) => {
     setHintDismissed(true)
     try {
-      window.localStorage.setItem(hintDismissedKey, '1')
+      appStorage.setItem(hintDismissedKey, '1')
     } catch {
       /* Selection also works without storage. */
     }
