@@ -15,6 +15,7 @@ export const persistedConfigKeys = [
   'axonkey.cloud-computer-name.v1',
   'axonkey.relay.v1',
   'axonkey.device-input-selection.v1',
+  'axonkey.mapping-panel-layout.v1',
   'axonkey.device-hub-card-order.v1',
   'axonkey.device-hub-discovered-expanded.v1',
   'axonkey.remote-interaction-hint.v1',

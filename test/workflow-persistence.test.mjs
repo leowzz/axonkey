@@ -11,6 +11,7 @@ import Renderer, { act } from 'react-test-renderer'
 const require = createRequire(import.meta.url)
 const library = require('sequential-workflow-designer')
 const instances = []
+const canvasObservers = new Map()
 const storage = new Map()
 let storageFailure = false
 const copiedSequences = []
@@ -75,6 +76,7 @@ function load(file) {
     } }
     if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
+    if (name === './MappingColumnSplitter') return { MappingColumnSplitter: () => null }
     if (name === './WorkflowSplitPane') return { WorkflowSplitPane: props => React.createElement(React.Fragment, null, props.header, props.canvas, props.editor) }
     if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
@@ -96,7 +98,7 @@ function load(file) {
       setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
     } },
     document: { body: {}, createElement: () => ({ setAttribute() {}, remove() {} }) },
-    ResizeObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(callback) { this.callback = callback; this.targets = [] } observe(target) { this.targets.push(target); canvasObservers.set(target, this.callback) } disconnect() { for (const target of this.targets) canvasObservers.delete(target) } },
   }, { filename: file })
   return module.exports
 }
@@ -125,10 +127,11 @@ const render = async (sequences = empty(), options = {}, account = null) => {
       return list
     }
     const handlers = new Map()
-    return { handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
+    return { clientWidth: 800, handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
     view, writes, requests, toolboxLists, current: () => instances.at(-1),
+    resize: async width => { const canvas = instances.at(-1).canvas; canvas.clientWidth = width; await act(async () => canvasObservers.get(canvas)()) },
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(element())) },
     unmount: async () => act(async () => view.unmount()),
   }
@@ -218,6 +221,42 @@ test('single-lane trigger switching keeps the designer and preserves hidden sequ
     await app.update({ sequences: cleared, activeTrigger: 'click' })
     assert.equal(app.current(), original)
     assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
+  } finally { await app.unmount() }
+})
+
+test('canvas width switches between columns and trigger tabs without losing the edited step or hidden sequences', async () => {
+  const initial = { click: [{ ...delay(100), id: 'click-wait' }], doubleClick: [{ ...delay(200), id: 'double-wait' }], longPress: [{ ...delay(300), id: 'long-wait' }] }
+  const app = await render(initial)
+  const original = app.current()
+  const root = original.configuration.extensions.find(extension => extension.rootComponent).rootComponent
+  const visible = () => copy(root.visibleTriggers().map(trigger => trigger.id))
+  try {
+    assert.deepEqual(visible(), ['click', 'doubleClick', 'longPress'])
+    const editing = await openContextEditor(app, 'longPress')
+    await app.resize(420)
+    assert.deepEqual(visible(), ['longPress'], 'narrowing follows the currently edited trigger')
+    assert.equal(app.view.root.findByType('workflow-dialog'), editing)
+    assert.equal(app.writes.length, 0)
+    const doubleTab = app.view.root.findAllByProps({ role: 'tab' })[1]
+    await act(async () => doubleTab.props.onClick())
+    assert.deepEqual(visible(), ['doubleClick'])
+    const node = palette('enter')
+    branches(original).doubleClick.push(node)
+    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+    const saved = app.writes.at(-1)[1]
+    assert.deepEqual(saved.click, initial.click)
+    assert.deepEqual(saved.longPress, initial.longPress)
+    assert.equal(saved.doubleClick.at(-1).key, 'Enter')
+    await app.update({ sequences: saved })
+    const writesBeforeResize = app.writes.length
+    await app.resize(900)
+    assert.deepEqual(visible(), ['click', 'doubleClick', 'longPress'])
+    assert.equal(app.view.root.findAllByProps({ role: 'tab' }).length, 0)
+    await app.resize(420)
+    assert.deepEqual(visible(), ['doubleClick'])
+    assert.equal(app.current(), original)
+    assert.equal(original.destroyed, false)
+    assert.equal(app.writes.length, writesBeforeResize)
   } finally { await app.unmount() }
 })
 

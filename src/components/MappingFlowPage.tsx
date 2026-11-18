@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
@@ -10,6 +10,8 @@ import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './Mouse
 import type { MappingPageProps } from './MappingPage'
 import { defaultWorkflowSplitRatio } from './workflowSplitLayout'
 import { WorkflowAxonkey } from './WorkflowAxonkey'
+import { MappingColumnSplitter } from './MappingColumnSplitter'
+import { useMappingPanelWidths } from './mappingPanelLayout'
 
 export function MappingFlowPage({
   debugMode,
@@ -42,8 +44,17 @@ export function MappingFlowPage({
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const panelLayout = useMappingPanelWidths(activeDeviceId ?? selectedDeviceId)
   return (
-    <div className="mapping-page mapping-flow-page">
+    <div
+      className="mapping-page mapping-flow-page"
+      style={
+        {
+          '--mapping-diagram-width':
+            panelLayout.widths.diagram === undefined ? undefined : `${panelLayout.widths.diagram}px`,
+        } as CSSProperties
+      }
+    >
       <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
         <DeviceWorkspaceHeader
           deviceName={
@@ -88,6 +99,7 @@ export function MappingFlowPage({
           )}
         </aside>
 
+        <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射流程图工作区">
           <WorkflowAxonkey
             header={
@@ -137,6 +149,8 @@ export function MappingFlowPage({
               </>
             }
             splitRatio={splitRatio}
+            libraryWidth={panelLayout.widths.library}
+            onLibraryWidthChange={width => panelLayout.resize('library', width)}
             onSplitRatioChange={setSplitRatio}
             platform={platform}
             button={behaviorEditorProps.button}

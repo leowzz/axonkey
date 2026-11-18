@@ -17,7 +17,6 @@ import type {
   TriggerType,
 } from '../../behaviorModel'
 import { inspectBehaviorMapWarnings, sanitizeProfileBehaviors, triggerTypes } from '../../behaviorModel'
-import { triggerLabels } from '../../appConfig'
 import { idleVoiceBarLevels, nextVoiceAmplitudeBars, type gainLevelTone } from '../../audioGain'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
 import { removedProfileSwitchTriggers } from '../../profileNavigation'
@@ -35,6 +34,8 @@ import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
+import { MappingColumnSplitter } from '../../components/MappingColumnSplitter'
+import { useMappingPanelWidths } from '../../components/mappingPanelLayout'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
 import { KivoScreenEditor } from '../kivo-k18-lite/KivoScreenEditor'
@@ -144,6 +145,7 @@ export function InstanceWorkspace({
 }: Props) {
   useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const pkg = packageFor(instance.kind)
+  const panelLayout = useMappingPanelWidths(instance.id)
   const localCloudOverride = getLocalCloudDescriptorOverrides().find(item => item.kind === instance.kind)
   const singleLaneWorkspace = usesSingleLaneWorkspace(instance.kind)
   const voice = pkg.remoteView?.voice
@@ -188,7 +190,6 @@ export function InstanceWorkspace({
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
-  const [controllerTrigger, setControllerTrigger] = useState<TriggerType>('click')
   const [pendingSwitch, setPendingSwitch] = useState<{
     inputId: string
     trigger: TriggerType
@@ -682,12 +683,14 @@ export function InstanceWorkspace({
   return (
     <div
       ref={workspaceRef}
-      className={`mapping-page mapping-flow-page managed-instance-workspace ${singleLaneWorkspace ? 'is-controller' : ''}`}
+      className="mapping-page mapping-flow-page managed-instance-workspace"
       style={
         {
           '--device-diagram-ratio': pkg.remoteView
             ? pkg.remoteView.viewBox.width / pkg.remoteView.viewBox.height
             : undefined,
+          '--mapping-diagram-width':
+            panelLayout.widths.diagram === undefined ? undefined : `${panelLayout.widths.diagram}px`,
         } as CSSProperties
       }
     >
@@ -979,6 +982,7 @@ export function InstanceWorkspace({
             </div>
           )}
         </aside>
+        <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
         <section className="mapping-main" aria-label="设备映射流程图工作区">
           {status?.error && !driverCommunicationError && (
             <p role="alert" className="managed-error">
@@ -1052,22 +1056,6 @@ export function InstanceWorkspace({
                       )}
                     </div>
                   )}
-                  {singleLaneWorkspace && (
-                    <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
-                      {triggerTypes.map(trigger => (
-                        <button
-                          type="button"
-                          key={trigger}
-                          className={`workflow-trigger-${trigger}`}
-                          aria-pressed={controllerTrigger === trigger}
-                          onClick={() => setControllerTrigger(trigger)}
-                        >
-                          {triggerLabels[trigger]}
-                          <span>{activeBehaviors[selected]?.[trigger].length ?? 0}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </section>
               }
               splitRatio={splitRatio}
@@ -1075,7 +1063,8 @@ export function InstanceWorkspace({
               platform={platform}
               button={selectedInput}
               sequences={activeBehaviors[selected] ?? emptyTriggers()}
-              activeTrigger={singleLaneWorkspace ? controllerTrigger : undefined}
+              libraryWidth={panelLayout.widths.library}
+              onLibraryWidthChange={width => panelLayout.resize('library', width)}
               onChange={changeSequence}
               onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
                 setPendingSwitch({ inputId, trigger, behavior, additionItemId })
