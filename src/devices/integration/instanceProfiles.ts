@@ -115,6 +115,29 @@ export function replaceInstanceProfileBehaviors(
   }
 }
 
+export function mergeEditedProfileBehaviors(
+  rawBehaviors: unknown,
+  sanitizedInitial: InstanceProfileBehaviors,
+  nextPresent: InstanceProfileBehaviors,
+  droppedInputIds: ReadonlySet<string>,
+  cleanedInputIds?: ReadonlySet<string>,
+): InstanceProfileBehaviors {
+  const merged: Record<string, unknown> = structuredClone(nextPresent)
+  if (droppedInputIds.size === 0 || !rawBehaviors || typeof rawBehaviors !== 'object' || Array.isArray(rawBehaviors)) {
+    return merged as InstanceProfileBehaviors
+  }
+  const rawRecord = rawBehaviors as Record<string, unknown>
+  for (const inputId of droppedInputIds) {
+    if (cleanedInputIds?.has(inputId)) continue
+    if (triggerBehaviorsSignature(nextPresent[inputId]) === triggerBehaviorsSignature(sanitizedInitial[inputId])) {
+      if (Object.prototype.hasOwnProperty.call(rawRecord, inputId)) {
+        merged[inputId] = structuredClone(rawRecord[inputId])
+      }
+    }
+  }
+  return merged as InstanceProfileBehaviors
+}
+
 export function updateInstanceSequence(
   instance: DeviceInstance,
   profileId: string,
@@ -166,8 +189,12 @@ export function removeInstanceProfileSwitch(
     ...next,
     profiles: next.profiles.map(p => {
       if (p.quick && p.id !== profileId) return p
-      const updated = { ...(p.behaviors[inputId] ?? empty()) }
-      for (const trigger of triggers) updated[trigger] = updated[trigger].filter(b => b.type !== 'switchProfile')
+      const updated = { ...empty(), ...(p.behaviors[inputId] ?? {}) }
+      for (const trigger of triggers) {
+        updated[trigger] = Array.isArray(updated[trigger])
+          ? updated[trigger].filter(b => b && typeof b === 'object' && b.type !== 'switchProfile')
+          : []
+      }
       return { ...p, behaviors: { ...p.behaviors, [inputId]: updated } }
     }),
   }
@@ -196,8 +223,11 @@ export function addQuickInstanceProfile(
   const behaviors: InstanceProfileBehaviors = source ? structuredClone(source.behaviors) : {}
   if (source) {
     for (const triggers of Object.values(behaviors)) {
+      if (!triggers || typeof triggers !== 'object') continue
       for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
-        triggers[trigger] = triggers[trigger].filter(b => b.type !== 'switchProfile')
+        triggers[trigger] = Array.isArray(triggers[trigger])
+          ? triggers[trigger].filter(b => b && typeof b === 'object' && b.type !== 'switchProfile')
+          : []
       }
     }
   }
@@ -230,8 +260,11 @@ export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean,
   const behaviors = structuredClone(active.behaviors)
   if (!duplicate)
     for (const triggers of Object.values(behaviors)) {
+      if (!triggers || typeof triggers !== 'object') continue
       for (const trigger of ['click', 'doubleClick', 'longPress'] as const)
-        triggers[trigger] = triggers[trigger].filter(b => b.type === 'switchProfile')
+        triggers[trigger] = Array.isArray(triggers[trigger])
+          ? triggers[trigger].filter(b => b && typeof b === 'object' && b.type === 'switchProfile')
+          : []
     }
   const next = {
     ...instance,

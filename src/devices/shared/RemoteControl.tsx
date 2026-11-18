@@ -10,6 +10,7 @@ type Props = {
   pressedId?: string | null
   pressedIds?: readonly string[]
   mappedIds: readonly string[]
+  warnings?: Readonly<Record<string, string>>
   onSelect: (id: string) => void
   remoteView?: RemoteView
   screenRegion?: DeviceScreenRegion
@@ -22,6 +23,7 @@ export function RemoteControl({
   pressedId,
   pressedIds = [],
   mappedIds,
+  warnings,
   onSelect,
   remoteView = xiaomiRemoteView,
   screenRegion,
@@ -144,68 +146,71 @@ export function RemoteControl({
             <path className="remote-key-surface" d={screenRegion.path} aria-hidden="true" />
           </g>
         )}
-        {remoteView.buttons.map(button => (
-          <g
-            key={button.id}
-            data-remote-key={button.id}
-            role="button"
-            tabIndex={0}
-            aria-label={button.label}
-            aria-pressed={activeId === button.id}
-            className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id || pressedIds.includes(button.id) ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
-            onClick={() => selectKey(button.id)}
-            onPointerDown={event => {
-              if (event.button === 0 && event.isPrimary) setPointerPressedId(button.id)
-            }}
-            onPointerUp={() => setPointerPressedId(null)}
-            onPointerCancel={() => setPointerPressedId(null)}
-            onPointerLeave={() => setPointerPressedId(null)}
-            onBlur={() => {
-              spaceKeyRef.current = null
-              setKeyboardPressedId(null)
-            }}
-            onKeyDown={event => {
-              if (event.key !== 'Enter' && event.key !== ' ') return
-              event.preventDefault()
-              event.stopPropagation()
-              if (event.repeat) return
-              setKeyboardPressedId(button.id)
-              if (event.key === 'Enter') selectKey(button.id)
-              else {
-                spaceKeyRef.current = button.id
-              }
-            }}
-            onKeyUp={event => {
-              if (event.key !== 'Enter' && event.key !== ' ') return
-              event.preventDefault()
-              event.stopPropagation()
-              const activate = event.key === ' ' && spaceKeyRef.current === button.id
-              spaceKeyRef.current = null
-              setKeyboardPressedId(null)
-              if (activate) selectKey(button.id)
-            }}
-          >
-            <title>{button.label}</title>
-            <path
-              className="remote-key-halo"
-              d={remoteView.keyRegions[button.id].path}
-              transform={remoteView.keyRegions[button.id].transform}
-              aria-hidden="true"
-            />
-            <path
-              className="remote-key-outline"
-              d={remoteView.keyRegions[button.id].path}
-              transform={remoteView.keyRegions[button.id].transform}
-              aria-hidden="true"
-            />
-            <path
-              className="remote-key-surface"
-              d={remoteView.keyRegions[button.id].path}
-              transform={remoteView.keyRegions[button.id].transform}
-              aria-hidden="true"
-            />
-          </g>
-        ))}
+        {remoteView.buttons.map(button => {
+          const warning = warnings?.[button.id]
+          return (
+            <g
+              key={button.id}
+              data-remote-key={button.id}
+              role="button"
+              tabIndex={0}
+              aria-label={warning ? `${button.label}（${warning}）` : button.label}
+              aria-pressed={activeId === button.id}
+              className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id || pressedIds.includes(button.id) ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${warning ? ' warning' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
+              onClick={() => selectKey(button.id)}
+              onPointerDown={event => {
+                if (event.button === 0 && event.isPrimary) setPointerPressedId(button.id)
+              }}
+              onPointerUp={() => setPointerPressedId(null)}
+              onPointerCancel={() => setPointerPressedId(null)}
+              onPointerLeave={() => setPointerPressedId(null)}
+              onBlur={() => {
+                spaceKeyRef.current = null
+                setKeyboardPressedId(null)
+              }}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.repeat) return
+                setKeyboardPressedId(button.id)
+                if (event.key === 'Enter') selectKey(button.id)
+                else {
+                  spaceKeyRef.current = button.id
+                }
+              }}
+              onKeyUp={event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                event.stopPropagation()
+                const activate = event.key === ' ' && spaceKeyRef.current === button.id
+                spaceKeyRef.current = null
+                setKeyboardPressedId(null)
+                if (activate) selectKey(button.id)
+              }}
+            >
+              <title>{warning ? `${button.label} — ${warning}` : button.label}</title>
+              <path
+                className="remote-key-halo"
+                d={remoteView.keyRegions[button.id].path}
+                transform={remoteView.keyRegions[button.id].transform}
+                aria-hidden="true"
+              />
+              <path
+                className="remote-key-outline"
+                d={remoteView.keyRegions[button.id].path}
+                transform={remoteView.keyRegions[button.id].transform}
+                aria-hidden="true"
+              />
+              <path
+                className="remote-key-surface"
+                d={remoteView.keyRegions[button.id].path}
+                transform={remoteView.keyRegions[button.id].transform}
+                aria-hidden="true"
+              />
+            </g>
+          )
+        })}
       </svg>
       <p className={`remote-control-hint${hintDismissed ? ' dismissed' : ''}`} aria-hidden={hintDismissed}>
         点击按键配置动作

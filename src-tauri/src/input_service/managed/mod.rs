@@ -213,6 +213,8 @@ pub struct RuntimeStatus {
     pub driver_installed: bool,
     #[serde(default)]
     pub driver_state: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mapping_errors: BTreeMap<String, BTreeMap<String, String>>,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -445,6 +447,9 @@ fn load_with_unknown(path: &std::path::Path) -> Result<LoadedStore, String> {
         }
     }
     store.instances = supported;
+    for instance in &mut store.instances {
+        sanitize_loaded_instance_inputs(instance);
+    }
     validate(&store)?;
     for instance in &mut store.instances {
         normalize_instance(instance);
@@ -656,35 +661,18 @@ fn validate(store: &Store) -> Result<(), String> {
                     return Err("屏幕自定义文本过长".into());
                 }
             }
-            let maps: HashMap<String, TriggerBehaviors> =
-                serde_json::from_value(profile.behaviors.clone())
-                    .map_err(|e| format!("映射无效：{e}"))?;
-            #[cfg(target_os = "macos")]
-            super::macos::validate_settings(&super::NativeSettings {
-                behaviors: maps.clone(),
-                ..Default::default()
-            })?;
-            #[cfg(windows)]
-            super::windows::validate_settings(&super::NativeSettings {
-                behaviors: maps.clone(),
-                ..Default::default()
-            })?;
+            let Some(maps) = profile.behaviors.as_object() else {
+                return Err("映射无效：必须是键值对象".into());
+            };
             let mut inputs = HashSet::new();
-            for (input, mapping) in &maps {
+            for (input, mapping) in maps {
                 let Some(key) =
                     crate::devices::descriptor_registry::profile_key(&instance.kind, input)
                 else {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
                 };
-                if mapping.iter().count() > 256 {
+                if raw_trigger_action_count(mapping) > 256 {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
-                }
-                for behavior in mapping.iter() {
-                    if let NativeBehavior::QuickOverlay { profile_id, .. } = behavior {
-                        if profile_id.trim().is_empty() {
-                            return Err("请选择快捷交互窗关联的配置文件".into());
-                        }
-                    }
                 }
                 if !inputs.insert(key) {
                     return Err(format!("同一输入重复配置：{input}"));
@@ -693,6 +681,88 @@ fn validate(store: &Store) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn raw_trigger_action_count(raw: &serde_json::Value) -> usize {
+    let Some(obj) = raw.as_object() else {
+        return 0;
+    };
+    ["click", "doubleClick", "longPress"]
+        .into_iter()
+        .filter_map(|field| obj.get(field).and_then(|v| v.as_array()))
+        .map(Vec::len)
+        .sum()
+}
+
+fn sanitize_loaded_instance_inputs(instance: &mut Instance) {
+    for profile in &mut instance.profiles {
+        let Some(obj) = profile.behaviors.as_object_mut() else {
+            profile.behaviors = serde_json::json!({});
+            continue;
+        };
+        let mut seen = HashSet::new();
+        let mut sanitized = serde_json::Map::with_capacity(obj.len());
+        for (input, value) in std::mem::take(obj) {
+            let Some(canonical) =
+                crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
+            else {
+                log::warn!(
+                    target: "axonkey::devices",
+                    "Ignoring unsupported input '{input}' on loaded instance {}",
+                    instance.id
+                );
+                continue;
+            };
+            if seen.insert(canonical.to_string()) {
+                sanitized.insert(canonical.to_string(), value);
+            }
+        }
+        *obj = sanitized;
+    }
+}
+
+fn instance_mapping_errors(instance: &Instance) -> BTreeMap<String, BTreeMap<String, String>> {
+    let valid_profile_ids: HashSet<&str> =
+        instance.profiles.iter().map(|p| p.id.as_str()).collect();
+    let mut by_profile = BTreeMap::new();
+    for profile in &instance.profiles {
+        let Some(obj) = profile.behaviors.as_object() else {
+            continue;
+        };
+        let mut by_input = BTreeMap::new();
+        for (input, raw_triggers) in obj {
+            let canonical = crate::devices::descriptor_registry::profile_key(&instance.kind, input)
+                .unwrap_or(input);
+            if let Some(reason) =
+                super::inspect_raw_trigger_errors(raw_triggers, Some(&valid_profile_ids))
+            {
+                by_input.insert(canonical.to_string(), reason);
+            }
+        }
+        if !by_input.is_empty() {
+            by_profile.insert(profile.id.clone(), by_input);
+        }
+    }
+    by_profile
+}
+
+fn initial_runtime_statuses(store: &Store) -> BTreeMap<String, RuntimeStatus> {
+    store
+        .instances
+        .iter()
+        .filter_map(|instance| {
+            let mapping_errors = instance_mapping_errors(instance);
+            (!mapping_errors.is_empty()).then(|| {
+                (
+                    instance.id.clone(),
+                    RuntimeStatus {
+                        mapping_errors,
+                        ..Default::default()
+                    },
+                )
+            })
+        })
+        .collect()
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
@@ -768,9 +838,9 @@ impl DeviceManager {
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
+                runtime: initial_runtime_statuses(&store),
                 store,
                 discovered: vec![],
-                runtime: BTreeMap::new(),
                 error,
                 scan_error: None,
                 scanning: true,
@@ -803,9 +873,9 @@ impl DeviceManager {
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
+                runtime: initial_runtime_statuses(&store),
                 store,
                 discovered: vec![],
-                runtime: BTreeMap::new(),
                 error,
                 scan_error: None,
                 scanning: true,
@@ -1047,9 +1117,22 @@ impl DeviceManager {
         };
         validate(&next)?;
         normalize_instance(&mut next.instances[index]);
+        let updated_id = next.instances[index].id.clone();
+        let updated_errors = instance_mapping_errors(&next.instances[index]);
         next.revision += 1;
         self.shared.save_store(&next)?;
         snapshot.store = next;
+        if updated_errors.is_empty() {
+            if let Some(status) = snapshot.runtime.get_mut(&updated_id) {
+                status.mapping_errors.clear();
+            }
+        } else {
+            snapshot
+                .runtime
+                .entry(updated_id)
+                .or_default()
+                .mapping_errors = updated_errors;
+        }
         Ok(snapshot.clone())
     }
     pub fn remember_quarbor_target(
@@ -1479,7 +1562,10 @@ fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
         .profiles
         .iter()
         .find(|p| p.id == instance.active_profile_id)
-        .and_then(|p| serde_json::from_value(p.behaviors.clone()).ok())
+        .and_then(|p| {
+            serde_json::from_value::<HashMap<String, serde_json::Value>>(p.behaviors.clone()).ok()
+        })
+        .map(|raw| super::parse_tolerant_behavior_map(&raw))
         .unwrap_or_default()
 }
 
@@ -1491,9 +1577,9 @@ fn instance_quick_profiles(instance: &Instance) -> HashMap<String, super::QuickP
         } else {
             serde_json::json!({})
         };
-        let parsed: HashMap<String, TriggerBehaviors> =
+        let raw_map: HashMap<String, serde_json::Value> =
             serde_json::from_value(raw_behaviors.clone()).unwrap_or_default();
-        let behaviors = super::normalize_behavior_map(parsed).unwrap_or_default();
+        let behaviors = super::parse_tolerant_behavior_map(&raw_map);
         out.insert(
             profile.id.clone(),
             super::QuickProfileConfig {
@@ -2232,7 +2318,10 @@ fn run(shared: Arc<Shared>) {
         let remote_ready = (shared.legacy_remote)(owns_remote);
         let mut statuses = BTreeMap::new();
         for instance in &configs {
-            let mut status = RuntimeStatus::default();
+            let mut status = RuntimeStatus {
+                mapping_errors: instance_mapping_errors(instance),
+                ..Default::default()
+            };
             let path = instance
                 .binding
                 .as_ref()
@@ -5444,6 +5533,89 @@ mod tests {
             }]
         );
 
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn invalid_behaviors_are_isolated_per_button_without_dropping_devices_or_valid_steps() {
+        let mut keypad = instance("k18-isolated", "phys-k18-isolated");
+        keypad.kind = "kivoK18Lite".into();
+        keypad.name = "桌面小键盘".into();
+        keypad.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k01": {
+                "click": [
+                    { "type": "unknownFutureVariant", "foo": 1 },
+                    { "type": "key", "key": "A" }
+                ]
+            },
+            "kivo.k18Lite.k02": {
+                "click": [{ "type": "key", "key": "NoSuchKey" }]
+            },
+            "kivo.k18Lite.k03": {
+                "click": [{ "type": "quickOverlay", "profileId": "deleted-profile" }]
+            },
+            "kivo.k18Lite.k04": {
+                "click": [{ "type": "key", "key": "B" }]
+            },
+            "kivo.k18Lite.removedKey": {
+                "click": [{ "type": "key", "key": "C" }]
+            }
+        });
+        let remote = instance("rc003-healthy", "phys-rc003-healthy");
+
+        let path = std::env::temp_dir().join(format!("axonkey-isolated-{}.json", unique_id()));
+        let raw_store = Store {
+            instances: vec![keypad, remote],
+            ..Store::default()
+        };
+        std::fs::write(&path, serde_json::to_vec_pretty(&raw_store).unwrap()).unwrap();
+
+        let loaded =
+            load_with_unknown(&path).expect("store should load despite per-key invalid behaviors");
+        assert_eq!(loaded.store.instances.len(), 2);
+
+        let initial_runtime = initial_runtime_statuses(&loaded.store);
+        assert!(!initial_runtime.contains_key("rc003-healthy"));
+        let default_errors = &initial_runtime["k18-isolated"].mapping_errors["default"];
+        assert!(default_errors["kivo.k18Lite.k01"].contains("unknownFutureVariant"));
+        assert!(default_errors["kivo.k18Lite.k02"].contains("NoSuchKey"));
+        assert!(default_errors["kivo.k18Lite.k03"].contains("关联的快捷交互配置不存在"));
+        assert!(!default_errors.contains_key("kivo.k18Lite.k04"));
+
+        let mappings = active_mappings(&loaded.store.instances[0]);
+        assert_eq!(
+            mappings["kivo.k18Lite.k01"].click,
+            vec![NativeBehavior::Key {
+                enabled: true,
+                key: "A".into()
+            }]
+        );
+        assert!(mappings["kivo.k18Lite.k02"].click.is_empty());
+        assert_eq!(
+            mappings["kivo.k18Lite.k04"].click,
+            vec![NativeBehavior::Key {
+                enabled: true,
+                key: "B".into()
+            }]
+        );
+
+        let manager = offline_manager(loaded.store.instances.clone());
+        manager.shared.snapshot.lock().unwrap().runtime = initial_runtime;
+        let current_rev = manager.shared.snapshot.lock().unwrap().store.revision;
+        let mut repaired = loaded.store.instances[0].clone();
+        repaired.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k04": {
+                "click": [{ "type": "key", "key": "B" }]
+            }
+        });
+        let updated = manager.put(current_rev, repaired).unwrap();
+        assert!(updated
+            .runtime
+            .get("k18-isolated")
+            .is_none_or(|status| status.mapping_errors.is_empty()));
+
+        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
@@ -39,6 +40,7 @@ export function MappingFlowPage({
   quickOverlayContext,
   isEditingQuickProfile,
   quickProfileBanner,
+  inputWarnings,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
@@ -61,6 +63,7 @@ export function MappingFlowPage({
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}
+              warnings={inputWarnings}
               onSelect={id => {
                 selectBehaviorTarget(id, 'click', false)
                 mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -77,6 +80,7 @@ export function MappingFlowPage({
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
+                    warnings={inputWarnings}
                     onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
@@ -107,6 +111,12 @@ export function MappingFlowPage({
                     </div>
                     {toolbar}
                   </div>
+                  {inputWarnings?.[selectedBehavior.buttonId] && (
+                    <div className="key-picker-mapping-warning" role="status">
+                      <TriangleAlert size={14} aria-hidden="true" />
+                      <span>{inputWarnings[selectedBehavior.buttonId]}，已自动跳过无效项</span>
+                    </div>
+                  )}
                   {isMouse && showMouseKeyGrid && (
                     <MouseControlPicker
                       activeId={selectedBehavior.buttonId}
@@ -119,6 +129,7 @@ export function MappingFlowPage({
                     <MouseScopeSelector
                       behaviors={behaviors}
                       activeId={selectedBehavior.buttonId}
+                      warnings={inputWarnings}
                       onSelect={id => selectBehaviorTarget(id, 'click', false)}
                     />
                     {behaviorEditorProps.button.inheritDefault && (

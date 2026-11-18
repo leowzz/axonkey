@@ -161,8 +161,132 @@ fn deserialize_behaviors<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    let behaviors = HashMap::<String, TriggerBehaviors>::deserialize(deserializer)?;
+    let raw = HashMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut behaviors = HashMap::with_capacity(raw.len());
+    for (key, value) in raw {
+        let mut triggers = serde_json::from_value::<TriggerBehaviors>(value).unwrap_or_default();
+        sanitize_platform_triggers(&mut triggers);
+        behaviors.insert(key, triggers);
+    }
     normalize_behavior_map(behaviors).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn parse_tolerant_behavior_map(
+    raw: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, TriggerBehaviors> {
+    use crate::devices::descriptor_registry::{profile_key, registered_kinds};
+    let kinds = registered_kinds();
+    let mut normalized = HashMap::with_capacity(raw.len());
+    for (key, value) in raw {
+        if !value.is_object() {
+            continue;
+        }
+        let Ok(mut triggers) = serde_json::from_value::<TriggerBehaviors>(value.clone()) else {
+            continue;
+        };
+        sanitize_platform_triggers(&mut triggers);
+        let canonical = kinds
+            .iter()
+            .find_map(|kind| profile_key(kind, key))
+            .unwrap_or(key);
+        normalized.entry(canonical.to_owned()).or_insert(triggers);
+    }
+    normalized
+}
+
+pub(crate) fn sanitize_platform_triggers(triggers: &mut TriggerBehaviors) {
+    let keep = |behavior: &NativeBehavior| {
+        if !behavior.enabled() {
+            return true;
+        }
+        match platform_behavior_error(behavior) {
+            Some(reason) => {
+                log::warn!(
+                    target: "axonkey::input",
+                    "Skipping invalid runtime behavior: {reason}"
+                );
+                false
+            }
+            None => true,
+        }
+    };
+    triggers.click.retain(keep);
+    triggers.double_click.retain(keep);
+    triggers.long_press.retain(keep);
+}
+
+pub(crate) fn platform_behavior_error(behavior: &NativeBehavior) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        return macos::behavior_error(behavior);
+    }
+    #[cfg(windows)]
+    {
+        return windows::behavior_error(behavior);
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = behavior;
+        None
+    }
+}
+
+pub(crate) fn inspect_raw_trigger_errors(
+    raw: &serde_json::Value,
+    valid_quick_profile_ids: Option<&std::collections::HashSet<&str>>,
+) -> Option<String> {
+    let Some(obj) = raw.as_object() else {
+        return Some("映射格式无效".into());
+    };
+    let mut reasons: Vec<String> = Vec::new();
+    let mut push_unique = |msg: String| {
+        if !reasons.contains(&msg) {
+            reasons.push(msg);
+        }
+    };
+
+    for field in ["click", "doubleClick", "longPress"] {
+        let Some(entry) = obj.get(field) else {
+            continue;
+        };
+        if entry.is_null() {
+            continue;
+        }
+        let Some(items) = entry.as_array() else {
+            push_unique("触发序列格式无效".into());
+            continue;
+        };
+        for item in items {
+            match serde_json::from_value::<SourcedBehavior>(item.clone()) {
+                Err(_) => {
+                    if let Some(kind) = item.get("type").and_then(|v| v.as_str()) {
+                        push_unique(format!("包含无法识别或无效的动作（{kind}）"));
+                    } else {
+                        push_unique("包含格式无效的动作".into());
+                    }
+                }
+                Ok(parsed) if parsed.behavior.enabled() => {
+                    if let Some(err) = platform_behavior_error(&parsed.behavior) {
+                        push_unique(err);
+                    } else if let NativeBehavior::QuickOverlay { profile_id, .. } = &parsed.behavior
+                    {
+                        if valid_quick_profile_ids
+                            .is_some_and(|ids| !ids.contains(profile_id.as_str()))
+                        {
+                            push_unique("关联的快捷交互配置不存在".into());
+                        }
+                    }
+                }
+                Ok(_) => {}
+            }
+        }
+    }
+
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(reasons.join("；"))
+    }
 }
 
 #[derive(Deserialize)]
@@ -209,9 +333,9 @@ where
         } else {
             serde_json::json!({})
         };
-        let parsed: HashMap<String, TriggerBehaviors> =
-            serde_json::from_value(raw_behaviors.clone()).map_err(serde::de::Error::custom)?;
-        let behaviors = normalize_behavior_map(parsed).map_err(serde::de::Error::custom)?;
+        let raw_map: HashMap<String, serde_json::Value> =
+            serde_json::from_value(raw_behaviors.clone()).unwrap_or_default();
+        let behaviors = parse_tolerant_behavior_map(&raw_map);
         out.insert(
             id.clone(),
             QuickProfileConfig {
@@ -270,20 +394,45 @@ struct SourcedBehavior {
     library_item_id: Option<String>,
 }
 
+fn deserialize_value_vec<'de, D>(deserializer: D) -> Result<Vec<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Array(items) => items,
+        _ => Vec::new(),
+    })
+}
+
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SourcedTriggerBehaviors {
-    #[serde(default)]
-    click: Vec<SourcedBehavior>,
-    #[serde(default)]
-    double_click: Vec<SourcedBehavior>,
-    #[serde(default)]
-    long_press: Vec<SourcedBehavior>,
+    #[serde(default, deserialize_with = "deserialize_value_vec")]
+    click: Vec<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_value_vec")]
+    double_click: Vec<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_value_vec")]
+    long_press: Vec<serde_json::Value>,
 }
 
 impl From<SourcedTriggerBehaviors> for TriggerBehaviors {
     fn from(raw: SourcedTriggerBehaviors) -> Self {
-        fn split(items: Vec<SourcedBehavior>) -> (Vec<NativeBehavior>, Vec<String>) {
+        fn split(raw_items: Vec<serde_json::Value>) -> (Vec<NativeBehavior>, Vec<String>) {
+            let items: Vec<SourcedBehavior> = raw_items
+                .into_iter()
+                .filter_map(
+                    |value| match serde_json::from_value::<SourcedBehavior>(value) {
+                        Ok(parsed) => Some(parsed),
+                        Err(error) => {
+                            log::warn!(
+                                target: "axonkey::input",
+                                "Ignoring unrecognized or invalid behavior item: {error}"
+                            );
+                            None
+                        }
+                    },
+                )
+                .collect();
             let sources = items
                 .iter()
                 .filter(|item| {

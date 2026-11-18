@@ -69,6 +69,7 @@ import {
   createEmptyBehaviorMap,
   defaultCursorDistance,
   createMappingExport,
+  inspectBehaviorMapWarnings,
   serializeSequence,
   moveBehavior,
   parseMappingImport,
@@ -2669,6 +2670,11 @@ function AppController({
 
   const activeQuickTrigger =
     isEditingQuickMappingProfile && activeMappingProfile ? findDeviceQuickTrigger(activeMappingProfile.id) : null
+  const mappingInputWarnings = inspectBehaviorMapWarnings(
+    behaviors,
+    selectedDevice.inputIds,
+    new Set(deviceProfiles.map(item => item.id)),
+  )
 
   const quickProfileBanner =
     isEditingQuickMappingProfile && activeMappingProfile ? (
@@ -2899,6 +2905,7 @@ function AppController({
                 editableButtons={editableButtons}
                 pressedId={pressedId}
                 behaviors={behaviors}
+                inputWarnings={mappingInputWarnings}
                 onWorkflowChange={updateWorkflow}
                 onRequestProfileSwitch={requestProfileSwitch}
                 platform={platform}

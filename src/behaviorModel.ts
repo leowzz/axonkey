@@ -456,6 +456,114 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   return result
 }
 
+export type SanitizedInputBehaviors = {
+  sequences: TriggerBehaviors
+  warning: string | null
+  hasDroppedItems: boolean
+}
+
+/** Sanitize a single input's raw trigger object while collecting per-button warnings. */
+export function sanitizeInputBehaviors(
+  inputId: string,
+  raw: unknown,
+  validProfileIds?: ReadonlySet<string>,
+): SanitizedInputBehaviors {
+  const sequences = emptyTriggers()
+  if (raw === undefined || raw === null) {
+    return { sequences, warning: null, hasDroppedItems: false }
+  }
+  if (!isRecord(raw)) {
+    return { sequences, warning: '映射格式无效', hasDroppedItems: true }
+  }
+
+  const reasons: string[] = []
+  const pushReason = (reason: string) => {
+    if (!reasons.includes(reason)) reasons.push(reason)
+  }
+  let hasDroppedItems = false
+
+  for (const trigger of triggerTypes) {
+    const rawList = raw[trigger]
+    if (rawList === undefined || rawList === null) continue
+    if (!Array.isArray(rawList)) {
+      hasDroppedItems = true
+      pushReason('触发序列格式无效')
+      continue
+    }
+    rawList.forEach((entry, index) => {
+      const normalized = normalizeBehavior(entry, `${inputId}-${trigger}-${index + 1}`)
+      if (!normalized) {
+        hasDroppedItems = true
+        const kind = isRecord(entry) && typeof entry.type === 'string' ? entry.type.trim() : ''
+        pushReason(kind ? `包含无法识别或无效的动作（${kind}）` : '包含格式无效的动作')
+        return
+      }
+      sequences[trigger].push(normalized)
+      if (normalized.enabled && normalized.type === 'quickOverlay') {
+        if (!normalized.profileId) {
+          pushReason('未选择快捷交互配置')
+        } else if (validProfileIds && !validProfileIds.has(normalized.profileId)) {
+          pushReason('关联的快捷交互配置不存在')
+        }
+      }
+    })
+  }
+
+  return {
+    sequences,
+    warning: reasons.length > 0 ? reasons.join('；') : null,
+    hasDroppedItems,
+  }
+}
+
+export type SanitizedProfileBehaviors = {
+  behaviors: Record<string, TriggerBehaviors>
+  warnings: Record<string, string>
+  droppedInputIds: Set<string>
+}
+
+/** Sanitize an entire profile's raw behavior map at the UI boundary. */
+export function sanitizeProfileBehaviors(
+  rawBehaviors: unknown,
+  validProfileIds?: ReadonlySet<string>,
+): SanitizedProfileBehaviors {
+  const behaviors: Record<string, TriggerBehaviors> = {}
+  const warnings: Record<string, string> = {}
+  const droppedInputIds = new Set<string>()
+  if (!isRecord(rawBehaviors)) {
+    return { behaviors, warnings, droppedInputIds }
+  }
+
+  for (const [inputId, raw] of Object.entries(rawBehaviors)) {
+    const result = sanitizeInputBehaviors(inputId, raw, validProfileIds)
+    if (
+      result.sequences.click.length > 0 ||
+      result.sequences.doubleClick.length > 0 ||
+      result.sequences.longPress.length > 0
+    ) {
+      behaviors[inputId] = result.sequences
+    }
+    if (result.warning) warnings[inputId] = result.warning
+    if (result.hasDroppedItems) droppedInputIds.add(inputId)
+  }
+
+  return { behaviors, warnings, droppedInputIds }
+}
+
+/** Collect per-input warnings for an already normalized device BehaviorMap. */
+export function inspectBehaviorMapWarnings(
+  behaviors: Partial<Record<string, TriggerBehaviors>>,
+  targetInputIds: readonly string[],
+  validProfileIds?: ReadonlySet<string>,
+): Record<string, string> {
+  const warnings: Record<string, string> = {}
+  for (const inputId of targetInputIds) {
+    const result = sanitizeInputBehaviors(inputId, behaviors[inputId], validProfileIds)
+    if (result.warning) warnings[inputId] = result.warning
+  }
+  return warnings
+}
+
 /** Build the stable, versioned JSON shape used for mapping file transfers. */
 export function createMappingExport(
   behaviors: BehaviorMap,

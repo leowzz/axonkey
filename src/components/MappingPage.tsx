@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react'
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from 'react'
 import type {
   BehaviorMap,
@@ -55,6 +56,7 @@ export type MappingPageProps = {
   quickOverlayContext?: QuickOverlayEditorContext
   isEditingQuickProfile?: boolean
   quickProfileBanner?: ReactNode
+  inputWarnings?: Readonly<Record<string, string>>
 }
 
 export function MappingPage({
@@ -84,6 +86,7 @@ export function MappingPage({
   behaviorEditorProps,
   remoteView,
   quickProfileBanner,
+  inputWarnings,
 }: MappingPageProps) {
   return (
     <div className="mapping-page">
@@ -104,6 +107,7 @@ export function MappingPage({
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}
+              warnings={inputWarnings}
               onSelect={id => {
                 selectBehaviorTarget(id, 'click', false)
                 mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -120,6 +124,7 @@ export function MappingPage({
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
+                    warnings={inputWarnings}
                     onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
@@ -149,6 +154,12 @@ export function MappingPage({
               </div>
               {toolbar}
             </div>
+            {inputWarnings?.[selectedBehavior.buttonId] && (
+              <div className="key-picker-mapping-warning" role="status">
+                <TriangleAlert size={14} aria-hidden="true" />
+                <span>{inputWarnings[selectedBehavior.buttonId]}，已自动跳过无效项</span>
+              </div>
+            )}
             {isMouse && showMouseKeyGrid && (
               <MouseControlPicker
                 activeId={selectedBehavior.buttonId}

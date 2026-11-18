@@ -106,6 +106,7 @@ export type DeviceSnapshot = {
       effectiveProfileId?: string
       driverInstalled?: boolean
       driverState?: string
+      mappingErrors?: Record<string, Record<string, string>>
     }
   >
   error: string | null

@@ -216,8 +216,15 @@ impl InputService {
             .request_managed(owned)
     }
 
-    pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
-        validate_settings(&settings)?;
+    pub fn update_settings(&self, mut settings: NativeSettings) -> Result<(), String> {
+        for triggers in settings.behaviors.values_mut() {
+            super::sanitize_platform_triggers(triggers);
+        }
+        for profile in settings.quick_profiles.values_mut() {
+            for triggers in profile.behaviors.values_mut() {
+                super::sanitize_platform_triggers(triggers);
+            }
+        }
         let settings_enabled = settings.enabled;
         let behavior_count = settings
             .behaviors
@@ -2181,6 +2188,24 @@ fn function_key_code(number: u8) -> Option<u16> {
     })
 }
 
+pub(super) fn behavior_error(behavior: &NativeBehavior) -> Option<String> {
+    match behavior {
+        NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
+            Some(format!("不支持的按键：{key}"))
+        }
+        NativeBehavior::Shortcut { keys, .. }
+            if keys.is_empty() || keys.iter().any(|key| parse_chord(key).is_none()) =>
+        {
+            Some("快捷键包含当前系统不支持的按键".into())
+        }
+        NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
+            Some("未选择快捷交互配置".into())
+        }
+        _ => None,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
     for (button, triggers) in settings.behaviors.iter().chain(
         settings
@@ -2197,21 +2222,8 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
             if !behavior.enabled() {
                 continue;
             }
-            match behavior {
-                NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
-                    return Err(format!("{button}: unsupported key '{key}'"));
-                }
-                NativeBehavior::Shortcut { keys, .. }
-                    if keys.is_empty() || keys.iter().any(|key| parse_chord(key).is_none()) =>
-                {
-                    return Err(format!("{button}: shortcut contains an unsupported key"));
-                }
-                NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
-                    return Err(format!(
-                        "{button}: quickOverlay requires a target profileId"
-                    ));
-                }
-                _ => {}
+            if let Some(error) = behavior_error(behavior) {
+                return Err(format!("{button}: {error}"));
             }
         }
     }

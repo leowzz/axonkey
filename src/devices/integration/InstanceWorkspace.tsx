@@ -8,8 +8,14 @@ import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
 import { iconFor } from '../../components/InputIcon'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
-import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
-import { triggerTypes } from '../../behaviorModel'
+import type {
+  ButtonId,
+  SanitizedProfileBehaviors,
+  SwitchProfileBehavior,
+  TriggerBehaviors,
+  TriggerType,
+} from '../../behaviorModel'
+import { inspectBehaviorMapWarnings, sanitizeProfileBehaviors, triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
 import { idleVoiceBarLevels, nextVoiceAmplitudeBars, type gainLevelTone } from '../../audioGain'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
@@ -58,6 +64,7 @@ import {
   applyInstanceProfileSwitch,
   createInstanceBehaviorHistory,
   instanceBehaviorHistoryReducer,
+  mergeEditedProfileBehaviors,
   removeInstanceProfileSwitch,
   replaceInstanceProfileBehaviors,
 } from './instanceProfiles'
@@ -71,12 +78,14 @@ function countConfiguredInputs(behaviors: InstanceProfileBehaviors): number {
 
 function findQuickTriggerBinding(
   instance: DeviceInstance,
+  sanitizedProfiles: ReadonlyMap<string, SanitizedProfileBehaviors>,
   targetProfileId: string,
   inputs: readonly MappingInput<string>[],
 ) {
   for (const candidate of instance.profiles) {
     if (candidate.quick || candidate.id === targetProfileId) continue
-    for (const [inputId, sequences] of Object.entries(candidate.behaviors)) {
+    const behaviors = sanitizedProfiles.get(candidate.id)?.behaviors ?? {}
+    for (const [inputId, sequences] of Object.entries(behaviors)) {
       for (const trigger of triggerTypes) {
         if (
           sequences?.[trigger]?.some(
@@ -349,7 +358,22 @@ export function InstanceWorkspace({
   useEffect(() => {
     setInput({ pressed: [], values: {} })
   }, [instance.enabled, profile.id, status?.state])
-  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, profile.behaviors))
+  const validProfileIds = useMemo(() => new Set(instance.profiles.map(item => item.id)), [instance.profiles])
+  const sanitizedProfiles = useMemo(
+    () => new Map(instance.profiles.map(item => [item.id, sanitizeProfileBehaviors(item.behaviors, validProfileIds)])),
+    [instance.profiles, validProfileIds],
+  )
+  const currentSanitized = useMemo(
+    () => sanitizedProfiles.get(profile.id) ?? sanitizeProfileBehaviors(profile.behaviors, validProfileIds),
+    [profile.behaviors, profile.id, sanitizedProfiles, validProfileIds],
+  )
+  const [cleanedInputs, setCleanedInputs] = useState<string[]>([])
+  const cleanedInputsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    cleanedInputsRef.current = new Set()
+    setCleanedInputs([])
+  }, [instance.id, profile.id])
+  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, currentSanitized.behaviors))
   const historyRef = useRef(history)
   historyRef.current = history
   const pendingSavesRef = useRef(0)
@@ -363,18 +387,30 @@ export function InstanceWorkspace({
   }, [])
   useEffect(() => {
     if (profile.id !== historyRef.current.profileId) {
-      applyHistoryAction({ type: 'replace', profileId: profile.id, present: profile.behaviors })
+      applyHistoryAction({ type: 'replace', profileId: profile.id, present: currentSanitized.behaviors })
       return
     }
     if (pendingSavesRef.current === 0) {
-      applyHistoryAction({ type: 'sync', profileId: profile.id, present: profile.behaviors })
+      applyHistoryAction({ type: 'sync', profileId: profile.id, present: currentSanitized.behaviors })
     }
-  }, [applyHistoryAction, profile.behaviors, profile.id])
+  }, [applyHistoryAction, currentSanitized.behaviors, profile.id])
   const saveProfileBehaviors = useCallback(
     (profileId: string, behaviors: InstanceProfileBehaviors) => {
       pendingSavesRef.current += 1
       void controller
-        .update(instance.id, item => replaceInstanceProfileBehaviors(item, profileId, behaviors))
+        .update(instance.id, item => {
+          const target = item.profiles.find(p => p.id === profileId)
+          const ids = new Set(item.profiles.map(p => p.id))
+          const sanitizedTarget = sanitizeProfileBehaviors(target?.behaviors, ids)
+          const merged = mergeEditedProfileBehaviors(
+            target?.behaviors,
+            sanitizedTarget.behaviors,
+            behaviors,
+            sanitizedTarget.droppedInputIds,
+            cleanedInputsRef.current,
+          )
+          return replaceInstanceProfileBehaviors(item, profileId, merged)
+        })
         .catch(() => {})
         .finally(() => {
           pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
@@ -382,9 +418,59 @@ export function InstanceWorkspace({
     },
     [controller, instance.id],
   )
-  const activeBehaviors = history.profileId === profile.id ? history.present : profile.behaviors
+  const activeBehaviors = history.profileId === profile.id ? history.present : currentSanitized.behaviors
+  const inputWarnings = useMemo(() => {
+    const cleanedSet = new Set(cleanedInputs)
+    const warnings = inspectBehaviorMapWarnings(
+      activeBehaviors,
+      pkg.inputs.map(item => item.id),
+      validProfileIds,
+    )
+    const appendWarning = (inputId: string, reason: string) => {
+      if (!warnings[inputId]) warnings[inputId] = reason
+      else if (!warnings[inputId].includes(reason)) warnings[inputId] = `${warnings[inputId]}；${reason}`
+    }
+    const isUnchangedFromDisk = (inputId: string) =>
+      !cleanedSet.has(inputId) &&
+      JSON.stringify(activeBehaviors[inputId] ?? emptyTriggers()) ===
+        JSON.stringify(currentSanitized.behaviors[inputId] ?? emptyTriggers())
+
+    for (const [inputId, reason] of Object.entries(currentSanitized.warnings)) {
+      if (isUnchangedFromDisk(inputId)) appendWarning(inputId, reason)
+    }
+    const runtimeProfileErrors = status?.mappingErrors?.[profile.id]
+    if (runtimeProfileErrors) {
+      for (const [inputId, reason] of Object.entries(runtimeProfileErrors)) {
+        if (isUnchangedFromDisk(inputId)) appendWarning(inputId, reason)
+      }
+    }
+    return warnings
+  }, [
+    activeBehaviors,
+    cleanedInputs,
+    currentSanitized.behaviors,
+    currentSanitized.warnings,
+    pkg.inputs,
+    profile.id,
+    status?.mappingErrors,
+    validProfileIds,
+  ])
+  const selectedHasDroppedItems =
+    currentSanitized.droppedInputIds.has(selected) &&
+    !cleanedInputs.includes(selected) &&
+    JSON.stringify(activeBehaviors[selected] ?? emptyTriggers()) ===
+      JSON.stringify(currentSanitized.behaviors[selected] ?? emptyTriggers())
   const canUndo = history.profileId === profile.id && history.past.length > 0
   const canRedo = history.profileId === profile.id && history.future.length > 0
+  const cleanInvalidInput = useCallback(
+    (inputId: string) => {
+      cleanedInputsRef.current.add(inputId)
+      setCleanedInputs(prev => (prev.includes(inputId) ? prev : [...prev, inputId]))
+      saveProfileBehaviors(profile.id, activeBehaviors)
+      onToast?.('已清理无效映射项')
+    },
+    [activeBehaviors, onToast, profile.id, saveProfileBehaviors],
+  )
   const undoBehaviorChange = useCallback(() => {
     if (historyRef.current.profileId !== profile.id) return
     const next = applyHistoryAction({ type: 'undo' })
@@ -401,7 +487,7 @@ export function InstanceWorkspace({
   }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
   const changeSequence = (id: string, sequences: TriggerBehaviors) => {
     if (historyRef.current.profileId !== profile.id) {
-      const replaced = createInstanceBehaviorHistory(profile.id, profile.behaviors)
+      const replaced = createInstanceBehaviorHistory(profile.id, currentSanitized.behaviors)
       historyRef.current = replaced
       setHistory(replaced)
     }
@@ -424,9 +510,12 @@ export function InstanceWorkspace({
     (targetProfileId: string, explicitTriggerInput?: string) => {
       const target = instance.profiles.find(item => item.id === targetProfileId)
       if (!target) return
-      const behaviorsForPreview = target.id === profile.id ? activeBehaviors : target.behaviors
+      const behaviorsForPreview =
+        target.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(target.id)?.behaviors ?? {})
       const triggerInput =
-        explicitTriggerInput ?? findQuickTriggerBinding(instance, target.id, pkg.inputs)?.inputId ?? ''
+        explicitTriggerInput ??
+        findQuickTriggerBinding(instance, sanitizedProfiles, target.id, pkg.inputs)?.inputId ??
+        ''
       if (!native) {
         onToast?.('桌面应用中可打开顶层快捷交互窗预览')
         return
@@ -443,11 +532,12 @@ export function InstanceWorkspace({
         onToast?.('无法打开快捷交互窗预览')
       })
     },
-    [activeBehaviors, instance, native, onToast, pkg.inputs, profile.id],
+    [activeBehaviors, instance, native, onToast, pkg.inputs, profile.id, sanitizedProfiles],
   )
   const quickTriggerBinding = useMemo(
-    () => (isEditingQuickModeProfile ? findQuickTriggerBinding(instance, profile.id, pkg.inputs) : null),
-    [instance, isEditingQuickModeProfile, pkg.inputs, profile.id],
+    () =>
+      isEditingQuickModeProfile ? findQuickTriggerBinding(instance, sanitizedProfiles, profile.id, pkg.inputs) : null,
+    [instance, isEditingQuickModeProfile, pkg.inputs, profile.id, sanitizedProfiles],
   )
   const quickOverlayContext = useMemo<QuickOverlayEditorContext>(
     () => ({
@@ -456,7 +546,9 @@ export function InstanceWorkspace({
         id: item.id,
         name: item.name,
         quick: item.quick,
-        configuredCount: countConfiguredInputs(item.id === profile.id ? activeBehaviors : item.behaviors),
+        configuredCount: countConfiguredInputs(
+          item.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(item.id)?.behaviors ?? {}),
+        ),
       })),
       onCreateQuickProfile: async name => {
         let createdId: string | null = null
@@ -470,12 +562,18 @@ export function InstanceWorkspace({
       onEditProfile: targetId => setEditingQuickProfileId(targetId),
       onPreviewProfile: (targetId, triggerInputId) => previewQuickProfile(targetId, triggerInputId),
     }),
-    [activeBehaviors, controller, instance.id, instance.profiles, previewQuickProfile, profile.id],
+    [activeBehaviors, controller, instance.id, instance.profiles, previewQuickProfile, profile.id, sanitizedProfiles],
   )
   const mapped = Object.keys(activeBehaviors).filter(id =>
     Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const overviewItems = buildRailOverviewItems(pkg.inputs, activeBehaviors, platform, pkg.remoteView?.buttons)
+  const overviewItems = buildRailOverviewItems(
+    pkg.inputs,
+    activeBehaviors,
+    platform,
+    pkg.remoteView?.buttons,
+    inputWarnings,
+  )
   const diagramTabLabel = instance.kind === 'xboxBluetooth' ? '手柄' : singleLaneWorkspace ? '控制器' : '遥控器'
   const showCalibrationButton =
     !!voice &&
@@ -766,6 +864,7 @@ export function InstanceWorkspace({
                     activeId={selected}
                     pressedIds={input.pressed}
                     mappedIds={mapped}
+                    warnings={inputWarnings}
                     onSelect={selectInput}
                     remoteView={pkg.remoteView}
                     screenRegion={pkg.screenRegion}
@@ -818,12 +917,13 @@ export function InstanceWorkspace({
                         type="button"
                         role="option"
                         aria-selected={isSelected}
-                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isPressed ? ' pressed' : ''}`}
+                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isPressed ? ' pressed' : ''}${item.warning ? ' has-warning' : ''}`}
                         onClick={() => selectInput(item.input.id)}
                       >
                         <span className="rail-keymap-head">
                           <strong>{item.input.label}</strong>
                           <span className="rail-keymap-glyph" aria-hidden="true">
+                            {item.warning && <TriangleAlert size={13} className="rail-keymap-warning-icon" />}
                             {glyphText ?? iconFor(item.input.icon, 14)}
                           </span>
                         </span>
@@ -951,6 +1051,17 @@ export function InstanceWorkspace({
                       />
                     </div>
                   </div>
+                  {inputWarnings[selected] && (
+                    <div className="key-picker-mapping-warning" role="status">
+                      <TriangleAlert size={14} aria-hidden="true" />
+                      <span>{inputWarnings[selected]}，已自动跳过无效项</span>
+                      {selectedHasDroppedItems && (
+                        <button type="button" onClick={() => cleanInvalidInput(selected)}>
+                          清理无效项
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {singleLaneWorkspace && (
                     <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
                       {triggerTypes.map(trigger => (
