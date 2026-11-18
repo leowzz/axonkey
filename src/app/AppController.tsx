@@ -50,6 +50,7 @@ import { processMouseCliRequest } from '../mouseCli'
 import { useCliRequests } from '../useCliRequests'
 import { useForegroundApplications } from '../useForegroundApplications'
 import {
+  addMouseApplicationForEditing,
   bindMouseApplication,
   deleteMouseProfile,
   effectiveMouseProfileId,
@@ -2540,27 +2541,18 @@ function AppController({
   }
   const addMouseApplication = (application: Application) => {
     const current = profileStateRef.current
-    const applicationId = application.id
-    const existing = mouseApplicationProfile(current.profiles, applicationId)
-    if (existing) {
-      setMouseEditingApplicationId(applicationId)
-      switchMappingProfile(existing.id)
-      return
-    }
     const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
-    const global = saved.find(profile => profile.id === mouseGlobalProfileRef.current)!
-    const profile = createMappingProfile(
-      profileName(`${application.name} 配置`, deviceProfiles),
-      global.behaviors,
-      'mouse',
+    const added = addMouseApplicationForEditing(
+      saved,
+      application.id,
+      mouseGlobalProfileRef.current,
+      mouseApplicationProfileSwitching,
     )
-    const nextProfiles = bindMouseApplication([...saved, profile], applicationId, profile.id)
-    profileStateRef.current = { ...current, profiles: nextProfiles }
-    setProfiles(nextProfiles)
-    setMouseEditingApplicationId(applicationId)
-    if (!saved.some(item => item.deviceId === 'mouse' && item.applicationIds?.length))
-      setMouseApplicationProfileSwitching(true)
-    switchMappingProfile(profile.id)
+    profileStateRef.current = { ...current, profiles: added.profiles }
+    setProfiles(added.profiles)
+    setMouseEditingApplicationId(application.id)
+    setMouseApplicationProfileSwitching(added.autoSwitching)
+    switchMappingProfile(added.profileId)
   }
   const switchMouseProfile = (id: string) => {
     const target = profileStateRef.current.profiles.find(profile => profile.id === id)

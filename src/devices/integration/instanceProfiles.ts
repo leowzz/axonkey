@@ -253,13 +253,7 @@ export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean,
 
 export function addApplicationForEditing(instance: DeviceInstance, application: Application): DeviceInstance {
   if (instance.applicationProfiles?.some(binding => binding.application.id === application.id)) return instance
-  const next = addInstanceProfile(instance, true)
-  next.profiles[next.profiles.length - 1].name = `${application.name} 配置`.slice(0, 40)
-  return setApplicationProfile(
-    { ...next, activeProfileId: instance.activeProfileId },
-    application,
-    next.activeProfileId,
-  )
+  return setApplicationProfile(instance, application, instance.activeProfileId)
 }
 
 export function deleteInstanceProfile(instance: DeviceInstance, profileId: string): DeviceInstance {

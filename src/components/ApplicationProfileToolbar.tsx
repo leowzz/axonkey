@@ -355,7 +355,10 @@ export function ApplicationProfileToolbar({
         <span>编辑应用</span>
         <ApplicationSelect
           value={editingApplicationId}
-          added={bindings.map(binding => binding.application)}
+          added={bindings.map(binding => ({
+            ...binding.application,
+            detail: instance.profiles.find(profile => profile.id === binding.profileId)?.name,
+          }))}
           recent={recent.map(entry => entry.application)}
           native={native}
           disabled={pending}
