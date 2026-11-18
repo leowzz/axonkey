@@ -1117,6 +1117,19 @@ mod tests {
             .map(|input| input.id.as_str())
             .collect();
         assert_eq!(pending, ["rmf-tx800c.power", "rmf-tx800c.voice"]);
+        assert_eq!(
+            descriptor
+                .inputs
+                .iter()
+                .filter(|input| input.target.is_some())
+                .count(),
+            15
+        );
+        assert!(descriptor
+            .inputs
+            .iter()
+            .filter(|input| input.pending)
+            .all(|input| input.target.is_none()));
         assert_eq!(voice_key(kind), Some("rmf-tx800c.voice"));
         assert_eq!(voice_engine(kind), Some("tcl-rc902v-atvv"));
     }

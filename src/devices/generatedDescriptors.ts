@@ -2050,22 +2050,6 @@ export const deviceDescriptors = {
     },
     "inputs": [
       {
-        "id": "rmf-tx800c.power",
-        "stableId": "rmf-tx800c.power",
-        "label": "电源",
-        "short": "电源",
-        "icon": "power",
-        "kind": "button",
-        "threshold": 0.55,
-        "releaseThreshold": 0.35,
-        "order": 0,
-        "path": "M 112 38 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
-        "anchor": {
-          "x": 127,
-          "y": 38
-        }
-      },
-      {
         "id": "rmf-tx800c.tv",
         "stableId": "rmf-tx800c.tv",
         "label": "电视",
@@ -2254,22 +2238,6 @@ export const deviceDescriptors = {
         "path": "M 24 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
         "anchor": {
           "x": 39,
-          "y": 289
-        }
-      },
-      {
-        "id": "rmf-tx800c.voice",
-        "stableId": "rmf-tx800c.voice",
-        "label": "麦克风键",
-        "short": "麦克风",
-        "icon": "mic",
-        "kind": "button",
-        "threshold": 0.55,
-        "releaseThreshold": 0.35,
-        "order": 13,
-        "path": "M 68.5 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
-        "anchor": {
-          "x": 83.5,
           "y": 289
         }
       },
