@@ -1,6 +1,6 @@
 [package]
 name = "axonkey"
-version = "1.9.10"
+version = "1.9.11"
 default-run = "axonkey"
 description = "Axonkey local device mapping tool"
 authors = ["Axonkey"]
