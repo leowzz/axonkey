@@ -7,7 +7,7 @@ import { mouseInputIds, mouseInputParts } from '../devices/index.ts'
 import type { MouseControlId, MouseInputId } from '../devices/index.ts'
 import { packageFor } from '../devices/integration/model.ts'
 import { tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
-import type { DeviceSupportPackage, RemoteView } from '../devices/types.ts'
+import type { DeviceSupportPackage, RemoteKeyRegion, RemoteView } from '../devices/types.ts'
 
 export type QuickOverlaySessionPayload = {
   revision: number
@@ -87,13 +87,16 @@ export type QuickOverlayRowBlock = {
 
 export type QuickOverlaySurfaceBlock = QuickOverlayRowBlock | QuickOverlayCrossWell | QuickOverlayBridgeBlock
 
+type QuickOverlaySideRail = { side: 'left' | 'right'; slots: QuickOverlayKeySlot[] }
+
 export type QuickOverlaySurfaceLayout =
   | {
       variant: 'matrix'
       rows: number
       cols: number
       oledSpan?: { row: number; colStart: number; colSpan: number }
-      cells: (QuickOverlayKeySlot & { row: number; col: number })[]
+      cells: (QuickOverlayKeySlot & { row: number; col: number; rowSpan?: number; colSpan?: number })[]
+      sideRail?: QuickOverlaySideRail
     }
   | {
       variant: 'controller'
@@ -113,7 +116,7 @@ export type QuickOverlaySurfaceLayout =
       variant: 'panel'
       density: 'spacious' | 'regular' | 'compact'
       blocks: QuickOverlaySurfaceBlock[]
-      sideRail?: { side: 'left' | 'right'; slots: QuickOverlayKeySlot[] }
+      sideRail?: QuickOverlaySideRail
     }
 
 export type QuickOverlayViewModel = {
@@ -134,6 +137,7 @@ type PositionedSlot = {
   ny: number
   kindTag: string
   order: number
+  bounds?: { left: number; top: number; width: number; height: number }
 }
 
 const parsedSessionSvgCache = new Map<string, DeviceSupportPackage>()
@@ -650,6 +654,9 @@ function tryBuildMatrixLayout(
   if (hasCross || items.length < 2) return null
   if (aspectRatio < 0.72 && items.length > 8) return null
 
+  const spanning = tryBuildSpanningMatrixLayout(items)
+  if (spanning) return spanning
+
   const rowCenters = cluster1D(
     items.map(i => i.ny),
     0.055,
@@ -704,6 +711,118 @@ function tryBuildMatrixLayout(
     ...(oledSpan ? { oledSpan } : {}),
     cells,
   }
+}
+
+function tryBuildSpanningMatrixLayout(items: PositionedSlot[]): QuickOverlaySurfaceLayout | null {
+  const bounded = items.filter((item): item is PositionedSlot & { bounds: NonNullable<PositionedSlot['bounds']> } =>
+    Boolean(item.bounds),
+  )
+  if (bounded.length !== items.length) return null
+  const regular = bounded
+    .map(reference =>
+      bounded.filter(
+        item =>
+          Math.abs(item.bounds.width - reference.bounds.width) < reference.bounds.width * 0.05 &&
+          Math.abs(item.bounds.height - reference.bounds.height) < reference.bounds.height * 0.05,
+      ),
+    )
+    .sort((a, b) => b.length - a.length)[0]
+  if (!regular || regular.length < 4) return null
+
+  const { width, height } = regular[0].bounds
+  const columns = cluster1D(regular.map(item => item.nx), width * 0.1)
+  const rows = cluster1D(regular.map(item => item.ny), height * 0.1)
+  if (columns.length < 2 || rows.length < 2) return null
+  const pitchX = (columns.at(-1)! - columns[0]) / (columns.length - 1)
+  const pitchY = (rows.at(-1)! - rows[0]) / (rows.length - 1)
+  const closeX = (a: number, b: number) => Math.abs(a - b) < width * 0.1
+  const closeY = (a: number, b: number) => Math.abs(a - b) < height * 0.1
+  if (pitchX < width || pitchY < height) return null
+  if (!columns.every((x, index) => closeX(x, columns[0] + index * pitchX))) return null
+  if (!rows.every((y, index) => closeY(y, rows[0] + index * pitchY))) return null
+
+  const left = columns[0] - width / 2
+  const top = rows[0] - height / 2
+  const right = columns.at(-1)! + width / 2
+  const cells: Extract<QuickOverlaySurfaceLayout, { variant: 'matrix' }>['cells'] = []
+  const rail: typeof bounded = []
+  const occupied = new Set<string>()
+  for (const item of bounded) {
+    const bounds = item.bounds
+    if (bounds.left >= right || bounds.left + bounds.width <= left) {
+      rail.push(item)
+      continue
+    }
+    const col = Math.round((bounds.left - left) / pitchX)
+    const row = Math.round((bounds.top - top) / pitchY)
+    const colSpan = Math.round((bounds.width + pitchX - width) / pitchX)
+    const rowSpan = Math.round((bounds.height + pitchY - height) / pitchY)
+    if (col < 0 || row < 0 || colSpan < 1 || rowSpan < 1) return null
+    if (col + colSpan > columns.length || row + rowSpan > rows.length) return null
+    if (!closeX(bounds.left, left + col * pitchX) || !closeY(bounds.top, top + row * pitchY)) return null
+    if (!closeX(bounds.width, (colSpan - 1) * pitchX + width)) return null
+    if (!closeY(bounds.height, (rowSpan - 1) * pitchY + height)) return null
+    for (let y = row; y < row + rowSpan; y++) {
+      for (let x = col; x < col + colSpan; x++) {
+        const coordinate = `${y}:${x}`
+        if (occupied.has(coordinate)) return null
+        occupied.add(coordinate)
+      }
+    }
+    cells.push({
+      ...item.slot,
+      col: col + 1,
+      row: row + 1,
+      ...(colSpan > 1 ? { colSpan } : {}),
+      ...(rowSpan > 1 ? { rowSpan } : {}),
+    })
+  }
+  if (occupied.size / (columns.length * rows.length) < 0.55) return null
+  if (!rail.length && !cells.some(cell => cell.colSpan || cell.rowSpan)) return null
+  const side = rail[0]?.nx < columns[0] ? 'left' : 'right'
+  if (rail.some(item => !closeX(item.nx, rail[0].nx) || (side === 'left' ? item.nx >= left : item.nx <= right))) {
+    return null
+  }
+  return {
+    variant: 'matrix',
+    rows: rows.length,
+    cols: columns.length,
+    cells: cells.sort((a, b) => a.row - b.row || a.col - b.col),
+    ...(rail.length ? { sideRail: { side, slots: rail.sort((a, b) => a.ny - b.ny).map(item => item.slot) } } : {}),
+  }
+}
+
+function keyRegionBounds(region: RemoteKeyRegion): PositionedSlot['bounds'] {
+  if (region.transform) return
+  const segments = region.path.match(/[a-df-z][^a-df-z]*/gi) ?? []
+  let x = 0
+  let y = 0
+  const xs: number[] = []
+  const ys: number[] = []
+  for (const segment of segments) {
+    const command = segment[0]
+    const values = (segment.slice(1).match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number)
+    const relative = command === command.toLowerCase()
+    const kind = command.toUpperCase()
+    const length = kind === 'A' ? 7 : kind === 'M' || kind === 'L' ? 2 : kind === 'H' || kind === 'V' ? 1 : 0
+    if (kind === 'Z') continue
+    if (!length || !values.length || values.length % length) return
+    for (let index = 0; index < values.length; index += length) {
+      const args = values.slice(index, index + length)
+      const nextX = kind === 'V' ? x : args[kind === 'A' ? 5 : 0] + (relative ? x : 0)
+      const nextY = kind === 'H' ? y : args[kind === 'A' ? 6 : kind === 'V' ? 0 : 1] + (relative ? y : 0)
+      // Quarter arcs keep rounded-rectangle extrema at their endpoints; other curves use the existing layout fallback.
+      if (kind === 'A' && (args[2] !== 0 || args[3] !== 0 || Math.abs(Math.abs(nextX - x) - args[0]) > 0.01 || Math.abs(Math.abs(nextY - y) - args[1]) > 0.01)) return
+      x = nextX
+      y = nextY
+      xs.push(x)
+      ys.push(y)
+    }
+  }
+  if (!xs.length) return
+  const left = Math.min(...xs)
+  const top = Math.min(...ys)
+  return { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top }
 }
 
 function packRowsWithBridge(items: PositionedSlot[]): QuickOverlaySurfaceBlock[] {
@@ -986,6 +1105,7 @@ function compileGenericSvgSurface(
     if (!includeUnconfiguredAxes && !hasEnabledOrRaw && kindTag === 'axis') return
 
     const region = pkg.remoteView?.keyRegions[input.id]
+    const bounds = region && keyRegionBounds(region)
     let nx = 0.5
     let ny = 0.5
     if (region && viewBox.width > 0 && viewBox.height > 0) {
@@ -1020,6 +1140,7 @@ function compileGenericSvgSurface(
       ny,
       kindTag,
       order: index,
+      ...(bounds ? { bounds: { left: bounds.left / viewBox.width, top: bounds.top / viewBox.height, width: bounds.width / viewBox.width, height: bounds.height / viewBox.height } } : {}),
     })
   }
 

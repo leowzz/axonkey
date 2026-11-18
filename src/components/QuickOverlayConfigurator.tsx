@@ -78,8 +78,6 @@ export function QuickOverlayConfigurator<Id extends string>({
     [inputs, isMouse, scope],
   )
   const [selectedId, setSelectedId] = useState<Id>()
-  const selected = scopeInputs.find(input => input.id === selectedId) ?? scopeInputs[0]
-  const sequence = selected ? (behaviors[selected.id]?.click ?? emptySequence.click) : emptySequence.click
   const [name, setName] = useState(profileName)
   const [category, setCategory] = useState('all')
   const [edit, setEdit] = useState<{ input: MappingInput<Id>; step: WorkflowStepEdit } | null>(null)
@@ -133,12 +131,12 @@ export function QuickOverlayConfigurator<Id extends string>({
       deviceName,
       profileId,
       profileName,
-      triggerInput: '',
+      triggerInput: triggerInput ?? '',
       pressed: [],
       preview: true,
       behaviors: clickBehaviors,
     }),
-    [clickBehaviors, deviceKind, deviceName, profileId, profileName],
+    [clickBehaviors, deviceKind, deviceName, profileId, profileName, triggerInput],
   )
   const view = useMemo(
     () =>
@@ -158,7 +156,10 @@ export function QuickOverlayConfigurator<Id extends string>({
       ),
     [clickBehaviors, isMouse, platform, scopeInputs, session],
   )
-  const previewView = preview ? buildQuickOverlayView({ ...session, triggerInput: triggerInput ?? '' }, platform) : null
+  const editableInputs = scopeInputs.filter(input => input.id !== view.triggerInputId)
+  const selected = editableInputs.find(input => input.id === selectedId) ?? editableInputs[0]
+  const sequence = selected ? (behaviors[selected.id]?.click ?? emptySequence.click) : emptySequence.click
+  const previewView = preview ? buildQuickOverlayView(session, platform) : null
 
   useEffect(() => setName(profileName), [profileName])
   useEffect(() => {
@@ -292,32 +293,39 @@ export function QuickOverlayConfigurator<Id extends string>({
     const control = isMouse ? mouseInputParts(slot.inputId as InputId).control.id : undefined
     const id = control ? mouseInputId(scope, control) : slot.inputId
     const input = scopeInputs.find(item => item.id === id)
-    const steps = input ? behaviors[input.id]?.click : undefined
+    const isTrigger = id === view.triggerInputId
+    const steps = input && !isTrigger ? behaviors[input.id]?.click : undefined
     const first = steps?.[0]
     const summary = first ? behaviorSummary(first, platform) : undefined
     const count = steps?.length ?? 0
     const isDrop = dropTarget && 'inputId' in dropTarget && dropTarget.inputId === id
     const short = conciseSlotShort(slot)
+    const label = isTrigger ? `${slot.label}：触发键，再按退出，不可配置` : (summary ?? slot.label)
     return (
       <button
         key={slot.slotId}
         type="button"
-        className={`ceramic-key quick-overlay-editor-key ${first ? 'is-configured' + slotKindClass(slot.primaryKind) : 'is-idle'} ${isDrop ? 'is-drop-target' : ''} ${extra}`}
+        className={`ceramic-key quick-overlay-editor-key ${isTrigger ? 'is-trigger' : first ? 'is-configured' + slotKindClass(slot.primaryKind) : 'is-idle'} ${isDrop ? 'is-drop-target' : ''} ${extra}`}
         style={style}
         aria-pressed={selected?.id === id}
-        aria-label={count ? `${slot.label}，${count} 步，${summary}` : slot.label}
-        disabled={!input}
-        data-quick-overlay-input={input?.id}
-        onClick={() => input && setSelectedId(input.id)}
-        title={summary ?? slot.label}
+        aria-label={isTrigger ? label : count ? `${slot.label}，${count} 步，${summary}` : slot.label}
+        disabled={!input || isTrigger}
+        data-quick-overlay-input={isTrigger ? undefined : input?.id}
+        onClick={() => input && !isTrigger && setSelectedId(input.id)}
+        title={label}
       >
         <span className="ceramic-key-top">
           <span className="ceramic-key-code">
             {renderKeyGlyph(slot)}
             <span>{short}</span>
           </span>
-          {count > 0 && <span className="ceramic-key-tag">{count}</span>}
+          {isTrigger ? (
+            <span className="ceramic-key-tag is-exit">触发键</span>
+          ) : count > 0 ? (
+            <span className="ceramic-key-tag">{count}</span>
+          ) : null}
         </span>
+        {isTrigger && <span className="ceramic-key-exit-text">再按退出</span>}
         {summary && <strong className="ceramic-key-label">{summary}</strong>}
       </button>
     )

@@ -351,6 +351,31 @@ html.quick-overlay-window,
   gap: 8px;
 }
 
+.ceramic-matrix-with-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.8fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 780px;
+  margin-block: auto;
+}
+
+.ceramic-matrix-with-rail.side-right {
+  grid-template-columns: minmax(0, 4fr) minmax(110px, 0.8fr);
+}
+
+.ceramic-matrix-with-rail.side-left {
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 4fr);
+}
+
+.ceramic-matrix-with-rail > .ceramic-chassis {
+  margin-block: 0;
+}
+
+.ceramic-matrix-with-rail > .ceramic-side-rail > .ceramic-key {
+  flex: 1;
+}
+
 .ceramic-matrix-oled {
   display: flex;
   flex-direction: column;
@@ -570,7 +595,7 @@ html.quick-overlay-window,
     0 4px 10px rgb(245 158 11 / 12%);
 }
 
-.ceramic-key.is-trigger:hover,
+.ceramic-key.is-trigger:not(:disabled):hover,
 .ceramic-key.is-trigger:focus-visible,
 .ceramic-key.is-trigger.is-active {
   border-color: #d97706;

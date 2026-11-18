@@ -112,6 +112,11 @@
   opacity: 0.52;
 }
 
+.quick-overlay-editor-key.is-trigger:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
 .quick-overlay-editor-key .ceramic-key-label {
   display: block;
   width: 100%;

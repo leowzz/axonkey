@@ -77,7 +77,7 @@ function slotDetailCandidate(slot: QuickOverlayKeySlot): {
 }
 
 function collectAllSlots(surface: ReturnType<typeof buildQuickOverlayView>['surface']): QuickOverlayKeySlot[] {
-  if (surface.variant === 'matrix') return surface.cells
+  if (surface.variant === 'matrix') return [...surface.cells, ...(surface.sideRail?.slots ?? [])]
   if (surface.variant === 'mouse') {
     const out: QuickOverlayKeySlot[] = [...surface.thumbStack, ...surface.primaryPair]
     for (const key of ['up', 'left', 'center', 'right', 'down'] as const) {

@@ -87,8 +87,14 @@ export function QuickOverlaySurface({
 
   const { surface } = view
 
+  const renderSideRail = (rail: { slots: QuickOverlayKeySlot[] }) => (
+    <div className="ceramic-side-rail" aria-label="侧面按键区">
+      {rail.slots.map(slot => renderKeySlot(slot, 'is-side-key'))}
+    </div>
+  )
+
   if (surface.variant === 'matrix') {
-    return (
+    const matrix = (
       <div
         className="ceramic-chassis is-matrix"
         style={{
@@ -110,7 +116,19 @@ export function QuickOverlaySurface({
             <span>{view.items.length} 键已就绪</span>
           </div>
         )}
-        {surface.cells.map(cell => renderKeySlot(cell, '', { gridColumn: cell.col, gridRow: cell.row }))}
+        {surface.cells.map(cell =>
+          renderKeySlot(cell, '', {
+            gridColumn: cell.colSpan ? `${cell.col} / span ${cell.colSpan}` : cell.col,
+            gridRow: cell.rowSpan ? `${cell.row} / span ${cell.rowSpan}` : cell.row,
+          }),
+        )}
+      </div>
+    )
+    if (!surface.sideRail) return matrix
+    const rail = renderSideRail(surface.sideRail)
+    return (
+      <div className={`ceramic-matrix-with-rail side-${surface.sideRail.side}`}>
+        {surface.sideRail.side === 'left' ? <>{rail}{matrix}</> : <>{matrix}{rail}</>}
       </div>
     )
   }
@@ -153,11 +171,7 @@ export function QuickOverlaySurface({
   if (!surface.sideRail) {
     return <div className={`ceramic-chassis is-panel density-${surface.density}`}>{mainColumn}</div>
   }
-  const sideRailEl = (
-    <div className="ceramic-side-rail" aria-label="侧面按键区">
-      {surface.sideRail.slots.map(slot => renderKeySlot(slot, 'is-side-key'))}
-    </div>
-  )
+  const sideRailEl = renderSideRail(surface.sideRail)
   return (
     <div className={`ceramic-chassis is-panel has-side-rail side-${surface.sideRail.side} density-${surface.density}`}>
       {surface.sideRail.side === 'left' ? (
