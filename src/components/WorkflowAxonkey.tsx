@@ -48,6 +48,7 @@ import { bindWorkflowTrash } from './workflowTrash'
 import { workflowLaneLayout, workflowUsesTriggerTabs } from './workflowLaneLayout'
 import { MappingColumnSplitter } from './MappingColumnSplitter'
 import { WorkflowSplitPane } from './WorkflowSplitPane'
+import { SelectControl } from './SelectControl'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -60,7 +61,7 @@ const translations: Record<string, string> = {
   'contextMenu.resetView': '重置视图',
 }
 
-type WorkflowAxonkeyProps<Id extends string> = {
+export type WorkflowAxonkeyProps<Id extends string> = {
   header?: ReactNode
   splitRatio: number
   onSplitRatioChange: (ratio: number) => void
@@ -100,6 +101,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
 }: WorkflowAxonkeyProps<Id>) {
   const [canvasWidth, setCanvasWidth] = useState(0)
   const [selectedTrigger, setSelectedTrigger] = useState<TriggerType>('click')
+  const [addTrigger, setAddTrigger] = useState<TriggerType>('click')
   const useTriggerTabs = !button.triggerLabel && !activeTrigger && workflowUsesTriggerTabs(canvasWidth)
   const visibleTrigger = activeTrigger ?? (useTriggerTabs ? selectedTrigger : undefined)
   const triggers = button.triggerLabel
@@ -108,9 +110,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       ? defaultWorkflowTriggers.filter(trigger => trigger.id === visibleTrigger)
       : defaultWorkflowTriggers
   const triggersRef = useRef(triggers)
+  const targetTrigger = visibleTrigger ?? (button.triggerLabel ? 'click' : addTrigger)
   triggersRef.current = triggers
   const refreshLanesRef = useRef<(() => void) | null>(null)
-  const addStepRef = useRef<((step: StepDefinition, trigger: TriggerType) => void) | null>(null)
+  const addStepRef = useRef<((step: StepDefinition, trigger: TriggerType, keyboard?: boolean) => void) | null>(null)
   const inputLabel = [button.label, button.contextLabel].filter(Boolean).join(' · ')
   const canvasRef = useRef<HTMLDivElement>(null)
   const trashRef = useRef<HTMLButtonElement>(null)
@@ -306,6 +309,47 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           interrupt => selectionBinding?.finishDrag(interrupt),
           canDragStep,
           stepId => openEditor(stepId, true),
+          {
+            select: stepId => designer.selectStepById(stepId),
+            remove: stepId => {
+              if (!workflowApi || workflowApi.editor.isReadonly()) return
+              for (const [trigger, branch] of Object.entries(workflowBranches(workflowApi.editor.getDefinition()))) {
+                const index = branch.findIndex(step => step.id === stepId)
+                if (index < 0 || isWorkflowStepLocked(branch[index], branch)) continue
+                const nextId = branch[index + 1]?.id ?? branch[index - 1]?.id
+                branch.splice(index, 1)
+                setEditingStep(null)
+                designer.clearSelectedStep()
+                void designer.onRootComponentUpdated.once().then(() => {
+                  if (!active) return
+                  const selector = nextId
+                    ? `[data-step-id="${CSS.escape(nextId)}"]`
+                    : `[data-trigger-paste="${trigger}"]`
+                  canvasRef.current?.querySelector<SVGElement>(selector)?.focus()
+                })
+                workflowApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+                setLaneStatus('行为已删除')
+                break
+              }
+            },
+            move: (stepId, direction) => {
+              if (!workflowApi || workflowApi.editor.isReadonly()) return
+              for (const branch of Object.values(workflowBranches(workflowApi.editor.getDefinition()))) {
+                const index = branch.findIndex(step => step.id === stepId)
+                const target = index + direction
+                if (index < 0 || target < 0 || target >= branch.length || isWorkflowStepLocked(branch[index], branch))
+                  continue
+                ;[branch[index], branch[target]] = [branch[target], branch[index]]
+                void designer.onRootComponentUpdated.once().then(() => {
+                  if (active)
+                    canvasRef.current?.querySelector<SVGElement>(`[data-step-id="${CSS.escape(stepId)}"]`)?.focus()
+                })
+                workflowApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+                setLaneStatus(`已移到第 ${target + 1} 步`)
+                break
+              }
+            },
+          },
         ),
         {
           draggedComponent: createWorkflowDraggedSteps(step => selectionBinding?.getDragSteps(step.id) ?? [step]),
@@ -509,7 +553,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       recordLibraryAdditions(takeWorkflowLibraryAdditions(workflowApi!.editor.getDefinition()))
       acceptedBranches = structuredClone(current)
     }
-    const normalizeInsertion = (trigger: TriggerType, index: number) => {
+    const normalizeInsertion = (trigger: TriggerType, index: number, dialog = false) => {
       const api = workflowApi!
       const branch = workflowBranches(api.editor.getDefinition())[trigger]
       const nodes = insertedWorkflowSteps(branch[index], platform, label)
@@ -542,7 +586,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       const first = nodes.find(isEditableWorkflowStep)
       if (first) {
         designer.selectStepById(first.id)
-        openEditor(first.id)
+        openEditor(first.id, dialog)
       }
     }
     designer.onDefinitionChanged.subscribe(event => {
@@ -568,7 +612,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         return currentEdit.trigger === edit.trigger ? edit : { ...edit, trigger: currentEdit.trigger }
       })
     })
-    addStepRef.current = (step, trigger) => {
+    addStepRef.current = (step, trigger, keyboard) => {
       const api = workflowApi
       if (!active || !api || api.editor.isReadonly()) return
       const current = api.editor.getDefinition()
@@ -579,9 +623,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       }
       const index = branch.length
       branch.push({ ...structuredClone(step), id: crypto.randomUUID() })
-      normalizeInsertion(trigger, index)
+      normalizeInsertion(trigger, index, keyboard)
       const next = workflowToBehaviors(current)
       if (next) persist(next)
+      setLaneStatus(`已添加到${button.triggerLabel ?? triggerLabels[trigger]}`)
     }
     const resizeObserver = new ResizeObserver(() => {
       setCanvasWidth(canvasRef.current!.clientWidth)
@@ -774,7 +819,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         canvas={
           <>
             <div className="workflow-canvas-workspace">
-              <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+              <div
+                ref={canvasRef}
+                className="workflow-axonkey-canvas"
+                role="group"
+                tabIndex={-1}
+                aria-label="行为流程图画布"
+              />
               <button
                 ref={trashRef}
                 type="button"
@@ -808,6 +859,18 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       />
       <MappingColumnSplitter panel="library" onResize={onLibraryWidthChange ?? (() => {})} />
       <aside className="sqd-toolbox workflow-toolbox" aria-label="行为工具箱">
+        {!button.triggerLabel && !visibleTrigger && (
+          <label className="workflow-add-target">
+            添加到：
+            <SelectControl value={targetTrigger} onChange={event => setAddTrigger(event.target.value as TriggerType)}>
+              {defaultWorkflowTriggers.map(trigger => (
+                <option key={trigger.id} value={trigger.id}>
+                  {trigger.label}
+                </option>
+              ))}
+            </SelectControl>
+          </label>
+        )}
         <WorkflowToolbox
           api={designerApi}
           platform={platform}
@@ -818,8 +881,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({
             if (error) setLaneStatus(error)
           }}
           iconUrls={iconUrls}
-          addLabel={`添加到${triggers[0].label}`}
-          onAddStep={step => addStepRef.current?.(step, triggers[0].id)}
+          addLabel={`添加到${button.triggerLabel ?? triggerLabels[targetTrigger]}`}
+          onAddStep={(step, keyboard) => addStepRef.current?.(step, targetTrigger, keyboard)}
           getStepPreview={step =>
             insertedWorkflowSteps({ ...step, id: 'preview' }, platform, behavior =>
               behaviorSummary(behavior, platform),

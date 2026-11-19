@@ -327,6 +327,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
     '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
     '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+    '../../components/LegacyMappingEditor': { LegacyMappingEditor: () => null },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: nullComponent },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },

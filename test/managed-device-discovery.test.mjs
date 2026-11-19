@@ -652,6 +652,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
     '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+    '../../components/LegacyMappingEditor': { LegacyMappingEditor: () => null },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1161,6 +1162,7 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
   let modalOpen = false
   const RemoteControl = () => null
   const WorkflowAxonkey = ({ header }) => header
+  const LegacyMappingEditor = ({ header }) => header
   const ApplicationProfileToolbar = () => null
   const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
     'react-dom': { createPortal: node => node },
@@ -1192,6 +1194,7 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
     '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+    '../../components/LegacyMappingEditor': { LegacyMappingEditor },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1232,8 +1235,10 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
   const snapshot = model.emptySnapshot()
   snapshot.store.instances = [instance]
   const toasts = []
+  let mappingStyle = 'flow'
   let view
   const render = () => React.createElement(InstanceWorkspace, {
+    mappingStyle,
     instance,
     controller: {
       snapshot,
@@ -1339,6 +1344,15 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     act(() => view.update(render()))
     assert.equal(workflow().props.sequences.click[0].key, 'Enter')
     assert.equal(redoBtn().props.disabled, true)
+
+    mappingStyle = 'legacy'
+    act(() => view.update(render()))
+    assert.equal(view.root.findAllByType(WorkflowAxonkey).length, 0)
+    assert.equal(view.root.findByType(LegacyMappingEditor).props.sequences.click[0].key, 'Enter')
+    assert.equal(view.root.findByType(LegacyMappingEditor).props.button.id, selectedId)
+    mappingStyle = 'flow'
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Enter')
 
     // Switching profile resets undo/redo history so undo never restores p1 into p2.
     act(() => {
@@ -1620,6 +1634,7 @@ test('Kivo K18 Lite workspace delegates responsive lanes to the workflow and edi
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
     '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+    '../../components/LegacyMappingEditor': { LegacyMappingEditor: () => null },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1839,6 +1854,7 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
     '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+    '../../components/LegacyMappingEditor': { LegacyMappingEditor: () => null },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),

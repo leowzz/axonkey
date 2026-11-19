@@ -429,7 +429,7 @@ function AppController({
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(initialBindingId)
   const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
-  const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
+  const [mappingStyle, setMappingStyle] = useState(initialUiState.mappingStyle)
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
   const navigateToPage = (page: AppPage) => {
     setDeviceSettingsOpen(false)
@@ -438,7 +438,6 @@ function AppController({
       return
     }
     setSelectedInstanceId(null)
-    if (page === 'mapping') setMappingStyle('flow')
     setWorkspacePage(page)
     setActivePage(page)
   }
@@ -490,6 +489,7 @@ function AppController({
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
   const uiStateRef = useRef<StoredUiState>(initialUiState)
   uiStateRef.current = {
+    mappingStyle,
     sidebarCollapsed,
     activePage,
     selectedDeviceId,
@@ -505,7 +505,16 @@ function AppController({
 
   useEffect(() => {
     persistUiState()
-  }, [activePage, sidebarCollapsed, selectedDeviceId, activeId, selectedBehavior, settingsSection, persistUiState])
+  }, [
+    activePage,
+    sidebarCollapsed,
+    selectedDeviceId,
+    activeId,
+    selectedBehavior,
+    settingsSection,
+    mappingStyle,
+    persistUiState,
+  ])
 
   useEffect(() => {
     const mainContent = mainContentRef.current
@@ -1839,7 +1848,7 @@ function AppController({
           )
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
-    setCapturingBehaviorId(type === 'key' ? behavior.id : null)
+    setCapturingBehaviorId(null)
   }
 
   const applyCommonBehavior = (preset: CommonBehaviorPreset) => {
@@ -2937,6 +2946,7 @@ function AppController({
                 onOpenAudioDriver={openAudioDriver}
                 deviceContent={
                   <DeviceHub
+                    mappingStyle={mappingStyle}
                     selectedInstanceId={selectedInstanceId}
                     bindInstanceId={pendingBindingId}
                     onBindingOpened={() => setPendingBindingId(null)}
@@ -2983,6 +2993,8 @@ function AppController({
               onClose={closeSettingsPanel}
             >
               <SettingsPage
+                mappingStyle={mappingStyle}
+                onMappingStyleChange={setMappingStyle}
                 presentation="panel"
                 cloudContent={
                   <CloudSyncSettings
@@ -3163,6 +3175,7 @@ function AppController({
       )}
       {editingBehavior && (
         <BehaviorEditDialog
+          autoCapture={false}
           platform={platform}
           button={selectedButton}
           trigger={selectedBehavior.trigger}
@@ -3181,6 +3194,7 @@ function AppController({
       )}
       {draftBehavior && (
         <BehaviorEditDialog
+          autoCapture={false}
           platform={platform}
           button={selectedButton}
           trigger={selectedBehavior.trigger}

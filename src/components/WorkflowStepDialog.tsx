@@ -6,6 +6,7 @@ import type { Behavior, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
 import { BehaviorEditDialog, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup } from './workflowActionChoices'
+import { useMappingDialogFocus } from './useMappingDialogFocus'
 
 export type WorkflowStepEdit = {
   stepId: string
@@ -39,8 +40,13 @@ export function WorkflowStepDialog({
   quickOverlayContext?: QuickOverlayEditorContext
 }) {
   const [behavior, setBehavior] = useState(edit.behavior)
-  const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
+  const [capturing, setCapturing] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const trapFocus = useMappingDialogFocus(
+    ref,
+    !inline,
+    `.workflow-axonkey-canvas [data-step-id="${CSS.escape(edit.stepId)}"]`,
+  )
   const choiceGroup = workflowActionChoiceGroup(edit.behavior)
 
   useEffect(() => setBehavior(edit.behavior), [edit.behavior])
@@ -50,59 +56,29 @@ export function WorkflowStepDialog({
     if (inline) edit.onSave(next)
   }
 
-  useEffect(() => {
-    if (inline) return
-    const app = document.getElementById('root')
-    const wasInert = app?.inert ?? false
-    const previousFocus = document.activeElement
-    const overflow = document.body.style.overflow
-    if (app) app.inert = true
-    document.body.style.overflow = 'hidden'
-    if (!ref.current?.contains(document.activeElement)) ref.current?.querySelector<HTMLButtonElement>('button')?.focus()
-    return () => {
-      if (app) app.inert = wasInert
-      document.body.style.overflow = overflow
-      const node = document.querySelector<SVGElement>(
-        `.workflow-axonkey-canvas [data-step-id="${CSS.escape(edit.stepId)}"]`,
-      )
-      if (node) node.focus()
-      else if (
-        (previousFocus instanceof HTMLElement || previousFocus instanceof SVGElement) &&
-        previousFocus.isConnected
-      )
-        previousFocus.focus()
-    }
-  }, [edit.stepId, inline])
-
   return (
     <div
       ref={ref}
       className={`mapping-active workflow-step-editor${inline ? ' workflow-step-inline' : ''}`}
       onKeyDownCapture={event => {
+        if (capturing && event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          setCapturing(false)
+          return
+        }
         if (capturing) return
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
           onClose()
         }
-        if (inline || event.key !== 'Tab') return
-        const elements = Array.from(
-          ref.current?.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), textarea, select:not(:disabled), [tabindex="0"]',
-          ) ?? [],
-        )
-        const first = elements[0]
-        const last = elements[elements.length - 1]
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault()
-          last?.focus()
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault()
-          first?.focus()
-        }
+        trapFocus(event)
       }}
     >
       <BehaviorEditDialog
+        manageFocus={false}
+        autoCapture={false}
         platform={platform}
         button={button}
         trigger={edit.trigger}

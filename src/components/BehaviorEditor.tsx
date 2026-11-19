@@ -60,6 +60,8 @@ import {
 import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, MappingInput } from '../appTypes'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useMappingDialogFocus } from './useMappingDialogFocus'
 
 function mappingTriggerLabel(button: MappingInput<string>, trigger: TriggerType) {
   return [button.contextLabel, button.triggerLabel ?? triggerLabels[trigger]].filter(Boolean).join(' · ')
@@ -76,11 +78,11 @@ function rightModifierGlyph(key: string, platform: Platform) {
   return 'Ctrl'
 }
 
-type BehaviorEditorProps = {
+type BehaviorEditorProps<Id extends string> = {
   editorRef: RefObject<HTMLElement>
   attention: boolean
   platform: Platform
-  button: MappingInput
+  button: MappingInput<Id>
   trigger: TriggerType
   behaviors: Behavior[]
   onApplyCommonBehavior: (preset: CommonBehaviorPreset) => void
@@ -113,7 +115,7 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   )
 }
 
-export function BehaviorEditor({
+export function BehaviorEditor<Id extends string>({
   editorRef,
   attention,
   platform,
@@ -129,7 +131,7 @@ export function BehaviorEditor({
   onCopySequence,
   onPasteSequence,
   onClearSequence,
-}: BehaviorEditorProps) {
+}: BehaviorEditorProps<Id>) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return (
@@ -643,6 +645,8 @@ export type QuickOverlayEditorContext = {
 }
 
 type BehaviorEditDialogProps = {
+  manageFocus?: boolean
+  autoCapture?: boolean
   platform: Platform
   button: MappingInput<string>
   trigger: TriggerType
@@ -723,6 +727,7 @@ function QuickOverlayEditorFields({
   onSelectProfile: (profileId: string) => void
   onSaveBeforeEdit?: () => void
 }) {
+  const fieldId = useId()
   const candidates = useMemo(() => {
     const list = (context?.profiles ?? []).filter(item => item.id !== context?.currentProfileId)
     return [...list].sort((a, b) => Number(Boolean(b.quick)) - Number(Boolean(a.quick)))
@@ -757,8 +762,10 @@ function QuickOverlayEditorFields({
     <div className="settings-form-fields behavior-dialog-form behavior-quick-overlay-form">
       <div className="settings-form-row">
         <div className="behavior-launch-label">
-          <label htmlFor={creating ? 'behavior-quick-profile-name' : 'behavior-quick-profile-select'}>关联配置：</label>
-          <SettingsHelp id="behavior-quick-overlay-help" label="快捷交互窗">
+          <label htmlFor={`${fieldId}-${creating ? 'behavior-quick-profile-name' : 'behavior-quick-profile-select'}`}>
+            关联配置：
+          </label>
+          <SettingsHelp id={`${fieldId}-behavior-quick-overlay-help`} label="快捷交互窗">
             按下此键唤起所选的独立配置文件，并在桌面顶层显示该配置下其他按键的功能预览；按下其他按键执行对应行为并退出模式，再次按下此触发键直接退出。
           </SettingsHelp>
         </div>
@@ -767,7 +774,7 @@ function QuickOverlayEditorFields({
             <>
               <div className="manual-key-select">
                 <select
-                  id="behavior-quick-profile-select"
+                  id={`${fieldId}-behavior-quick-profile-select`}
                   value={profileId}
                   onChange={event => onSelectProfile(event.target.value)}
                 >
@@ -804,7 +811,7 @@ function QuickOverlayEditorFields({
           ) : (
             <>
               <input
-                id="behavior-quick-profile-name"
+                id={`${fieldId}-behavior-quick-profile-name`}
                 className="behavior-launch-input"
                 style={{ maxWidth: 190 }}
                 value={draftName}
@@ -870,6 +877,8 @@ function QuickOverlayEditorFields({
 }
 
 export function BehaviorEditDialog({
+  manageFocus = true,
+  autoCapture = true,
   platform,
   button,
   trigger,
@@ -906,8 +915,9 @@ export function BehaviorEditDialog({
   const [picking, setPicking] = useState(false)
   const [applicationDragOver, setApplicationDragOver] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
+  const trapFocus = useMappingDialogFocus(dialogRef, manageFocus && !inline)
   useEffect(() => {
-    if (inline) return
+    if (inline || !autoCapture) return
     if (actionChoices || (savedBehavior.type !== 'key' && savedBehavior.type !== 'shortcut')) return
     onStartCapture()
     dialogRef.current?.querySelector<HTMLButtonElement>('.record-key-button')?.focus()
@@ -1059,7 +1069,7 @@ export function BehaviorEditDialog({
           : behavior.type === 'quickOverlay'
             ? Boolean(behavior.profileId.trim())
             : true
-  return (
+  const content = (
     <div
       className={inline ? 'behavior-inline-container' : 'behavior-dialog-backdrop'}
       role="presentation"
@@ -1073,6 +1083,14 @@ export function BehaviorEditDialog({
         role={inline ? 'region' : 'dialog'}
         aria-modal={inline ? undefined : true}
         aria-labelledby={titleId}
+        onKeyDownCapture={event => {
+          if (!capturing) trapFocus(event)
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          event.stopPropagation()
+          if (capturing) onCancelCapture()
+          else onClose()
+        }}
         onKeyDown={event => {
           if (capturing) onCaptureKey(behavior, event)
         }}
@@ -1094,8 +1112,12 @@ export function BehaviorEditDialog({
         <div className="behavior-dialog-body">
           {actionChoices ? (
             <div className="behavior-dialog-field">
-              <span id="behavior-action-choice-label">{actionChoices.label}</span>
-              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-action-choice-label">
+              <span id={`${titleId}-behavior-action-choice-label`}>{actionChoices.label}</span>
+              <div
+                className="shortcut-modifiers"
+                role="group"
+                aria-labelledby={`${titleId}-behavior-action-choice-label`}
+              >
                 {actionChoices.options.map(option => (
                   <button
                     key={option.label}
@@ -1138,7 +1160,7 @@ export function BehaviorEditDialog({
                 <div className={`shortcut-manual-builder ${standaloneBase ? 'standalone' : ''}`}>
                   <div className="behavior-field-title">
                     <strong>修饰键</strong>
-                    <SettingsHelp id="behavior-shortcut-modifiers-help" label="修饰键">
+                    <SettingsHelp id={`${titleId}-behavior-shortcut-modifiers-help`} label="修饰键">
                       修饰键与主按键组合发送，可同时选择左右侧。主按键留空时，仅发送选中的修饰键；主按键为单独修饰键时，其他修饰键不参与。
                     </SettingsHelp>
                   </div>
@@ -1203,14 +1225,18 @@ export function BehaviorEditDialog({
           ) : behavior.type === 'wheel' ? (
             <div className="behavior-dialog-field">
               <div className="behavior-launch-label">
-                <span id="behavior-wheel-direction-label">滚动方向</span>
-                <SettingsHelp id="behavior-wheel-help" label="滚动方向">
+                <span id={`${titleId}-behavior-wheel-direction-label`}>滚动方向</span>
+                <SettingsHelp id={`${titleId}-behavior-wheel-help`} label="滚动方向">
                   {button.contextLabel
                     ? '每次触发发送一格滚轮事件。'
                     : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}
                 </SettingsHelp>
               </div>
-              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-wheel-direction-label">
+              <div
+                className="shortcut-modifiers"
+                role="group"
+                aria-labelledby={`${titleId}-behavior-wheel-direction-label`}
+              >
                 {(
                   [
                     ['up', '向上'],
@@ -1238,13 +1264,17 @@ export function BehaviorEditDialog({
               <div className="settings-form-fields behavior-dialog-form">
                 <div className="settings-form-row">
                   <div className="behavior-launch-label">
-                    <span id="behavior-cursor-direction-label">移动方向</span>
-                    <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">
+                    <span id={`${titleId}-behavior-cursor-direction-label`}>移动方向</span>
+                    <SettingsHelp id={`${titleId}-behavior-cursor-direction-help`} label="移动方向">
                       从当前光标位置相对移动，不会跳到固定坐标。
                     </SettingsHelp>
                   </div>
                   <div className="settings-form-control">
-                    <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
+                    <div
+                      className="shortcut-modifiers"
+                      role="group"
+                      aria-labelledby={`${titleId}-behavior-cursor-direction-label`}
+                    >
                       {(
                         [
                           ['up', '向上'],
@@ -1273,8 +1303,8 @@ export function BehaviorEditDialog({
                 </div>
                 <div className="settings-form-row">
                   <div className="behavior-launch-label">
-                    <label htmlFor="behavior-cursor-distance">移动距离</label>
-                    <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">
+                    <label htmlFor={`${titleId}-behavior-cursor-distance`}>移动距离</label>
+                    <SettingsHelp id={`${titleId}-behavior-cursor-distance-help`} label="移动距离">
                       {button.contextLabel
                         ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
                         : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}
@@ -1282,7 +1312,7 @@ export function BehaviorEditDialog({
                   </div>
                   <div className="settings-form-control">
                     <input
-                      id="behavior-cursor-distance"
+                      id={`${titleId}-behavior-cursor-distance`}
                       className="settings-number"
                       type="number"
                       min="1"
@@ -1311,11 +1341,15 @@ export function BehaviorEditDialog({
           ) : behavior.type === 'switchProfile' ? (
             <div className="settings-form-fields behavior-dialog-form">
               <div className="settings-form-row">
-                <span className="settings-form-label" id="behavior-profile-direction-label">
+                <span className="settings-form-label" id={`${titleId}-behavior-profile-direction-label`}>
                   切换到
                 </span>
                 <div className="settings-form-control">
-                  <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-profile-direction-label">
+                  <div
+                    className="shortcut-modifiers"
+                    role="group"
+                    aria-labelledby={`${titleId}-behavior-profile-direction-label`}
+                  >
                     {(
                       [
                         ['previous', '上一个'],
@@ -1370,11 +1404,11 @@ export function BehaviorEditDialog({
           ) : launchBehavior ? (
             <div className="behavior-dialog-field">
               <div className="behavior-launch-label">
-                <label htmlFor="behavior-launch-target">
+                <label htmlFor={`${titleId}-behavior-launch-target`}>
                   {behavior.type === 'openPath' ? '路径' : behavior.type === 'openApp' ? '应用路径' : '网站地址'}
                 </label>
                 <SettingsHelp
-                  id="behavior-launch-help"
+                  id={`${titleId}-behavior-launch-help`}
                   label={
                     behavior.type === 'openPath'
                       ? '文件或文件夹路径'
@@ -1392,7 +1426,7 @@ export function BehaviorEditDialog({
               </div>
               <div className="behavior-launch-row">
                 <input
-                  id="behavior-launch-target"
+                  id={`${titleId}-behavior-launch-target`}
                   className="behavior-launch-input"
                   autoFocus={draft}
                   value={launchTarget}
@@ -1409,7 +1443,7 @@ export function BehaviorEditDialog({
                   }
                   spellCheck={false}
                   aria-invalid={Boolean(launchTarget && !normalizedTarget)}
-                  aria-describedby={launchTarget && !normalizedTarget ? 'behavior-launch-error' : undefined}
+                  aria-describedby={launchTarget && !normalizedTarget ? `${titleId}-behavior-launch-error` : undefined}
                   onChange={event => updateLaunchTarget(event.target.value)}
                 />
                 {behavior.type === 'openPath' && (
@@ -1446,7 +1480,7 @@ export function BehaviorEditDialog({
                 )}
               </div>
               {launchTarget && !normalizedTarget && (
-                <p id="behavior-launch-error" className="behavior-launch-error" role="alert">
+                <p id={`${titleId}-behavior-launch-error`} className="behavior-launch-error" role="alert">
                   {behavior.type === 'openPath'
                     ? '请填写文件或文件夹的完整路径。'
                     : behavior.type === 'openApp'
@@ -1463,15 +1497,15 @@ export function BehaviorEditDialog({
           ) : behavior.type === 'paste' || behavior.type === 'typeText' ? (
             <div className="behavior-dialog-field">
               <div className="behavior-launch-label">
-                <label htmlFor="behavior-paste-text">文本内容</label>
-                <SettingsHelp id="behavior-text-help" label="文本输入方式">
+                <label htmlFor={`${titleId}-behavior-paste-text`}>文本内容</label>
+                <SettingsHelp id={`${titleId}-behavior-text-help`} label="文本输入方式">
                   {behavior.type === 'typeText'
                     ? '通过系统模拟输入文字，不读取或修改剪贴板；目标应用须支持系统文字输入。'
                     : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
                 </SettingsHelp>
               </div>
               <textarea
-                id="behavior-paste-text"
+                id={`${titleId}-behavior-paste-text`}
                 className="behavior-paste-input"
                 autoFocus={draft}
                 value={behavior.text}
@@ -1487,10 +1521,10 @@ export function BehaviorEditDialog({
             </div>
           ) : behavior.type === 'delay' ? (
             <div className="behavior-dialog-field">
-              <label htmlFor="behavior-delay-ms">等待时间</label>
+              <label htmlFor={`${titleId}-behavior-delay-ms`}>等待时间</label>
               <div className="behavior-delay-row">
                 <input
-                  id="behavior-delay-ms"
+                  id={`${titleId}-behavior-delay-ms`}
                   className="behavior-delay-input"
                   autoFocus={draft}
                   type="number"
@@ -1550,6 +1584,7 @@ export function BehaviorEditDialog({
       </section>
     </div>
   )
+  return manageFocus && !inline ? createPortal(content, document.body) : content
 }
 
 type SequencePasteDialogProps = {
@@ -1561,6 +1596,8 @@ type SequencePasteDialogProps = {
 }
 
 export function SequencePasteDialog({ platform, button, trigger, onClose, onApply }: SequencePasteDialogProps) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const trapFocus = useMappingDialogFocus(dialogRef)
   const [value, setValue] = useState('')
   const [clipboardError, setClipboardError] = useState('')
   const [sourceOpen, setSourceOpen] = useState(false)
@@ -1585,7 +1622,7 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
     }
   }, [])
 
-  return (
+  return createPortal(
     <div
       className="behavior-dialog-backdrop"
       role="presentation"
@@ -1593,13 +1630,16 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
         if (event.target === event.currentTarget) onClose()
       }}
       onKeyDown={event => {
+        trapFocus(event)
         if (event.key === 'Escape') {
+          event.preventDefault()
           event.stopPropagation()
           onClose()
         }
       }}
     >
       <section
+        ref={dialogRef}
         className="behavior-dialog sequence-paste-dialog"
         role="dialog"
         aria-modal="true"
@@ -1691,7 +1731,8 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
           </div>
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1712,15 +1753,26 @@ export function TextInputPresetDialog({
   onClose,
   onSave,
 }: TextInputPresetDialogProps) {
-  return (
+  const dialogRef = useRef<HTMLElement>(null)
+  const trapFocus = useMappingDialogFocus(dialogRef)
+  return createPortal(
     <div
       className="behavior-dialog-backdrop"
       role="presentation"
+      onKeyDown={event => {
+        trapFocus(event)
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        }
+      }}
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <section
+        ref={dialogRef}
         className="behavior-dialog behavior-edit-form text-input-dialog"
         role="dialog"
         aria-modal="true"
@@ -1771,6 +1823,7 @@ export function TextInputPresetDialog({
           </div>
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

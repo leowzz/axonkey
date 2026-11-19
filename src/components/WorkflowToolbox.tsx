@@ -48,7 +48,7 @@ export function WorkflowToolbox({
   iconUrls: Record<string, string>
   selectedCategory: string
   onCategoryChange: (category: string) => void
-  onAddStep: (step: StepDefinition) => void
+  onAddStep: (step: StepDefinition, keyboard?: boolean) => void
   onStepPointerDown?: (event: PointerEvent<HTMLButtonElement>, step: StepDefinition) => void
   allowStep?: (step: StepDefinition) => boolean
   addLabel: string
@@ -320,7 +320,7 @@ export function WorkflowToolbox({
                         className="workflow-toolbox-add"
                         aria-label={`${addLabel}：${step.name}`}
                         title={addLabel}
-                        onClick={() => onAddStep(step)}
+                        onClick={event => onAddStep(step, event.detail === 0)}
                       >
                         <Plus size={15} aria-hidden="true" />
                       </button>
@@ -443,8 +443,8 @@ export function WorkflowToolbox({
                 <button
                   type="button"
                   className="button primary"
-                  onClick={() => {
-                    onAddStep(preview)
+                  onClick={event => {
+                    onAddStep(preview, event.detail === 0)
                     setPreview(null)
                   }}
                 >

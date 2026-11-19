@@ -51,7 +51,7 @@ export type MappingPageProps = {
   showRemoteKeyGrid: boolean
   showMouseKeyGrid: boolean
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
-  behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
+  behaviorEditorProps: ComponentProps<typeof BehaviorEditor<InputId>>
   remoteView?: RemoteView
   quickOverlayContext?: QuickOverlayEditorContext
   inputWarnings?: Readonly<Record<string, string>>

@@ -135,7 +135,7 @@ test('preview and add controls use the original palette action without starting 
   const added = [], drags = []
   act(() => { view = Renderer.create(React.createElement(WorkflowToolbox, { ...toolboxActions, palettes, selectedCategory: 'all', onCategoryChange() {}, iconUrls: {}, getStepPreview: item => ['预览：' + item.name], onAddStep: item => added.push(item), api: { toolbox: { tryDrag: (...args) => drags.push(args) } } })) })
   try {
-    act(() => items(view)[0].findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
+    act(() => items(view)[0].findByProps({ className: 'workflow-toolbox-add' }).props.onClick({ detail: 1 }))
     assert.equal(added[0], delay)
     assert.equal(drags.length, 0)
     act(() => mainButton(items(view)[0]).props.onClick({ detail: 0 }))
@@ -147,7 +147,7 @@ test('preview and add controls use the original palette action without starting 
     assert.equal(view.root.findAllByType('dialog').length, 0)
     act(() => mainButton(items(view)[0]).props.onClick({ detail: 0 }))
     const reopened = view.root.findByType('dialog')
-    act(() => reopened.findAllByType('button').at(-1).props.onClick())
+    act(() => reopened.findAllByType('button').at(-1).props.onClick({ detail: 0 }))
     assert.equal(added[1], delay)
     assert.equal(view.root.findAllByType('dialog').length, 0)
     assert.equal(drags.length, 0)
