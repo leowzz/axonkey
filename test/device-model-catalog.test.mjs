@@ -100,12 +100,12 @@ function buildCustomRemoteSvg({
 </svg>`
 }
 
-test('bundledModelCatalog.json contains all 13 curated console models with platform tags and Markdown descriptions', () => {
+test('bundledModelCatalog.json contains all 14 curated console models with platform tags and Markdown descriptions', () => {
   const bundled = getBundledDeviceModelCatalog()
-  assert.equal(bundled.length, 13)
+  assert.equal(bundled.length, 14)
   const byCode = new Map(bundled.map(item => [item.code, item]))
 
-  const expectedWinMac = ['rc003', 'phicommDb1R', 'xboxBluetooth', 'kivoK18Lite', 'mouse']
+  const expectedWinMac = ['rc003', 'phicommDb1R', 'xboxBluetooth', 'kivoK18Lite', 'g17Touch', 'mouse']
   const expectedWinOnly = [
     'cmiotA15',
     'hisenseRcf3b65',
@@ -358,7 +358,7 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
     offline = true
     const offlineBundled = await loadDeviceModelCatalog(client, storage, t0 + 3_600_001)
     assert.equal(networkCalls, 2)
-    assert.equal(offlineBundled.length, 13, 'falls back to all 13 curated bundled models')
+    assert.equal(offlineBundled.length, 14, 'falls back to all 14 curated bundled models')
     assert.equal(offlineBundled.find(i => i.code === 'rc003')?.brand_name, '小米')
     assert.equal(offlineBundled.find(i => i.code === 'kivoK18Lite')?.brand_name, 'Kivo')
     assert.equal(
@@ -373,7 +373,7 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
       retainedKinds: ['customSaved1'],
     })
     assert.equal(networkCalls, 3)
-    assert.equal(offlineWithSavedCloud.length, 14)
+    assert.equal(offlineWithSavedCloud.length, 15)
     assert.equal(packageFor('customSaved1').name, '云端专属遥控器')
     assert.equal(packageFor('customSaved1').inputs.length, 2)
     assert.equal(packageFor('rc003').artwork, '/device-descriptors/rc003.svg')
@@ -397,9 +397,10 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
     assert.equal(readCachedDeviceModelCatalog(storage, t0), null)
     offline = true
     const coldOffline = await loadDeviceModelCatalog(client, storage, t0 + 5_000_000)
-    assert.equal(coldOffline.length, 13)
+    assert.equal(coldOffline.length, 14)
     assert.ok(coldOffline.find(i => i.code === 'xboxBluetooth')?.tags.includes('Win / macOS'))
     assert.ok(coldOffline.find(i => i.code === 'kivoK18Lite')?.tags.includes('Win / macOS'))
+    assert.ok(coldOffline.find(i => i.code === 'g17Touch')?.tags.includes('Win / macOS'))
 
     // 8. QuotaExceededError on localStorage still serves fresh cache from memory without throwing
     const fullStorage = createStorage({ failWrites: true })
@@ -480,7 +481,7 @@ test('parseRuntimeDescriptorSvg matches all 12 bundled SVGs and strictly rejects
     ])
     assert.equal(packageFor('rc003').artwork, bundledRc003.artwork)
     assert.equal(packageFor('rc003').remoteView, bundledRc003.remoteView)
-    assert.equal(getSupportPackages().length, 12)
+    assert.equal(getSupportPackages().length, 13)
 
     // 3b. Built-in kivoK18Lite and xboxBluetooth preserve single-lane workspaceLayout & OLED screenRegion when overlaid from cloud SVG
     const kivoSvg = readFileSync('public/device-descriptors/kivo-k18-lite.svg', 'utf8')
@@ -737,7 +738,9 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
     '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
+    '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
+    '../../appStorage.ts': require('../src/appStorage.ts'),
   })
   const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
     '../devices/bundledModelCatalog.json': JSON.parse(readFileSync('src/devices/bundledModelCatalog.json', 'utf8')),
@@ -755,11 +758,13 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../../openExternalUrl': openExternalMod,
   })
   const remoteControlMod = compile('src/devices/shared/RemoteControl.tsx', {
+    '../../appStorage.ts': require('../src/appStorage.ts'),
     '../xiaomi-remote/view.ts': require('../src/devices/xiaomi-remote/view.ts'),
   })
   const controls = compile('src/devices/integration/IntegrationControls.tsx')
   const battery = compile('src/components/BatteryIndicator.tsx')
   const deviceHubMod = compile('src/devices/integration/DeviceHub.tsx', {
+    '../../appStorage': require('../src/appStorage.ts'),
     '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
     '../../cloud/useDeviceModelCatalog': useCatalogMod,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
@@ -1091,7 +1096,7 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
       view.root
         .findByProps({ className: 'managed-catalog-list-pane' })
         .findAll(node => node.type === 'button' && node.props.className === 'managed-package')
-    assert.equal(packageCards().length, 13, '12 bundled + 1 dynamic cloud model')
+    assert.equal(packageCards().length, 14, '13 bundled + 1 dynamic cloud model')
 
     act(() => {
       brandGroup
@@ -1304,7 +1309,7 @@ test('forceRefresh pulls newly Console-added minimal button-only models immediat
     const t0 = 1_700_000_000_000
     const initial = await loadDeviceModelCatalog(client, storage, t0)
     assert.equal(requestCount, 1)
-    assert.equal(initial.length, 13)
+    assert.equal(initial.length, 14)
 
     // Admin adds two minimal button-only models in Relay Console 10 seconds later (well inside 3600s TTL)
     cloudItems = [
@@ -1340,12 +1345,12 @@ test('forceRefresh pulls newly Console-added minimal button-only models immediat
     // Passive load within TTL still serves cache
     const cachedLoad = await loadDeviceModelCatalog(client, storage, t0 + 10_000)
     assert.equal(requestCount, 1)
-    assert.equal(cachedLoad.length, 13)
+    assert.equal(cachedLoad.length, 14)
 
     // Explicit user refresh (`forceRefresh: true`) bypasses TTL and activates new models immediately
     const refreshed = await loadDeviceModelCatalog(client, storage, t0 + 10_000, { forceRefresh: true })
     assert.equal(requestCount, 2)
-    assert.equal(refreshed.length, 15)
+    assert.equal(refreshed.length, 16)
 
     assert.equal(packageFor('acmeUsbPad').name, 'Acme 免驱按键板')
     assert.equal(packageFor('acmeUsbPad').inputs.length, 1)

@@ -1,3 +1,4 @@
+import { appStorage } from '../appStorage.ts'
 import { fingerprint } from './cloudSync.ts'
 import type { CloudSnapshot, CloudSource, SourcePlatform } from './cloudSync.ts'
 
@@ -32,25 +33,25 @@ export function profileContent(profile: ProfileContent): string {
   })
 }
 export function readProfileMetadata(): Record<string, ProfileMetadata> {
-  return JSON.parse(localStorage.getItem(metadataKey) ?? '{}')
+  return JSON.parse(appStorage.getItem(metadataKey) ?? '{}')
 }
 export function saveProfileMetadata(value: Record<string, ProfileMetadata>) {
   const serialized = JSON.stringify(value)
-  if (localStorage.getItem(metadataKey) !== serialized) localStorage.setItem(metadataKey, serialized)
+  if (appStorage.getItem(metadataKey) !== serialized) appStorage.setItem(metadataKey, serialized)
 }
 export function profileMetadataKey(device: string, profile: string) {
   return `${device}/${profile}`
 }
 export function cloudSource(platform: SourcePlatform): CloudSource {
-  let id = localStorage.getItem(installationKey)
+  let id = appStorage.getItem(installationKey)
   if (!id) {
     id = crypto.randomUUID()
-    localStorage.setItem(installationKey, id)
+    appStorage.setItem(installationKey, id)
   }
   return {
     source_platform: platform,
     source_installation_id: id,
-    source_computer_name: localStorage.getItem('axonkey.cloud-computer-name.v1') || null,
+    source_computer_name: appStorage.getItem('axonkey.cloud-computer-name.v1') || null,
   }
 }
 export function annotateSnapshot(

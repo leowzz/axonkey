@@ -20,6 +20,7 @@ function environment({ nativeRuntime = true, platform = 'macos', deferStretch = 
       return new Promise((resolve, reject) => requests.push({ resolve, reject }))
     } },
     '../appConfig': { audioGainMin: -30, audioGainMax: 30, audioSettingsStorageKey: 'audio', getStoredAudioGain: () => 6, getStoredAudioStretchCompensation: () => false },
+    '../appStorage': { appStorage: { setItem(_key, value) { saved.push(JSON.parse(value)) }, getItem: () => null, removeItem() {} } },
     '../runtimeLogging': { logError() {}, logInfo() {} },
   }
   vm.runInNewContext(source, {
@@ -135,6 +136,7 @@ test('stretch defaults off for old or invalid settings and requires an explicit 
     const module = { exports: {} }
     vm.runInNewContext(compiled, {
       module, exports: module.exports, audioSettingsStorageKey: 'audio',
+      appStorage: { getItem: () => stored },
       ...(hasWindow ? { window: { localStorage: { getItem: () => stored } } } : {}),
     })
     return module.exports.getStoredAudioStretchCompensation()

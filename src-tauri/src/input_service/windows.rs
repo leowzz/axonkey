@@ -612,8 +612,15 @@ impl InputService {
         }
     }
 
-    pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
-        validate_settings(&settings)?;
+    pub fn update_settings(&self, mut settings: NativeSettings) -> Result<(), String> {
+        for triggers in settings.behaviors.values_mut() {
+            super::sanitize_platform_triggers(triggers);
+        }
+        for profile in settings.quick_profiles.values_mut() {
+            for triggers in profile.behaviors.values_mut() {
+                super::sanitize_platform_triggers(triggers);
+            }
+        }
         let behavior_count = settings
             .behaviors
             .values()
@@ -931,6 +938,10 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     let mut ble_monitor = BleLinkMonitor::start(&target, Arc::clone(&shared.driver_gate));
     context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
+    if let Some(instance_id) = shared.instance_id.as_deref() {
+        let kind = context.device_kind.as_deref().unwrap_or("rc003");
+        actions.set_source(instance_id, kind, kind);
+    }
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
         if shared.driver_gate.load(Ordering::Acquire) {
@@ -1827,7 +1838,9 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
             *direction,
             *wrap,
         ),
-        NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
+        NativeBehavior::Delay { .. }
+        | NativeBehavior::QuickOverlay { .. }
+        | NativeBehavior::Disabled { .. } => {}
     }
 }
 
@@ -1958,6 +1971,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
+        | NativeBehavior::QuickOverlay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }
@@ -2178,24 +2192,39 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
     None
 }
 
+pub(super) fn behavior_error(behavior: &NativeBehavior) -> Option<String> {
+    match behavior {
+        NativeBehavior::Key { key, .. } if behavior_hid_chord(behavior).is_none() => {
+            Some(format!("不支持的按键：{key}"))
+        }
+        NativeBehavior::Shortcut { keys, .. }
+            if keys.is_empty()
+                || keys.iter().any(|key| parse_chord(key).is_none())
+                || behavior_hid_chord(behavior).is_none() =>
+        {
+            Some("快捷键包含当前系统不支持的按键".into())
+        }
+        NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
+            Some("未选择快捷交互配置".into())
+        }
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
 pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
-    for (button, triggers) in &settings.behaviors {
+    for (button, triggers) in settings.behaviors.iter().chain(
+        settings
+            .quick_profiles
+            .values()
+            .flat_map(|profile| profile.behaviors.iter()),
+    ) {
         for behavior in triggers.iter() {
             if !behavior.enabled() {
                 continue;
             }
-            match behavior {
-                NativeBehavior::Key { key, .. } if behavior_hid_chord(behavior).is_none() => {
-                    return Err(format!("{button}: unsupported key '{key}'"));
-                }
-                NativeBehavior::Shortcut { keys, .. }
-                    if keys.is_empty()
-                        || keys.iter().any(|key| parse_chord(key).is_none())
-                        || behavior_hid_chord(behavior).is_none() =>
-                {
-                    return Err(format!("{button}: shortcut contains an unsupported key"));
-                }
-                _ => {}
+            if let Some(error) = behavior_error(behavior) {
+                return Err(format!("{button}: {error}"));
             }
         }
     }

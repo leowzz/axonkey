@@ -20,6 +20,7 @@ import { phicommDb1RRemoteView } from '../src/devices/phicomm-db1-r-remote/view.
 import { oneplusRc001aRemoteView } from '../src/devices/oneplus-rc-001a-remote/view.ts'
 import { kivoK18LiteView } from '../src/devices/kivo-k18-lite/view.ts'
 import { kivoK18LiteSupportPackage } from '../src/devices/kivo-k18-lite/definition.ts'
+import { g17TouchView } from '../src/devices/g17-touch/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -34,7 +35,7 @@ const source = ts.transpileModule(readFileSync(new URL('../src/devices/shared/Re
 vm.runInNewContext(source, {
   module, exports: module.exports,
   window: testWindow, document: testDocument,
-  require: name => name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
+  require: name => name === '../../appStorage.ts' ? { appStorage: { getItem: key => testWindow.localStorage.getItem(key), setItem: (key, value) => testWindow.localStorage.setItem(key, value), removeItem: key => storage.delete(key) } } : name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
 })
 const { RemoteControl } = module.exports
 const buttons = xiaomiRemoteView.buttons
@@ -120,7 +121,7 @@ test('each accessible SVG key selects its own input without activating its neigh
 })
 
 test('every bundled device renders its descriptor inputs through the common SVG control', () => {
-  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView, tclRc802aRemoteView, tclRc902nRemoteView, tclRc902vRemoteView, hisenseRcf3b65RemoteView, phicommDb1RRemoteView, oneplusRc001aRemoteView, kivoK18LiteView]) {
+  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView, tclRc802aRemoteView, tclRc902nRemoteView, tclRc902vRemoteView, hisenseRcf3b65RemoteView, phicommDb1RRemoteView, oneplusRc001aRemoteView, kivoK18LiteView, g17TouchView]) {
     const { view, key, selected } = mount({ remoteView })
     assert.equal(view.root.findByType('image').props.href, remoteView.artworkUrl)
     assert.equal(view.root.findAllByProps({ role: 'button' }).length, remoteView.buttons.length)
@@ -134,6 +135,25 @@ test('every bundled device renders its descriptor inputs through the common SVG 
   }
   assert.equal(rc313RemoteView.artworkUrl, '/device-descriptors/rc313.svg')
   assert.equal(kivoK18LiteView.artworkUrl, '/device-descriptors/kivo-k18-lite.svg')
+  assert.equal(g17TouchView.artworkUrl, '/device-descriptors/g17-touch.svg')
+})
+
+test('G17 Touch highlights simultaneous mechanical keys, touch zones, and slider gestures', () => {
+  const pressedIds = ['g17.touch.num', 'g17.touch.enter', 'g17.touch.t2', 'g17.touch.swipeUp']
+  const { view, key } = mount({
+    remoteView: g17TouchView,
+    activeId: 'g17.touch.swipeUp',
+    pressedIds,
+    mappedIds: ['g17.touch.swipeDown'],
+    onSelect() {},
+  })
+  assert.equal(view.root.findAllByProps({ role: 'button' }).length, 23)
+  for (const id of pressedIds) {
+    assert.match(key(id).props.className, /\bpressed\b/)
+  }
+  assert.doesNotMatch(key('g17.touch.k0').props.className, /\bpressed\b/)
+  assert.match(key('g17.touch.swipeDown').props.className, /\bmapped\b/)
+  act(() => view.unmount())
 })
 
 test('Kivo K18 Lite highlights simultaneous multi-key presses across K01..K18', () => {

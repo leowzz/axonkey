@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Vector } from 'sequential-workflow-designer'
 import { fixedWorkflowViewport, scrollWorkflowViewport } from '../src/components/WorkflowViewport.ts'
-import { clampLaneScroll, layoutWorkflowFlow, workflowLaneLayout } from '../src/components/workflowLaneLayout.ts'
+import { clampLaneScroll, layoutWorkflowFlow, workflowLaneLayout, workflowUsesTriggerTabs } from '../src/components/workflowLaneLayout.ts'
 import { createTriggerDefinition, createTriggerRootExtension } from '../src/components/WorkflowTriggerRoot.ts'
 
 test('workflow keeps a fixed scale through zoom commands, pinch limits and viewport resets', () => {
@@ -342,5 +342,13 @@ test('trigger root omits no-op self-move indices, excludes disabled lanes, and z
     else delete globalThis.document
     if (prevRect) globalThis.DOMRect = prevRect
     else delete globalThis.DOMRect
+  }
+})
+
+test('trigger columns collapse at the minimum readable lane width and single-trigger inputs keep their only lane', () => {
+  for (const width of [280, 420, 679, 680, 900, 1300]) {
+    const layout = workflowLaneLayout(width, 400)
+    assert.equal(workflowUsesTriggerTabs(width), layout.laneWidth < 220)
+    assert.equal(workflowUsesTriggerTabs(width, 1), false)
   }
 })

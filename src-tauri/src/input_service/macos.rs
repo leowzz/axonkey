@@ -216,8 +216,15 @@ impl InputService {
             .request_managed(owned)
     }
 
-    pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
-        validate_settings(&settings)?;
+    pub fn update_settings(&self, mut settings: NativeSettings) -> Result<(), String> {
+        for triggers in settings.behaviors.values_mut() {
+            super::sanitize_platform_triggers(triggers);
+        }
+        for profile in settings.quick_profiles.values_mut() {
+            for triggers in profile.behaviors.values_mut() {
+                super::sanitize_platform_triggers(triggers);
+            }
+        }
         let settings_enabled = settings.enabled;
         let behavior_count = settings
             .behaviors
@@ -1085,9 +1092,73 @@ struct ButtonState {
 struct MacInputState {
     active_usages: HashSet<u16>,
     button_states: HashMap<&'static str, ButtonState>,
+    quick_mode: super::quick_mode::QuickMode,
+    epoch: Option<Instant>,
+}
+
+fn find_quick_overlay_profile_id(behaviors: &[NativeBehavior]) -> Option<&str> {
+    behaviors.iter().find_map(|behavior| match behavior {
+        NativeBehavior::QuickOverlay {
+            enabled: true,
+            profile_id,
+        } if !profile_id.trim().is_empty() => Some(profile_id.trim()),
+        _ => None,
+    })
 }
 
 impl MacInputState {
+    fn elapsed_ms(&mut self, now: Instant) -> u64 {
+        let base = *self.epoch.get_or_insert(now);
+        now.saturating_duration_since(base).as_millis() as u64
+    }
+
+    fn try_enter_quick_mode(
+        &mut self,
+        shared: &Shared,
+        settings: &NativeSettings,
+        button: &'static str,
+        behaviors: &[NativeBehavior],
+        still_down: bool,
+    ) -> bool {
+        let Some(profile_id) = find_quick_overlay_profile_id(behaviors) else {
+            return false;
+        };
+        let source_id = shared
+            .instance
+            .as_ref()
+            .map_or("legacy-rc003", |instance| instance.id.as_str());
+        self.quick_mode.enter_from_settings(
+            source_id,
+            "rc003",
+            "小米遥控器",
+            profile_id,
+            button,
+            still_down,
+            settings,
+        )
+    }
+
+    fn execute_quick_executions(
+        &mut self,
+        shared: &Shared,
+        settings: &NativeSettings,
+        executions: Vec<super::managed::gesture::Execution>,
+        fallback_button: &'static str,
+        down: bool,
+    ) {
+        for exec in executions {
+            let button = source_keys()
+                .iter()
+                .find(|s| s.id == exec.input)
+                .map_or(fallback_button, |s| s.id);
+            if self.try_enter_quick_mode(shared, settings, button, &exec.behaviors, down) {
+                continue;
+            }
+            record_remote_trigger(shared, &exec.input, &exec.behaviors, &exec.sources);
+            execute_remote_behaviors(shared, &exec.behaviors);
+        }
+    }
+
     fn process_report(
         &mut self,
         shared: &Shared,
@@ -1105,11 +1176,31 @@ impl MacInputState {
             .copied()
             .collect::<Vec<_>>();
         self.active_usages = usages;
+        let now = Instant::now();
+        let now_ms = self.elapsed_ms(now);
+        let settings = shared
+            .settings
+            .read()
+            .map(|settings| settings.clone())
+            .unwrap_or_default();
 
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
                 log::info!(target: "axonkey::input", "RC003 key: button={}, phase=down, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, true);
+                if settings.enabled {
+                    match self.quick_mode.edge(source.id, true, now_ms) {
+                        super::quick_mode::Intercept::PassThrough => {}
+                        super::quick_mode::Intercept::Swallow
+                        | super::quick_mode::Intercept::Exited => continue,
+                        super::quick_mode::Intercept::Execute(execs) => {
+                            self.execute_quick_executions(
+                                shared, &settings, execs, source.id, true,
+                            );
+                            continue;
+                        }
+                    }
+                }
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
                 {
@@ -1142,6 +1233,19 @@ impl MacInputState {
             if let Some(source) = source_for_usage(usage) {
                 log::info!(target: "axonkey::input", "RC003 key: button={}, phase=up, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, false);
+                if settings.enabled {
+                    match self.quick_mode.edge(source.id, false, now_ms) {
+                        super::quick_mode::Intercept::PassThrough => {}
+                        super::quick_mode::Intercept::Swallow
+                        | super::quick_mode::Intercept::Exited => continue,
+                        super::quick_mode::Intercept::Execute(execs) => {
+                            self.execute_quick_executions(
+                                shared, &settings, execs, source.id, false,
+                            );
+                            continue;
+                        }
+                    }
+                }
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
                 {
@@ -1168,16 +1272,22 @@ impl MacInputState {
             return;
         }
         let now = Instant::now();
-        if state
-            .pending_click
-            .as_ref()
-            .is_some_and(|pending| now >= pending.due_at)
-        {
-            let pending = state.pending_click.take().unwrap();
+        let pending_due = self.button_states.get_mut(source.id).and_then(|state| {
+            state
+                .pending_click
+                .as_ref()
+                .is_some_and(|pending| now >= pending.due_at)
+                .then(|| state.pending_click.take().unwrap())
+        });
+        if let Some(pending) = pending_due {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=next_press", source.id);
+            if self.try_enter_quick_mode(shared, &settings, source.id, &triggers.click, true) {
+                return;
+            }
             record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
             execute_click_or_original(shared, &triggers.click, pending.original);
         }
+        let state = self.button_states.entry(source.id).or_default();
         if !settings.enabled || !has_custom_behavior(&triggers) {
             log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}", source.id, settings.enabled);
             if source.preserve_original {
@@ -1269,6 +1379,10 @@ impl MacInputState {
         let long_enabled = has_enabled(&triggers.long_press);
         if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=key_up", source.id);
+            if self.try_enter_quick_mode(shared, &settings, source.id, &triggers.long_press, false)
+            {
+                return;
+            }
             record_remote_trigger(
                 shared,
                 source.id,
@@ -1285,8 +1399,22 @@ impl MacInputState {
             return;
         }
         if has_enabled(&triggers.double_click) {
-            if state.pending_click.take().is_some() {
+            let had_pending = self
+                .button_states
+                .get_mut(source.id)
+                .and_then(|s| s.pending_click.take())
+                .is_some();
+            if had_pending {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=double_click", source.id);
+                if self.try_enter_quick_mode(
+                    shared,
+                    &settings,
+                    source.id,
+                    &triggers.double_click,
+                    false,
+                ) {
+                    return;
+                }
                 record_remote_trigger(
                     shared,
                     source.id,
@@ -1296,13 +1424,18 @@ impl MacInputState {
                 execute_remote_behaviors(shared, &triggers.double_click);
             } else {
                 log::info!(target: "axonkey::input", "RC003 click pending: button={}", source.id);
-                state.pending_click = Some(PendingClick {
-                    due_at: Instant::now() + Duration::from_millis(DOUBLE_CLICK_MS),
-                    original: press.original,
-                });
+                if let Some(state) = self.button_states.get_mut(source.id) {
+                    state.pending_click = Some(PendingClick {
+                        due_at: Instant::now() + Duration::from_millis(DOUBLE_CLICK_MS),
+                        original: press.original,
+                    });
+                }
             }
         } else {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click", source.id);
+            if self.try_enter_quick_mode(shared, &settings, source.id, &triggers.click, false) {
+                return;
+            }
             record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
             execute_click_or_original(shared, &triggers.click, press.original);
         }
@@ -1319,6 +1452,11 @@ impl MacInputState {
             return;
         }
         let now = Instant::now();
+        let now_ms = self.elapsed_ms(now);
+        if let Some(execs) = self.quick_mode.tick(now_ms) {
+            self.execute_quick_executions(shared, &settings, execs, "power", false);
+        }
+        let mut deferred_quick: Vec<(&'static str, Vec<NativeBehavior>, bool)> = Vec::new();
         for source in source_keys().iter().copied() {
             let Some(state) = self.button_states.get_mut(source.id) else {
                 continue;
@@ -1352,16 +1490,21 @@ impl MacInputState {
                 {
                     if has_enabled(&triggers.long_press) {
                         log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
-                        record_remote_trigger(
-                            shared,
-                            source.id,
-                            &triggers.long_press,
-                            &triggers.long_press_sources,
-                        );
-                        execute_remote_behaviors(shared, &triggers.long_press);
-                        press.long_fired = true;
-                        press.long_repeat_due_at =
-                            Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
+                        if find_quick_overlay_profile_id(&triggers.long_press).is_some() {
+                            press.long_fired = true;
+                            deferred_quick.push((source.id, triggers.long_press.clone(), true));
+                        } else {
+                            record_remote_trigger(
+                                shared,
+                                source.id,
+                                &triggers.long_press,
+                                &triggers.long_press_sources,
+                            );
+                            execute_remote_behaviors(shared, &triggers.long_press);
+                            press.long_fired = true;
+                            press.long_repeat_due_at =
+                                Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
+                        }
                     } else {
                         log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
                         if let Some(original) = press.original {
@@ -1374,7 +1517,9 @@ impl MacInputState {
                     state.pending_click = None;
                 }
                 if let Some(due_at) = press.long_repeat_due_at {
-                    if !has_enabled(&triggers.long_press) {
+                    if !has_enabled(&triggers.long_press)
+                        || find_quick_overlay_profile_id(&triggers.long_press).is_some()
+                    {
                         press.long_repeat_due_at = None;
                     } else if now >= due_at {
                         log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
@@ -1400,9 +1545,21 @@ impl MacInputState {
             if pending_click_is_due(state, now) {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
                 let pending = state.pending_click.take().unwrap();
-                record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
-                execute_click_or_original(shared, &triggers.click, pending.original);
+                if find_quick_overlay_profile_id(&triggers.click).is_some() {
+                    deferred_quick.push((source.id, triggers.click.clone(), false));
+                } else {
+                    record_remote_trigger(
+                        shared,
+                        source.id,
+                        &triggers.click,
+                        &triggers.click_sources,
+                    );
+                    execute_click_or_original(shared, &triggers.click, pending.original);
+                }
             }
+        }
+        for (button, behaviors, still_down) in deferred_quick {
+            let _ = self.try_enter_quick_mode(shared, &settings, button, &behaviors, still_down);
         }
     }
 
@@ -1412,6 +1569,7 @@ impl MacInputState {
     }
 
     fn cancel_gestures(&mut self) {
+        self.quick_mode.reset();
         for (button, state) in self.button_states.iter_mut() {
             if let Some(mut press) = state.pressed.take() {
                 log::info!(target: "axonkey::input", "Mapped forced release: button={button}, held_ms={}, held_outputs={}, passthrough={}", press.started_at.elapsed().as_millis(), press.held_outputs.keys.len(), press.passthrough);
@@ -1577,13 +1735,31 @@ fn supports_hardware_modifier_remap(source: &SourceKey) -> bool {
     !matches!(source.usage, 0xf1 | 0x80 | 0x81)
 }
 
+fn key_used_in_reachable_quick_profile(settings: &NativeSettings, key: &str) -> bool {
+    settings
+        .behaviors
+        .values()
+        .flat_map(|t| t.iter())
+        .filter_map(|behavior| match behavior {
+            NativeBehavior::QuickOverlay {
+                enabled: true,
+                profile_id,
+            } => settings.quick_profiles.get(profile_id.trim()),
+            _ => None,
+        })
+        .any(|profile| profile.behaviors.get(key).is_some_and(has_custom_behavior))
+}
+
 fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
     if !settings.enabled {
         return Vec::new();
     }
     source_keys()
         .iter()
-        .filter(|source| supports_hardware_modifier_remap(source))
+        .filter(|source| {
+            supports_hardware_modifier_remap(source)
+                && !key_used_in_reachable_quick_profile(settings, source.id)
+        })
         .filter_map(|source| {
             let keys = continuous_click_chord(settings.behaviors.get(source.id)?)?;
             if keys.len() != 1 {
@@ -1746,7 +1922,7 @@ fn execute_behaviors_with_hold(
             NativeBehavior::SwitchProfile {
                 direction, wrap, ..
             } => super::profile_switch::execute(device_id, *direction, *wrap),
-            NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
             NativeBehavior::OpenPath { .. }
             | NativeBehavior::OpenApp { .. }
             | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
@@ -1807,6 +1983,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         } => {
             log::info!(target: "axonkey::input", "Mapped profile switch: direction={direction:?}, wrap={wrap}")
         }
+        NativeBehavior::QuickOverlay { profile_id, .. } => {
+            log::info!(target: "axonkey::input", "Mapped quick overlay: profile_id={profile_id:?}")
+        }
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
@@ -1842,6 +2021,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
+        | NativeBehavior::QuickOverlay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }
@@ -2008,8 +2188,31 @@ fn function_key_code(number: u8) -> Option<u16> {
     })
 }
 
+pub(super) fn behavior_error(behavior: &NativeBehavior) -> Option<String> {
+    match behavior {
+        NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
+            Some(format!("不支持的按键：{key}"))
+        }
+        NativeBehavior::Shortcut { keys, .. }
+            if keys.is_empty() || keys.iter().any(|key| parse_chord(key).is_none()) =>
+        {
+            Some("快捷键包含当前系统不支持的按键".into())
+        }
+        NativeBehavior::QuickOverlay { profile_id, .. } if profile_id.trim().is_empty() => {
+            Some("未选择快捷交互配置".into())
+        }
+        _ => None,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
-    for (button, triggers) in &settings.behaviors {
+    for (button, triggers) in settings.behaviors.iter().chain(
+        settings
+            .quick_profiles
+            .values()
+            .flat_map(|profile| profile.behaviors.iter()),
+    ) {
         for behavior in triggers
             .click
             .iter()
@@ -2019,16 +2222,8 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
             if !behavior.enabled() {
                 continue;
             }
-            match behavior {
-                NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
-                    return Err(format!("{button}: unsupported key '{key}'"));
-                }
-                NativeBehavior::Shortcut { keys, .. }
-                    if keys.is_empty() || keys.iter().any(|key| parse_chord(key).is_none()) =>
-                {
-                    return Err(format!("{button}: shortcut contains an unsupported key"));
-                }
-                _ => {}
+            if let Some(error) = behavior_error(behavior) {
+                return Err(format!("{button}: {error}"));
             }
         }
     }
@@ -3162,5 +3357,49 @@ mod tests {
         TEST_ABSOLUTE_MOVES.with(|events| {
             assert_eq!(*events.borrow(), vec![(50_977, 6_734)]);
         });
+    }
+
+    #[test]
+    fn hardware_modifier_remapping_falls_back_to_software_when_reachable_quick_profile_overrides_key(
+    ) {
+        let without_quick: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "voice": { "click": [{ "type": "key", "key": "RAlt" }] },
+                "menu": { "click": [{ "type": "quickOverlay", "profileId": "q1" }] }
+            },
+            "quickProfiles": {
+                "q1": {
+                    "id": "q1",
+                    "name": "提示词",
+                    "deviceId": "rc003",
+                    "behaviors": {
+                        "up": { "click": [{ "type": "paste", "text": "hello" }] }
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(hardware_modifier_mappings(&without_quick).len(), 1);
+
+        let with_quick_override: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "voice": { "click": [{ "type": "key", "key": "RAlt" }] },
+                "menu": { "click": [{ "type": "quickOverlay", "profileId": "q1" }] }
+            },
+            "quickProfiles": {
+                "q1": {
+                    "id": "q1",
+                    "name": "提示词",
+                    "deviceId": "rc003",
+                    "behaviors": {
+                        "voice": { "click": [{ "type": "paste", "text": "语音键提示词" }] }
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        assert!(hardware_modifier_mappings(&with_quick_override).is_empty());
     }
 }

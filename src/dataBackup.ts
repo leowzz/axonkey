@@ -1,8 +1,8 @@
 import {
   createEmptyBehaviorMap,
-  requiresNewBehaviorVersion,
-  newBehaviorMinAppVersion,
+  minAppVersionForBehaviors,
   normalizeBehavior,
+  quickOverlayMinAppVersion,
   triggerTypes,
 } from './behaviorModel.ts'
 import type { Behavior, BehaviorMap, TriggerBehaviors } from './behaviorModel.ts'
@@ -37,6 +37,7 @@ export type BackupDocument = {
     deviceId: DeviceId
     keys: Record<string, TriggerBehaviors>
     applicationIds?: string[]
+    quick?: boolean
   }[]
   savedBehaviors: { id: string; name: string; behaviors: Behavior[] }[]
   settings: BackupSettings
@@ -102,6 +103,7 @@ export function createDataBackup(
         name: profile.name,
         deviceId: device.id,
         ...(profile.applicationIds ? { applicationIds: [...profile.applicationIds] } : {}),
+        ...(profile.quick ? { quick: true } : {}),
         keys: Object.fromEntries(
           device.inputIds.map(id => [device.id === 'mouse' ? id.replace(/^mouse\./, '') : id, profile.behaviors[id]]),
         ),
@@ -122,9 +124,12 @@ export function createDataBackup(
     ),
     ...document.savedBehaviors.flatMap(saved => saved.behaviors),
   ]
-  if (requiresNewBehaviorVersion(behaviors)) {
+  const minAppVersion = document.profiles.some(profile => profile.quick)
+    ? quickOverlayMinAppVersion
+    : minAppVersionForBehaviors(behaviors)
+  if (minAppVersion) {
     document.version = 3
-    document.minAppVersion = newBehaviorMinAppVersion
+    document.minAppVersion = minAppVersion
   }
   return document
 }
@@ -181,7 +186,15 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
       }
     }
     const applicationIds = raw.applicationIds === undefined ? undefined : parseApplicationIds(raw.applicationIds)
-    return { id, name, behaviors: map, deviceId: device.id, ...(applicationIds ? { applicationIds } : {}) }
+    const quick = raw.quick === undefined ? false : boolean(raw.quick, '快捷配置标记')
+    return {
+      id,
+      name,
+      behaviors: map,
+      deviceId: device.id,
+      ...(applicationIds ? { applicationIds } : {}),
+      ...(quick ? { quick: true } : {}),
+    }
   })
   const activeIds = record(root.activeProfileIds)
   if (Object.keys(activeIds).some(id => !devices.some(device => device.id === id)))

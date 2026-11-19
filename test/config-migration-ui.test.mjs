@@ -134,6 +134,7 @@ async function flow(old, instances = [], invoke, { downloads = '/Users/test/Down
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
   const { ConfigMigrationFlow } = compile('src/components/ConfigMigrationFlow.tsx', {
     '../app/index': { default: props => React.createElement('app', props) },
+    '../appStorage': { appStorage: storage, flushAppStorage: async () => {} },
     './ConfigMigrationDialog': { ConfigMigrationDialog: props => React.createElement('migration', props) },
     '../configMigration': migration,
     '../backupImport': backupImport,

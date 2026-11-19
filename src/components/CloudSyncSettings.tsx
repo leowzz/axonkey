@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
+import { appStorage } from '../appStorage'
 import type { CloudSyncController } from '../cloud/useCloudSync'
 import { CloudRestorePicker } from './CloudRestorePicker'
 import type { DeviceInstance } from '../devices/integration/model'
@@ -15,7 +16,7 @@ export function CloudSyncSettings({
   instances?: DeviceInstance[]
   platform?: string
 }) {
-  const [computerName, setComputerName] = useState(() => localStorage.getItem('axonkey.cloud-computer-name.v1') ?? '')
+  const [computerName, setComputerName] = useState(() => appStorage.getItem('axonkey.cloud-computer-name.v1') ?? '')
   const [channel, setChannel] = useState<'email' | 'sms'>('email')
   const [targets, setTargets] = useState({ email: '', sms: '' })
   const target = targets[channel]
@@ -164,7 +165,7 @@ export function CloudSyncSettings({
                 disabled={cloud.busy}
                 onChange={event => {
                   setComputerName(event.target.value)
-                  localStorage.setItem('axonkey.cloud-computer-name.v1', event.target.value.trim())
+                  appStorage.setItem('axonkey.cloud-computer-name.v1', event.target.value.trim())
                 }}
               />
             </div>

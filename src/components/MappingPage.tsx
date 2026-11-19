@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react'
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from 'react'
 import type {
   BehaviorMap,
@@ -12,7 +13,7 @@ import type { RemoteView } from '../devices/types.ts'
 import { devices, type DeviceId } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
-import { BehaviorEditor } from './BehaviorEditor'
+import { BehaviorEditor, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../devices/shared/DeviceWorkspaceHeader'
@@ -52,6 +53,8 @@ export type MappingPageProps = {
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
   remoteView?: RemoteView
+  quickOverlayContext?: QuickOverlayEditorContext
+  inputWarnings?: Readonly<Record<string, string>>
 }
 
 export function MappingPage({
@@ -80,6 +83,7 @@ export function MappingPage({
   rowRefs,
   behaviorEditorProps,
   remoteView,
+  inputWarnings,
 }: MappingPageProps) {
   return (
     <div className="mapping-page">
@@ -100,6 +104,7 @@ export function MappingPage({
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}
+              warnings={inputWarnings}
               onSelect={id => {
                 selectBehaviorTarget(id, 'click', false)
                 mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -116,6 +121,7 @@ export function MappingPage({
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
+                    warnings={inputWarnings}
                     onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
@@ -144,6 +150,12 @@ export function MappingPage({
               </div>
               {toolbar}
             </div>
+            {inputWarnings?.[selectedBehavior.buttonId] && (
+              <div className="key-picker-mapping-warning" role="status">
+                <TriangleAlert size={14} aria-hidden="true" />
+                <span>{inputWarnings[selectedBehavior.buttonId]}，已自动跳过无效项</span>
+              </div>
+            )}
             {isMouse && showMouseKeyGrid && (
               <MouseControlPicker
                 activeId={selectedBehavior.buttonId}

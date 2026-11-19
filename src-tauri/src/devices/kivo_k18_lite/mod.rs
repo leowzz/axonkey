@@ -339,6 +339,7 @@ fn summarize_single_behavior(behavior: &NativeBehavior, macos_labels: bool) -> S
         NativeBehavior::OpenPath { .. } => "打开文件".into(),
         NativeBehavior::OpenWebsite { .. } => "打开网页".into(),
         NativeBehavior::SwitchProfile { .. } => "切换配置".into(),
+        NativeBehavior::QuickOverlay { .. } => "快捷交互窗".into(),
         NativeBehavior::Mouse { button, .. } => match button {
             MouseButton::Left => "鼠标左键",
             MouseButton::Right => "鼠标右键",

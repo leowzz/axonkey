@@ -144,10 +144,113 @@ impl Job {
 
 struct Shared {
     configuration: Mutex<Configuration>,
+    quick_mode: Mutex<(Option<Instant>, super::quick_mode::QuickMode)>,
     stop: AtomicBool,
     ready: AtomicBool,
     active: AtomicBool,
     sender: SyncSender<Job>,
+}
+
+fn quick_now_ms(epoch: &mut Option<Instant>, now: Instant) -> u64 {
+    let base = *epoch.get_or_insert(now);
+    now.checked_duration_since(base)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn immediate_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
+    let first = actions.iter().find(|action| action.enabled())?;
+    match first {
+        NativeBehavior::QuickOverlay { profile_id, .. } if !profile_id.trim().is_empty() => {
+            Some(profile_id.trim())
+        }
+        _ => None,
+    }
+}
+
+fn resolve_mouse_input(input: &str) -> &'static str {
+    for group in WHEEL_INPUTS {
+        for candidate in group {
+            if candidate == input {
+                return candidate;
+            }
+        }
+    }
+    for group in BUTTON_INPUTS {
+        for candidate in group {
+            if candidate == input {
+                return candidate;
+            }
+        }
+    }
+    for candidate in GLOBAL_BUTTON_INPUTS {
+        if candidate == input {
+            return candidate;
+        }
+    }
+    "mouse.global.buttonMiddle"
+}
+
+fn try_enter_mouse_quick_mode(
+    shared: &Shared,
+    profile_id: &str,
+    input: &'static str,
+    still_down: bool,
+) -> bool {
+    let Ok(config) = shared.configuration.lock() else {
+        return false;
+    };
+    let settings = config.settings.clone();
+    drop(config);
+    let Ok(mut guard) = shared.quick_mode.lock() else {
+        return false;
+    };
+    guard.1.enter_from_settings(
+        "mouse",
+        "mouse",
+        "系统鼠标",
+        profile_id,
+        input,
+        still_down,
+        &settings,
+    )
+}
+
+fn enqueue_quick_executions(
+    shared: &Shared,
+    executions: Vec<super::managed::gesture::Execution>,
+    revision: u64,
+) {
+    for exec in executions {
+        enqueue(
+            shared,
+            exec.behaviors,
+            exec.sources,
+            resolve_mouse_input(&exec.input),
+            revision,
+        );
+    }
+}
+
+fn enqueue_or_enter_quick_mode(
+    shared: &Shared,
+    actions: Vec<NativeBehavior>,
+    sources: Vec<String>,
+    input: &'static str,
+    revision: u64,
+    still_down: bool,
+) {
+    if actions.is_empty() || !current_job(shared, revision) {
+        return;
+    }
+    if let Some(profile_id) = immediate_quick_overlay_profile_id(&actions) {
+        if !sources.is_empty() {
+            crate::library_usage::record_trigger(input, &sources);
+        }
+        let _ = try_enter_mouse_quick_mode(shared, profile_id, input, still_down);
+    } else {
+        enqueue(shared, actions, sources, input, revision);
+    }
 }
 
 pub struct MouseService {
@@ -163,6 +266,7 @@ impl MouseService {
                 settings: NativeSettings::default(),
                 revision: 0,
             }),
+            quick_mode: Mutex::new((None, crate::input_service::quick_mode::QuickMode::default())),
             stop: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             active: AtomicBool::new(false),
@@ -209,6 +313,24 @@ impl MouseService {
                                     thread::sleep(Duration::from_millis(step));
                                     remaining -= step;
                                 }
+                            } else if let NativeBehavior::QuickOverlay { profile_id, .. } = behavior
+                            {
+                                if let Ok(config) = state.configuration.lock() {
+                                    let settings = config.settings.clone();
+                                    drop(config);
+                                    if let Ok(mut guard) = state.quick_mode.lock() {
+                                        let _ = guard.1.enter_from_settings(
+                                            "mouse",
+                                            "mouse",
+                                            "系统鼠标",
+                                            profile_id.trim(),
+                                            job.input,
+                                            false,
+                                            &settings,
+                                        );
+                                    }
+                                }
+                                break;
                             } else {
                                 #[cfg(any(windows, target_os = "macos"))]
                                 {
@@ -244,6 +366,9 @@ impl MouseService {
             .map_err(|_| "Mouse settings lock is unavailable")?;
         if configuration.settings.mouse_settings_changed(settings) {
             configuration.revision = configuration.revision.wrapping_add(1);
+            if let Ok(mut guard) = self.shared.quick_mode.lock() {
+                guard.1.reset();
+            }
         }
         configuration.settings = settings.clone();
         let active = settings.enabled
@@ -365,6 +490,10 @@ impl ScrollAccumulator {
         let Ok(config) = shared.configuration.try_lock() else {
             return false;
         };
+        if !config.settings.enabled || !config.settings.mouse_enabled {
+            self.reset();
+            return false;
+        }
         // Wheel mapping is edge-only. Ignore leftover global wheel rules.
         let Some(edge) = self.edge else {
             self.key = None;
@@ -372,10 +501,40 @@ impl ScrollAccumulator {
             return false;
         };
         let id = WHEEL_INPUTS[edge.scope()][direction];
+        let sensitivity = match config.settings.mouse_scroll_sensitivity {
+            0 => 100,
+            value => value.clamp(25, 400),
+        };
+        let scaled_amount = if config.settings.mouse_ignore_scroll_acceleration {
+            1.0
+        } else {
+            amount
+        };
+        let revision = config.revision;
+        if let Ok(mut guard) = shared.quick_mode.try_lock() {
+            if guard.1.is_active() {
+                let key = (id, revision);
+                if self.key != Some(key) {
+                    self.remainder = 0.0;
+                    self.key = Some(key);
+                }
+                let total = self.remainder + scaled_amount * f64::from(sensitivity) / 100.0;
+                if total.floor() as usize == 0 {
+                    self.remainder = total;
+                    return true;
+                }
+                self.reset();
+                let intercept = guard.1.discrete_edge(id);
+                drop(guard);
+                drop(config);
+                if let super::quick_mode::Intercept::Execute(execs) = intercept {
+                    enqueue_quick_executions(shared, execs, revision);
+                }
+                return true;
+            }
+        }
         let actions = config.settings.behaviors.get(id).map(|item| &item.click);
-        let Some(actions) = actions
-            .filter(|a| config.settings.enabled && config.settings.mouse_enabled && has_actions(a))
-        else {
+        let Some(actions) = actions.filter(|a| has_actions(a)) else {
             self.key = None;
             self.remainder = 0.0;
             return false;
@@ -401,22 +560,29 @@ impl ScrollAccumulator {
             self.remainder = 0.0;
             return true;
         }
-        // Derived NativeSettings::default() uses zero; treat it like legacy settings.
-        let sensitivity = match config.settings.mouse_scroll_sensitivity {
-            0 => 100,
-            value => value.clamp(25, 400),
-        };
         // Event normalization removes magnitude-based acceleration, not momentum
         // events or OS event coalescing. Sensitivity still scales event counts.
-        let amount = if config.settings.mouse_ignore_scroll_acceleration {
-            1.0
-        } else {
-            amount
-        };
-        let total = self.remainder + amount * f64::from(sensitivity) / 100.0;
+        let total = self.remainder + scaled_amount * f64::from(sensitivity) / 100.0;
         let repeats = total.floor() as usize;
         if repeats == 0 {
             self.remainder = total;
+            return true;
+        }
+        if let Some(profile_id) = immediate_quick_overlay_profile_id(actions) {
+            let profile_id = profile_id.to_owned();
+            let sources = config
+                .settings
+                .behaviors
+                .get(id)
+                .map(|item| item.click_sources.clone())
+                .unwrap_or_default();
+            self.last_trigger[axis] = Some((config.revision, now));
+            self.remainder = 0.0;
+            drop(config);
+            if !sources.is_empty() {
+                crate::library_usage::record_trigger(id, &sources);
+            }
+            let _ = try_enter_mouse_quick_mode(shared, &profile_id, id, false);
             return true;
         }
         let job = Job {
@@ -450,6 +616,7 @@ impl ScrollAccumulator {
 struct ButtonTracker {
     pressed: [Option<Press>; BUTTONS.len()],
     pending: [Option<PendingClick>; BUTTONS.len()],
+    quick_owned: [Option<&'static str>; BUTTONS.len()],
 }
 struct Press {
     input: &'static str,
@@ -521,8 +688,39 @@ fn button_rule(
     let triggers = config.settings.behaviors.get(*input)?;
     has_triggers(triggers).then(|| (*input, triggers.clone()))
 }
+fn quick_mouse_button_input(
+    mode: &super::quick_mode::QuickMode,
+    edge: Option<Edge>,
+    button: usize,
+) -> Option<&'static str> {
+    if button < 2 {
+        let edge = edge?;
+        return BUTTON_INPUTS[edge.scope()].get(button).copied();
+    }
+    if let Some(edge) = edge {
+        if let Some(&edge_input) = BUTTON_INPUTS[edge.scope()].get(button) {
+            if mode.prefers_input(edge_input) {
+                return Some(edge_input);
+            }
+        }
+    }
+    GLOBAL_BUTTON_INPUTS.get(button.checked_sub(2)?).copied()
+}
+
 impl ButtonTracker {
     fn tick(&mut self, shared: &Shared, now: Instant) {
+        let active_revision = shared.configuration.try_lock().ok().and_then(|config| {
+            (config.settings.enabled && config.settings.mouse_enabled).then_some(config.revision)
+        });
+        if let Some(revision) = active_revision {
+            let quick_execs = shared.quick_mode.try_lock().ok().and_then(|mut guard| {
+                let now_ms = quick_now_ms(&mut guard.0, now);
+                guard.1.tick(now_ms)
+            });
+            if let Some(execs) = quick_execs {
+                enqueue_quick_executions(shared, execs, revision);
+            }
+        }
         for index in 0..BUTTONS.len() {
             if let Some(press) = self.pressed[index].as_mut() {
                 if !current_job(shared, press.revision) {
@@ -533,14 +731,26 @@ impl ButtonTracker {
                     && now.duration_since(press.started) >= LONG_PRESS
                 {
                     press.long_fired = true;
-                    enqueue(
-                        shared,
-                        press.triggers.long_press.clone(),
-                        press.triggers.long_press_sources.clone(),
-                        press.input,
-                        press.revision,
-                    );
-                    press.next_repeat = Some(now + LONG_REPEAT_INITIAL);
+                    if immediate_quick_overlay_profile_id(&press.triggers.long_press).is_some() {
+                        enqueue_or_enter_quick_mode(
+                            shared,
+                            press.triggers.long_press.clone(),
+                            press.triggers.long_press_sources.clone(),
+                            press.input,
+                            press.revision,
+                            true,
+                        );
+                        press.next_repeat = None;
+                    } else {
+                        enqueue(
+                            shared,
+                            press.triggers.long_press.clone(),
+                            press.triggers.long_press_sources.clone(),
+                            press.input,
+                            press.revision,
+                        );
+                        press.next_repeat = Some(now + LONG_REPEAT_INITIAL);
+                    }
                 } else if press.next_repeat.is_some_and(|due| now >= due) {
                     let _ = shared.sender.try_send(Job {
                         input: press.input,
@@ -558,12 +768,13 @@ impl ButtonTracker {
                 !current_job(shared, p.revision) || now.duration_since(p.released) >= DOUBLE_CLICK
             }) {
                 let pending = self.pending[index].take().unwrap();
-                enqueue(
+                enqueue_or_enter_quick_mode(
                     shared,
                     pending.actions,
                     pending.sources,
                     pending.input,
                     pending.revision,
+                    false,
                 );
             }
         }
@@ -582,29 +793,59 @@ impl ButtonTracker {
         }
         self.tick(shared, now);
         if down {
-            if self.pressed[button].is_some() {
+            if self.quick_owned[button].is_some() || self.pressed[button].is_some() {
                 return true;
             }
             let Ok(config) = shared.configuration.try_lock() else {
                 return false;
             };
-            let Some((input, triggers)) = button_rule(&config, edge, button) else {
+            if !config.settings.enabled || !config.settings.mouse_enabled {
+                return false;
+            }
+            let revision = config.revision;
+            let base_rule = button_rule(&config, edge, button);
+            drop(config);
+
+            if let Ok(mut guard) = shared.quick_mode.try_lock() {
+                if guard.1.is_active() {
+                    let Some(quick_input) = quick_mouse_button_input(&guard.1, edge, button) else {
+                        return false;
+                    };
+                    let now_ms = quick_now_ms(&mut guard.0, now);
+                    let intercept = guard.1.edge(quick_input, true, now_ms);
+                    drop(guard);
+                    match intercept {
+                        super::quick_mode::Intercept::PassThrough => {}
+                        super::quick_mode::Intercept::Swallow
+                        | super::quick_mode::Intercept::Exited => {
+                            self.quick_owned[button] = Some(quick_input);
+                            return true;
+                        }
+                        super::quick_mode::Intercept::Execute(execs) => {
+                            self.quick_owned[button] = Some(quick_input);
+                            enqueue_quick_executions(shared, execs, revision);
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            let Some((input, triggers)) = base_rule else {
                 return false;
             };
-            let revision = config.revision;
-            drop(config);
             let second = if let Some(pending) = self.pending[button].take() {
                 let matches = pending.input == input
                     && pending.revision == revision
                     && (pending.position.0 - position.0).abs() <= 4.0
                     && (pending.position.1 - position.1).abs() <= 4.0;
                 if !matches {
-                    enqueue(
+                    enqueue_or_enter_quick_mode(
                         shared,
                         pending.actions,
                         pending.sources,
                         pending.input,
                         pending.revision,
+                        false,
                     );
                 }
                 matches
@@ -624,20 +865,47 @@ impl ButtonTracker {
             });
             true
         } else {
+            if let Some(quick_input) = self.quick_owned[button].take() {
+                let active_revision = shared.configuration.try_lock().ok().and_then(|config| {
+                    (config.settings.enabled && config.settings.mouse_enabled)
+                        .then_some(config.revision)
+                });
+                if let Some(revision) = active_revision {
+                    let quick_execs = shared.quick_mode.try_lock().ok().and_then(|mut guard| {
+                        let now_ms = quick_now_ms(&mut guard.0, now);
+                        match guard.1.edge(quick_input, false, now_ms) {
+                            super::quick_mode::Intercept::Execute(execs) => Some(execs),
+                            _ => None,
+                        }
+                    });
+                    if let Some(execs) = quick_execs {
+                        enqueue_quick_executions(shared, execs, revision);
+                    }
+                }
+                return true;
+            }
             let Some(press) = self.pressed[button].take() else {
                 return false;
             };
             press.repeat_active.store(false, Ordering::Release);
-            if !current_job(shared, press.revision) || press.long_fired {
+            if press.long_fired {
+                if let Ok(mut guard) = shared.quick_mode.try_lock() {
+                    let now_ms = quick_now_ms(&mut guard.0, now);
+                    let _ = guard.1.edge(press.input, false, now_ms);
+                }
+                return true;
+            }
+            if !current_job(shared, press.revision) {
                 return true;
             }
             if press.second {
-                enqueue(
+                enqueue_or_enter_quick_mode(
                     shared,
                     press.triggers.double_click,
                     press.triggers.double_click_sources,
                     press.input,
                     press.revision,
+                    false,
                 );
             } else {
                 let actions = if has_actions(&press.triggers.click) {
@@ -658,12 +926,13 @@ impl ButtonTracker {
                         position: press.position,
                     });
                 } else {
-                    enqueue(
+                    enqueue_or_enter_quick_mode(
                         shared,
                         actions,
                         press.triggers.click_sources,
                         press.input,
                         press.revision,
+                        false,
                     );
                 }
             }
@@ -959,6 +1228,7 @@ mod tests {
                 settings,
                 revision: 1,
             }),
+            quick_mode: Mutex::new((None, crate::input_service::quick_mode::QuickMode::default())),
             stop: AtomicBool::new(false),
             ready: AtomicBool::new(true),
             active: AtomicBool::new(true),
@@ -1169,6 +1439,10 @@ mod tests {
                     settings,
                     revision: 1,
                 }),
+                quick_mode: Mutex::new((
+                    None,
+                    crate::input_service::quick_mode::QuickMode::default(),
+                )),
                 stop: AtomicBool::new(false),
                 ready: AtomicBool::new(true),
                 active: AtomicBool::new(true),
@@ -1489,5 +1763,91 @@ mod tests {
         assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), now));
         assert!(buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), now));
         assert_key(receiver.try_recv().unwrap(), "T");
+    }
+
+    #[test]
+    fn mouse_quick_mode_enters_exits_on_repeat_trigger_and_executes_independent_profile() {
+        let (sender, receiver) = mpsc::sync_channel(32);
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "mouseIgnoreScrollAcceleration": false,
+            "mouseVerticalScrollIntervalMs": 0,
+            "mouseHorizontalScrollIntervalMs": 0,
+            "behaviors": {
+                "mouse.global.buttonMiddle": {
+                    "click": [{ "type": "quickOverlay", "profileId": "mouse-q1" }]
+                }
+            },
+            "quickProfiles": {
+                "mouse-q1": {
+                    "id": "mouse-q1",
+                    "name": "鼠标提示词",
+                    "deviceId": "mouse",
+                    "deviceName": "系统鼠标",
+                    "behaviors": {
+                        "mouse.global.buttonBack": {
+                            "click": [{ "type": "paste", "text": "解释这段代码" }]
+                        },
+                        "mouse.top.up": {
+                            "click": [{ "type": "key", "key": "F12" }]
+                        }
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        let shared = Shared {
+            configuration: Mutex::new(Configuration {
+                settings,
+                revision: 1,
+            }),
+            quick_mode: Mutex::new((None, crate::input_service::quick_mode::QuickMode::default())),
+            stop: AtomicBool::new(false),
+            ready: AtomicBool::new(true),
+            active: AtomicBool::new(true),
+            sender,
+        };
+        let mut buttons = ButtonTracker::default();
+        let mut scroll = ScrollAccumulator::default();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+
+        // 1. Click middle button -> enters Quick Mode; center-screen left click still passes through.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(0)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(20)));
+        assert!(shared.quick_mode.lock().unwrap().1.is_active());
+        assert!(!buttons.event(&shared, 0, true, None, (50.0, 50.0), at(30)));
+        assert!(!buttons.event(&shared, 0, false, None, (50.0, 50.0), at(40)));
+
+        // 2. Press middle button again -> exits Quick Mode without executing anything.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(50)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(70)));
+        assert!(receiver.try_recv().is_err());
+
+        // 3. Re-enter Quick Mode, then click unmapped-in-base Side Back -> executes Quick Profile paste & exits.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(100)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(120)));
+        assert!(shared.quick_mode.lock().unwrap().1.is_active());
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(150)));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(170)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        let job = receiver.try_recv().unwrap();
+        assert_eq!(
+            job.behaviors,
+            vec![NativeBehavior::Paste {
+                enabled: true,
+                text: "解释这段代码".into()
+            }]
+        );
+
+        // 4. Re-enter Quick Mode, then scroll at Top Edge -> executes Quick Profile wheel action & exits.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(200)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(220)));
+        assert!(shared.quick_mode.lock().unwrap().1.is_active());
+        scroll.enter(Some(Edge::Top));
+        assert!(scroll.scroll_at(&shared, 0, 1.0, at(250)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert_key(receiver.try_recv().unwrap(), "F12");
     }
 }

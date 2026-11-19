@@ -1,0 +1,925 @@
+html.quick-overlay-window,
+.quick-overlay-window body,
+.quick-overlay-window #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.quick-overlay-window #root {
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.quick-overlay-backdrop {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ==========================================================================
+   Light Vibrancy Anodized Aluminum / Ceramic Projection Shell (Scheme 05)
+   ========================================================================== */
+
+.quick-overlay-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, var(--shell-max-w, 616px));
+  height: auto;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 13px 16px 14px;
+  box-sizing: border-box;
+  border-radius: 22px;
+  border: 1px solid rgb(255 255 255 / 90%);
+  color: #1e293b;
+  background: linear-gradient(162deg, rgb(252 253 255 / 92%), rgb(232 238 246 / 90%));
+  backdrop-filter: blur(28px) saturate(150%);
+  box-shadow:
+    0 20px 52px rgb(15 23 42 / 26%),
+    inset 0 1px 0 #ffffff,
+    inset 0 -2px 6px rgb(148 163 184 / 20%);
+  user-select: none;
+}
+
+.quick-overlay-shell.variant-panel {
+  --shell-max-w: 612px;
+}
+
+.quick-overlay-shell.variant-panel-rail {
+  --shell-max-w: 772px;
+}
+
+.quick-overlay-shell.variant-mouse {
+  --shell-max-w: 752px;
+}
+
+.quick-overlay-shell.variant-matrix {
+  --shell-max-w: 812px;
+}
+
+.quick-overlay-shell.variant-controller {
+  --shell-max-w: 852px;
+}
+
+.quick-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.quick-overlay-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.quick-overlay-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: #1d4ed8;
+  background: rgb(59 130 246 / 14%);
+  border: 1px solid rgb(59 130 246 / 26%);
+  flex: 0 0 auto;
+}
+
+.quick-overlay-mode-pill.is-preview {
+  color: #b45309;
+  background: rgb(245 158 11 / 16%);
+  border-color: rgb(245 158 11 / 32%);
+}
+
+.quick-overlay-profile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.quick-overlay-device-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.quick-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.quick-overlay-exit-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b45309;
+  background: rgb(251 191 36 / 18%);
+  border: 1px solid rgb(245 158 11 / 34%);
+}
+
+.quick-overlay-exit-hint kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: #92400e;
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid rgb(245 158 11 / 38%);
+}
+
+.quick-overlay-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgb(15 23 42 / 12%);
+  border-radius: 9px;
+  color: #475569;
+  background: rgb(255 255 255 / 70%);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.quick-overlay-close:hover,
+.quick-overlay-close:focus-visible {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: rgb(37 99 235 / 40%);
+  outline: none;
+}
+
+/* ==========================================================================
+   Scrollable Ceramic Chassis Container
+   ========================================================================== */
+
+.quick-surface-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 2px 4px 4px;
+}
+
+.ceramic-chassis {
+  margin-block: auto;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: linear-gradient(175deg, #f8fafc, #e6ecf4);
+  border: 1px solid #cbd5e1;
+  box-shadow:
+    inset 0 2px 4px #ffffff,
+    0 6px 18px rgb(15 23 42 / 7%);
+  box-sizing: border-box;
+}
+
+/* Panel Variant (Remotes & Generic SVG Devices) */
+.ceramic-chassis.is-panel {
+  max-width: 600px;
+}
+
+.ceramic-chassis.is-panel .ceramic-cross-well {
+  grid-template-rows: repeat(3, minmax(40px, auto));
+  gap: 5px;
+  padding: 6px;
+}
+
+.ceramic-chassis.is-panel .ceramic-key {
+  min-height: 40px;
+  padding: 5px 8px;
+}
+
+.ceramic-chassis.is-panel.has-side-rail {
+  max-width: 740px;
+  display: grid;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ceramic-chassis.is-panel.has-side-rail.side-right {
+  grid-template-columns: minmax(0, 1fr) 152px;
+}
+
+.ceramic-chassis.is-panel.has-side-rail.side-left {
+  grid-template-columns: 152px minmax(0, 1fr);
+}
+
+.ceramic-panel-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ceramic-panel-main.density-compact {
+  gap: 5px;
+}
+
+.ceramic-side-rail {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgb(226 232 240 / 55%);
+  border: 1px solid #cbd5e1;
+}
+
+.ceramic-row {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ceramic-row.cols-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ceramic-row.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ceramic-row.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ceramic-row.cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.ceramic-row.cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* Cross / Ring Well (D-pad, ABXY Diamond, Mouse Wheel) */
+.ceramic-cross-well {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(46px, auto));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #e3eaf2, #f1f5f9);
+  border: 1px solid #cbd5e1;
+  box-shadow: inset 0 1px 3px rgb(15 23 42 / 7%);
+}
+
+.ceramic-cross-well .cross-slot.is-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+.ceramic-cross-well .cross-slot.is-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+.ceramic-cross-well .cross-slot.is-center {
+  grid-column: 2;
+  grid-row: 2;
+}
+.ceramic-cross-well .cross-slot.is-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+.ceramic-cross-well .cross-slot.is-down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Bridge Block (Symmetric 2-row rockers flanking a central button, e.g. A15/RC313) */
+.ceramic-bridge-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ceramic-bridge-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ceramic-bridge-center {
+  height: 100%;
+  justify-content: center;
+}
+
+/* Matrix Variant (Keypads & Macro Grids with optional OLED Span) */
+.ceramic-chassis.is-matrix {
+  max-width: 780px;
+  display: grid;
+  gap: 8px;
+}
+
+.ceramic-matrix-with-rail {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-width: 780px;
+  margin-block: auto;
+}
+
+.ceramic-matrix-with-rail.side-right {
+  grid-template-columns: minmax(0, 4fr) minmax(110px, 0.8fr);
+}
+
+.ceramic-matrix-with-rail.side-left {
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 4fr);
+}
+
+.ceramic-matrix-with-rail > .ceramic-chassis {
+  margin-block: 0;
+}
+
+.ceramic-matrix-with-rail > .ceramic-side-rail > .ceramic-key {
+  flex: 1;
+}
+
+.ceramic-matrix-oled {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 9px 13px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #0f172a, #1e293b);
+  border: 1px solid #334155;
+  color: #f8fafc;
+  min-width: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+
+.ceramic-oled-eyebrow {
+  font-size: 10px;
+  font-weight: 650;
+  color: #7dd3fc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ceramic-matrix-oled strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ceramic-matrix-oled span:last-child {
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+/* Mouse Variant */
+.ceramic-chassis.is-mouse {
+  max-width: 720px;
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ceramic-mouse-thumb {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ceramic-mouse-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ceramic-mouse-primary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ceramic-key.is-primary-click {
+  min-height: 78px;
+}
+
+/* Controller Variant (Gamepads) */
+.ceramic-chassis.is-controller {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ceramic-controller-shoulders {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ceramic-shoulder-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ceramic-controller-center {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.ceramic-controller-pods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ceramic-pod {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ceramic-chassis.is-controller .ceramic-cross-well {
+  grid-template-rows: repeat(3, minmax(40px, auto));
+  gap: 5px;
+  padding: 7px;
+}
+
+.ceramic-chassis.is-controller .ceramic-key {
+  min-height: 40px;
+  padding: 5px 8px;
+}
+
+/* ==========================================================================
+   Ceramic Keycap Slot (Configured / Exit Trigger / Idle)
+   ========================================================================== */
+
+.ceramic-key {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 3px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 6px 9px 7px;
+  border-radius: 11px;
+  border: 1px solid rgb(15 23 42 / 12%);
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  color: #0f172a;
+  font-family: inherit;
+  text-align: left;
+  box-shadow:
+    0 2.5px 0 #cbd5e1,
+    0 5px 12px rgb(15 23 42 / 7%),
+    inset 0 1px 0 #ffffff;
+  transition:
+    background 110ms ease,
+    border-color 110ms ease,
+    box-shadow 110ms ease;
+}
+
+.ceramic-panel-main.density-compact .ceramic-key {
+  min-height: 40px;
+  padding: 5px 8px;
+}
+
+.ceramic-key.is-configured {
+  cursor: pointer;
+}
+
+.ceramic-key.is-configured:hover,
+.ceramic-key.is-configured:focus-visible,
+.ceramic-key.is-configured.is-active {
+  border-color: #2563eb;
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  box-shadow:
+    0 2.5px 0 #93c5fd,
+    0 8px 18px rgb(37 99 235 / 15%),
+    inset 0 1px 0 #ffffff;
+  outline: none;
+}
+
+.ceramic-key.is-configured.kind-prompt {
+  border-color: rgb(147 51 234 / 32%);
+}
+
+.ceramic-key.is-configured.kind-prompt:hover,
+.ceramic-key.is-configured.kind-prompt:focus-visible,
+.ceramic-key.is-configured.kind-prompt.is-active {
+  border-color: #9333ea;
+  background: linear-gradient(180deg, #ffffff 0%, #faf5ff 100%);
+  box-shadow:
+    0 2.5px 0 #d8b4fe,
+    0 8px 18px rgb(147 51 234 / 14%);
+}
+
+.ceramic-key.is-configured.kind-sequence {
+  border-color: rgb(5 150 105 / 32%);
+}
+
+.ceramic-key.is-configured.kind-sequence:hover,
+.ceramic-key.is-configured.kind-sequence:focus-visible,
+.ceramic-key.is-configured.kind-sequence.is-active {
+  border-color: #059669;
+  background: linear-gradient(180deg, #ffffff 0%, #ecfdf5 100%);
+  box-shadow:
+    0 2.5px 0 #6ee7b7,
+    0 8px 18px rgb(5 150 105 / 14%);
+}
+
+.ceramic-key.is-configured.is-pressed,
+.ceramic-key.is-configured:active {
+  transform: translateY(2px);
+  border-color: #059669;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+  box-shadow:
+    0 1px 0 #34d399,
+    0 0 14px rgb(16 185 129 / 28%);
+}
+
+.ceramic-key.is-trigger {
+  cursor: pointer;
+  border-style: dashed;
+  border-color: #f59e0b;
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  box-shadow:
+    0 2.5px 0 #fcd34d,
+    0 4px 10px rgb(245 158 11 / 12%);
+}
+
+.ceramic-key.is-trigger:not(:disabled):hover,
+.ceramic-key.is-trigger:focus-visible,
+.ceramic-key.is-trigger.is-active {
+  border-color: #d97706;
+  background: linear-gradient(180deg, #fef9c3 0%, #fde68a 100%);
+  outline: none;
+}
+
+.ceramic-key.is-idle {
+  justify-content: center;
+  align-items: center;
+  flex-direction: row;
+  gap: 5px;
+  background: rgb(226 232 240 / 62%);
+  border-color: rgb(148 163 184 / 24%);
+  color: #94a3b8;
+  box-shadow: inset 0 1px 2px rgb(15 23 42 / 7%);
+}
+
+.ceramic-key-idle-glyph {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.72;
+}
+
+.ceramic-key-idle-code {
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ceramic-key-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ceramic-key-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.ceramic-key-code span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ceramic-key-glyph-text {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.ceramic-key-tag {
+  flex: 0 0 auto;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 650;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.ceramic-key-tag.kind-prompt {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.ceramic-key-tag.kind-sequence {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.ceramic-key-tag.is-exit {
+  background: rgb(245 158 11 / 22%);
+  color: #92400e;
+}
+
+.ceramic-key-single {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ceramic-key-scope-line {
+  font-size: 10px;
+  font-weight: 650;
+  color: #2563eb;
+  line-height: 1.2;
+}
+
+.ceramic-key-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #0f172a;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.ceramic-panel-main.density-compact .ceramic-key-label {
+  font-size: 12px;
+  -webkit-line-clamp: 1;
+}
+
+.ceramic-key-label.is-prompt {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ceramic-key-steps {
+  font-size: 10.5px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ceramic-key-exit-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #b45309;
+}
+
+.ceramic-key-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ceramic-key-multi-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+.ceramic-key-multi-row span {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 650;
+  color: #2563eb;
+}
+
+.ceramic-key-multi-row.is-prompt span {
+  color: #7e22ce;
+}
+
+.ceramic-key-multi-row.is-sequence span {
+  color: #047857;
+}
+
+.ceramic-key-multi-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+/* Scoped Multi-Entry Mouse Slot */
+.ceramic-key.is-scoped-group {
+  gap: 5px;
+}
+
+.ceramic-scoped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ceramic-scoped-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 7px;
+  border: 1px solid rgb(37 99 235 / 22%);
+  background: rgb(239 246 255 / 80%);
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ceramic-scoped-btn:hover,
+.ceramic-scoped-btn:focus-visible {
+  border-color: #2563eb;
+  background: #dbeafe;
+  outline: none;
+}
+
+.ceramic-scoped-btn.is-exit {
+  border-style: dashed;
+  border-color: #f59e0b;
+  background: rgb(254 243 199 / 85%);
+  color: #92400e;
+}
+
+.ceramic-scoped-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.ceramic-scoped-btn.is-exit .ceramic-scoped-badge {
+  color: #b45309;
+}
+
+.ceramic-scoped-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+/* ==========================================================================
+   Zero-Jitter Fixed Bottom Detail Bar (Prompt / Sequence Full Preview)
+   ========================================================================== */
+
+.quick-surface-detail-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 13px;
+  border-radius: 13px;
+  background: rgb(255 255 255 / 78%);
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  min-width: 0;
+}
+
+.quick-detail-title {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.quick-detail-badge {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 650;
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.quick-detail-body {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.quick-detail-steps {
+  flex: 0 1 220px;
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  border-radius: 16px;
+  text-align: center;
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid #dbe4ef;
+}
+
+.quick-overlay-empty p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.quick-overlay-empty span {
+  font-size: 12.5px;
+  color: #64748b;
+}

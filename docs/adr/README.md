@@ -11,3 +11,5 @@
 | [0001](0001-windows-rc003-input-by-device-instance.md) | Windows RC003 输入按设备实例绑定 | `accepted` |
 | [0002](0002-svg-device-descriptor.md) | SVG 设备描述作为设备类型协议 | `accepted` |
 | [0003](0003-transport-independent-device-input.md) | 传输无关的设备输入与会话 | `proposed` |
+| [0004](0004-quick-interaction-overlay-profiles.md) | 快捷交互窗复用独立配置文件与非激活顶层浮层 | `accepted` |
+| [0005](0005-native-app-config-storage.md) | 桌面端持久化配置统一存储至软件数据目录 | `accepted` |

@@ -31,6 +31,7 @@ const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
   './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
 })
 const modelImports = {
+  '../../appStorage.ts': require('../src/appStorage.ts'),
   '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
@@ -43,6 +44,7 @@ const modelImports = {
   '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
   '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
   '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
+  '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -58,6 +60,7 @@ const modelMarkdown = compile('src/devices/integration/ModelMarkdown.tsx', {
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
+  '../../appStorage': require('../src/appStorage.ts'),
   '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
   '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
   './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
@@ -456,6 +459,7 @@ test('bundled capabilities retain recording defaults and platform support for al
     ['tclRc802a', 'hold', true], ['tclRc902n', 'hold', false], ['tclRc902v', 'hold', false],
     ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false], ['oneplusRc001a', 'click', false],
     ['kivoK18Lite', 'click', false, false, true],
+    ['g17Touch', 'click', false, false, true],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -646,7 +650,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -892,6 +899,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, false, true], ['tclRc902v', true, false, false, true],
       ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false], ['oneplusRc001a', true, false, false, false],
       ['kivoK18Lite', false, false, false, false],
+      ['g17Touch', false, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -1182,7 +1190,10 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -1427,6 +1438,7 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
   const { DeviceHub: TestHub, DeviceDiscoverySection: TestDiscovery } = compile('src/devices/integration/DeviceHub.tsx', {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../appStorage': require('../src/appStorage.ts'),
     '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
     '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
@@ -1556,7 +1568,7 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
   }
 })
 
-test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows driver notices and edits per-profile and per-device OLED screen settings', async t => {
+test('Kivo K18 Lite workspace delegates responsive lanes to the workflow and edits per-profile and per-device OLED screen settings', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const previewCalls = []
   const screenEditorMod = compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
@@ -1606,7 +1618,10 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
@@ -1677,17 +1692,12 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
   })
   try {
     const rootDiv = view.root.find(node => node.type === 'div' && node.props.className?.includes('managed-instance-workspace'))
-    assert.match(rootDiv.props.className, /\bis-controller\b/)
-    assert.equal(view.root.findAllByProps({ className: 'remote-stage managed-controller-stage' }).length, 1)
+    assert.equal(rootDiv.props.className, 'mapping-page mapping-flow-page managed-instance-workspace')
+    assert.equal(view.root.findAllByProps({ className: 'remote-stage' }).length, 1)
     assert.equal(view.root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     assert.ok(view.root.findByType(RemoteControl).props.screenRegion)
 
-    const triggerGroup = view.root.findByProps({ className: 'managed-workflow-triggers' })
-    const triggerBtns = triggerGroup.findAllByType('button')
-    assert.deepEqual(triggerBtns.map(text), ['单击1', '双击1', '长按0'])
-    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'click')
-    act(() => triggerBtns[1].props.onClick())
-    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'doubleClick')
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, undefined)
 
     // Click OLED screen region -> switches right panel to KivoScreenEditor
     act(() => view.root.findByType(RemoteControl).props.onSelect('__screen__'))
@@ -1827,7 +1837,10 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {

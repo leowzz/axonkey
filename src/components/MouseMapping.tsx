@@ -49,15 +49,29 @@ export const mouseInputs: MappingInput[] = mouseInputIds.map(id => {
   }
 })
 
-export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onSelect: (id: InputId) => void }) {
+export function MouseInputModel({
+  activeId,
+  warnings,
+  onSelect,
+}: {
+  activeId: InputId
+  warnings?: Readonly<Record<string, string>>
+  onSelect: (id: InputId) => void
+}) {
   const { scope, control: selected } = mouseInputParts(activeId)
   const part = (id: MouseControlId, label: string) => {
     const Icon = icons[id]
+    const warning = mouseScopesForControl(id)
+      .map(item => warnings?.[mouseInputId(item.id, id)])
+      .find(Boolean)
+    const fullLabel = mouseControls.find(item => item.id === id)!.label
     return (
       <button
         type="button"
-        className={`mouse-part mouse-part-${id}`}
-        aria-label={`选择${mouseControls.find(item => item.id === id)!.label}`}
+        data-mouse-control={id}
+        className={`mouse-part mouse-part-${id}${warning ? ' warning' : ''}`}
+        aria-label={`选择${fullLabel}${warning ? `（${warning}）` : ''}`}
+        title={warning ? `${fullLabel} — ${warning}` : undefined}
         aria-pressed={selected.id === id}
         onClick={() => onSelect(mouseInputId(scope.id, id))}
       >
@@ -136,8 +150,12 @@ export function MouseControlPicker({ activeId, onSelect }: Pick<PickerProps, 'ac
 export function MouseScopeSelector({
   behaviors,
   activeId,
+  warnings,
   onSelect,
-}: Pick<PickerProps, 'behaviors' | 'activeId'> & { onSelect: (id: InputId) => void }) {
+}: Pick<PickerProps, 'behaviors' | 'activeId'> & {
+  warnings?: Readonly<Record<string, string>>
+  onSelect: (id: InputId) => void
+}) {
   const { scope, control } = mouseInputParts(activeId)
   return (
     <div className="mouse-condition-row">
@@ -148,11 +166,13 @@ export function MouseScopeSelector({
           .map(item => {
             const id = mouseInputId(item.id, control.id)
             const count = Object.values(behaviors[id]).filter(list => list.some(behavior => behavior.enabled)).length
+            const warning = warnings?.[id]
             return (
               <button
                 type="button"
-                className={`mouse-scope-option mouse-scope-${item.id}`}
+                className={`mouse-scope-option mouse-scope-${item.id}${warning ? ' warning' : ''}`}
                 key={item.id}
+                title={warning}
                 aria-pressed={item.id === scope.id}
                 onClick={() => onSelect(id)}
               >

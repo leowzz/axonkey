@@ -58,6 +58,7 @@ export type BuiltinDeviceKind =
   | 'phicommDb1R'
   | 'oneplusRc001a'
   | 'kivoK18Lite'
+  | 'g17Touch'
 
 export type WorkspaceLayout = 'multi-lane' | 'single-lane'
 

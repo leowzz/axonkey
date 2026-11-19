@@ -1,0 +1,332 @@
+.quick-overlay-configurator {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.quick-overlay-config-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.quick-overlay-config-header .reset-button {
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.quick-overlay-config-name {
+  flex: 0 1 260px;
+  min-width: 100px;
+  font-weight: 650;
+}
+
+.quick-overlay-config-device {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-config-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+.quick-overlay-config-menu .profile-manager-popover {
+  right: 0;
+  left: auto;
+  min-width: 140px;
+}
+
+.quick-overlay-config-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) clamp(238px, 27vw, 318px);
+  gap: 12px;
+  min-height: 0;
+  padding: 0 12px 12px;
+}
+
+.quick-overlay-config-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 44%);
+}
+
+.quick-overlay-config-stage {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.quick-overlay-config-stage .ceramic-chassis {
+  margin-block: 0;
+}
+
+.quick-overlay-config-stage .ceramic-chassis.is-panel:not(.has-side-rail) {
+  max-width: 540px;
+}
+
+.quick-overlay-config-stage .quick-overlay-editor-key {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.quick-overlay-editor-key.is-idle:not(:disabled) {
+  cursor: pointer;
+  background: rgb(255 255 255 / 60%);
+}
+
+.quick-overlay-editor-key:not(:disabled):hover,
+.quick-overlay-editor-key[aria-pressed='true'],
+.quick-overlay-editor-key.is-drop-target {
+  border-color: #5287d8;
+  box-shadow: inset 0 0 0 1px #5287d8;
+}
+
+.quick-overlay-editor-key[aria-pressed='true'],
+.quick-overlay-editor-key.is-drop-target {
+  background: #e7f0ff;
+}
+
+.quick-overlay-editor-key:disabled {
+  opacity: 0.52;
+}
+
+.quick-overlay-editor-key.is-trigger:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.quick-overlay-editor-key .ceramic-key-label {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-track {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 12px 16px;
+  background: rgb(233 239 247 / 62%);
+}
+
+.quick-overlay-track > header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.quick-overlay-track h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.quick-overlay-track header > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quick-overlay-track-scroll {
+  overflow-x: auto;
+  padding-block: 8px 6px;
+}
+
+.quick-overlay-step-rail,
+.quick-overlay-step-segment {
+  display: flex;
+  align-items: center;
+  width: max-content;
+}
+
+.quick-overlay-step-gap {
+  display: flex;
+  flex: 0 0 20px;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  color: #6d809a;
+}
+
+.quick-overlay-step-gap:empty {
+  flex-basis: 3px;
+}
+
+.quick-overlay-step-gap.is-drop-target,
+.quick-overlay-step-add:focus-visible {
+  border-radius: 5px;
+  color: #225caa;
+  background: #cfe2ff;
+}
+
+.quick-overlay-step,
+.quick-overlay-step-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 49px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+}
+
+.quick-overlay-step {
+  width: 155px;
+  background: rgb(255 255 255 / 90%);
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+}
+
+.quick-overlay-step:hover,
+.quick-overlay-step:focus-visible {
+  border-color: #5287d8;
+}
+
+.quick-overlay-step.is-disabled {
+  opacity: 0.65;
+}
+
+.quick-overlay-step > img {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.quick-overlay-step > span {
+  min-width: 0;
+}
+
+.quick-overlay-step strong,
+.quick-overlay-step small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-step strong {
+  font-size: 12px;
+}
+
+.quick-overlay-step small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.quick-overlay-step-add {
+  border-style: dashed;
+  color: #315e97;
+  background: rgb(255 255 255 / 52%);
+  cursor: pointer;
+}
+
+.quick-overlay-step-add:hover {
+  background: white;
+}
+
+.quick-overlay-config-toolbox.workflow-axonkey {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.quick-overlay-config-preview [aria-disabled='true'] {
+  cursor: default;
+}
+
+.quick-overlay-configurator.is-dragging,
+.quick-overlay-configurator.is-dragging button {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.quick-overlay-step-menu {
+  position: fixed;
+  z-index: 80;
+  display: grid;
+  width: 132px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 16%);
+}
+
+.quick-overlay-step-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.quick-overlay-step-menu button:not(:disabled):hover,
+.quick-overlay-step-menu button:focus-visible {
+  background: #e7f0ff;
+}
+
+.quick-overlay-step-menu button:disabled {
+  opacity: 0.45;
+}
+
+.quick-overlay-config-preview {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  padding: 24px;
+  border: 0;
+  background: transparent;
+}
+
+.quick-overlay-config-preview::backdrop {
+  background: rgb(15 23 42 / 26%);
+}
+
+.quick-overlay-config-preview[open] .quick-overlay-shell {
+  animation: quick-overlay-preview-in 150ms ease-out;
+}
+
+@keyframes quick-overlay-preview-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-overlay-config-preview[open] .quick-overlay-shell {
+    animation: none;
+  }
+}

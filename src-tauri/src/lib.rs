@@ -1,4 +1,5 @@
 mod app_restart;
+mod app_storage;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
@@ -15,6 +16,7 @@ mod onboarding;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
+mod quick_overlay;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod recording_overlay;
 mod relay;
@@ -42,9 +44,9 @@ const AUTOSTART_ARG: &str = "--autostart";
 const LEGACY_AUTOSTART_MARKER: &str = "autostart-initialized";
 const BACKGROUND_AUTOSTART_MARKER: &str = "autostart-background-initialized";
 #[allow(dead_code)]
-const PERMISSION_HELPER_WIDTH: f64 = 430.0;
+const PERMISSION_HELPER_WIDTH: f64 = 368.0;
 #[allow(dead_code)]
-const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
+const PERMISSION_HELPER_HEIGHT: f64 = 356.0;
 const RUNTIME_LOG_FILE_BASENAME: &str = "axonkey";
 const RUNTIME_LOG_MAX_BYTES: u128 = 5_000_000;
 const RUNTIME_LOG_KEEP_FILES: usize = 5;
@@ -113,10 +115,18 @@ fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::
         .map(std::path::Path::to_path_buf)
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn reveal_target_for_executable(executable: &std::path::Path) -> std::path::PathBuf {
+    app_bundle_for_executable(executable).unwrap_or_else(|| executable.to_path_buf())
+}
+
 #[cfg(target_os = "macos")]
 fn register_cli_command() -> Result<(), String> {
     use std::os::unix::fs::symlink;
 
+    if cfg!(debug_assertions) {
+        return Ok(());
+    }
     let executable =
         std::env::current_exe().map_err(|error| format!("Cannot locate Axonkey: {error}"))?;
     let Some(bundle) = app_bundle_for_executable(&executable) else {
@@ -1198,19 +1208,53 @@ fn reveal_current_app() -> Result<(), String> {
     {
         let executable = std::env::current_exe()
             .map_err(|error| format!("Cannot locate the current executable: {error}"))?;
-        let app_bundle = app_bundle_for_executable(&executable).ok_or_else(|| {
-            "Axonkey.app was not found. Install or open the packaged app first.".to_string()
-        })?;
+        let target = reveal_target_for_executable(&executable);
         std::process::Command::new("open")
             .arg("-R")
-            .arg(app_bundle)
+            .arg(target)
             .spawn()
-            .map_err(|error| format!("Cannot reveal Axonkey.app in Finder: {error}"))?;
+            .map_err(|error| format!("Cannot reveal Axonkey in Finder: {error}"))?;
         Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
     Err("Revealing the current app is only available on macOS".into())
+}
+
+#[tauri::command]
+fn start_current_app_drag(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Cannot locate the current executable: {error}"))?;
+        let target = reveal_target_for_executable(&executable);
+        let path_cstr = std::ffi::CString::new(target.to_string_lossy().as_bytes())
+            .map_err(|_| "Invalid Axonkey path".to_string())?;
+        let window = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "Main window is unavailable".to_string())?;
+        app.run_on_main_thread(move || {
+            if let Ok(ns_win) = window.ns_window() {
+                extern "C" {
+                    fn axonkey_macos_start_file_drag(
+                        ns_window_ptr: *mut std::ffi::c_void,
+                        path_utf8: *const std::ffi::c_char,
+                    ) -> bool;
+                }
+                unsafe {
+                    let _ = axonkey_macos_start_file_drag(ns_win, path_cstr.as_ptr());
+                }
+            }
+        })
+        .map_err(|error| format!("Cannot start Axonkey file drag: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("Dragging the current app is only available on macOS".into())
+    }
 }
 
 #[tauri::command]
@@ -2230,6 +2274,10 @@ pub fn run() {
             library_usage::initialize(app.handle());
             input_service::text_output::initialize(app.handle().clone());
             use tauri::Manager;
+            let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
+            app.manage(app_storage::AppConfigStore::open(
+                app_data_dir.join("app-config.json"),
+            ));
 
             let default_panic_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |panic| {
@@ -2273,6 +2321,7 @@ pub fn run() {
             start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
+            quick_overlay::initialize(app.handle());
             #[cfg(not(any(target_os = "macos", windows)))]
             if let Err(error) = profile_switch_overlay::initialize(app.handle()) {
                 log::warn!(target: "axonkey::profile_overlay", "Cannot initialize profile switch overlay: {error}");
@@ -2341,7 +2390,14 @@ pub fn run() {
             profile_switch_overlay::get_profile_switch_overlay,
             profile_switch_overlay::reveal_profile_switch_overlay,
             profile_switch_overlay::hide_profile_switch_overlay,
+            quick_overlay::get_quick_overlay,
+            quick_overlay::reveal_quick_overlay,
+            quick_overlay::dismiss_quick_overlay,
+            quick_overlay::preview_quick_overlay,
+            quick_overlay::trigger_quick_overlay_input,
             ping,
+            app_storage::load_app_config,
+            app_storage::update_app_config,
             get_platform,
             get_log_info,
             open_log_directory,
@@ -2355,6 +2411,7 @@ pub fn run() {
             open_system_settings,
             set_permission_helper_mode,
             reveal_current_app,
+            start_current_app_drag,
             open_external_url,
             open_external_page,
             request_macos_permission,
@@ -2419,7 +2476,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_bundle_for_executable, args_request_autostart, rc003_connected};
+    use super::{
+        app_bundle_for_executable, args_request_autostart, rc003_connected,
+        reveal_target_for_executable,
+    };
 
     #[test]
     fn audio_targets_select_voice_backends_and_preserve_instance_settings() {
@@ -2599,8 +2659,14 @@ mod tests {
             Some(std::path::PathBuf::from("/Applications/Axonkey.app"))
         );
         assert_eq!(
-            app_bundle_for_executable(std::path::Path::new("/tmp/axonkey")),
-            None
+            reveal_target_for_executable(executable),
+            std::path::PathBuf::from("/Applications/Axonkey.app")
+        );
+        let bare = std::path::Path::new("/tmp/axonkey");
+        assert_eq!(app_bundle_for_executable(bare), None);
+        assert_eq!(
+            reveal_target_for_executable(bare),
+            std::path::PathBuf::from("/tmp/axonkey")
         );
     }
 

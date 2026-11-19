@@ -11,6 +11,7 @@ import Renderer, { act } from 'react-test-renderer'
 const require = createRequire(import.meta.url)
 const library = require('sequential-workflow-designer')
 const instances = []
+const canvasObservers = new Map()
 const storage = new Map()
 let storageFailure = false
 const copiedSequences = []
@@ -75,6 +76,7 @@ function load(file) {
     } }
     if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
+    if (name === './MappingColumnSplitter') return { MappingColumnSplitter: () => null }
     if (name === './WorkflowSplitPane') return { WorkflowSplitPane: props => React.createElement(React.Fragment, null, props.header, props.canvas, props.editor) }
     if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
@@ -96,7 +98,7 @@ function load(file) {
       setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
     } },
     document: { body: {}, createElement: () => ({ setAttribute() {}, remove() {} }) },
-    ResizeObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(callback) { this.callback = callback; this.targets = [] } observe(target) { this.targets.push(target); canvasObservers.set(target, this.callback) } disconnect() { for (const target of this.targets) canvasObservers.delete(target) } },
   }, { filename: file })
   return module.exports
 }
@@ -125,10 +127,11 @@ const render = async (sequences = empty(), options = {}, account = null) => {
       return list
     }
     const handlers = new Map()
-    return { handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
+    return { clientWidth: 800, handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
     view, writes, requests, toolboxLists, current: () => instances.at(-1),
+    resize: async width => { const canvas = instances.at(-1).canvas; canvas.clientWidth = width; await act(async () => canvasObservers.get(canvas)()) },
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(element())) },
     unmount: async () => act(async () => view.unmount()),
   }
@@ -218,6 +221,42 @@ test('single-lane trigger switching keeps the designer and preserves hidden sequ
     await app.update({ sequences: cleared, activeTrigger: 'click' })
     assert.equal(app.current(), original)
     assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
+  } finally { await app.unmount() }
+})
+
+test('canvas width switches between columns and trigger tabs without losing the edited step or hidden sequences', async () => {
+  const initial = { click: [{ ...delay(100), id: 'click-wait' }], doubleClick: [{ ...delay(200), id: 'double-wait' }], longPress: [{ ...delay(300), id: 'long-wait' }] }
+  const app = await render(initial)
+  const original = app.current()
+  const root = original.configuration.extensions.find(extension => extension.rootComponent).rootComponent
+  const visible = () => copy(root.visibleTriggers().map(trigger => trigger.id))
+  try {
+    assert.deepEqual(visible(), ['click', 'doubleClick', 'longPress'])
+    const editing = await openContextEditor(app, 'longPress')
+    await app.resize(420)
+    assert.deepEqual(visible(), ['longPress'], 'narrowing follows the currently edited trigger')
+    assert.equal(app.view.root.findByType('workflow-dialog'), editing)
+    assert.equal(app.writes.length, 0)
+    const doubleTab = app.view.root.findAllByProps({ role: 'tab' })[1]
+    await act(async () => doubleTab.props.onClick())
+    assert.deepEqual(visible(), ['doubleClick'])
+    const node = palette('enter')
+    branches(original).doubleClick.push(node)
+    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+    const saved = app.writes.at(-1)[1]
+    assert.deepEqual(saved.click, initial.click)
+    assert.deepEqual(saved.longPress, initial.longPress)
+    assert.equal(saved.doubleClick.at(-1).key, 'Enter')
+    await app.update({ sequences: saved })
+    const writesBeforeResize = app.writes.length
+    await app.resize(900)
+    assert.deepEqual(visible(), ['click', 'doubleClick', 'longPress'])
+    assert.equal(app.view.root.findAllByProps({ role: 'tab' }).length, 0)
+    await app.resize(420)
+    assert.deepEqual(visible(), ['doubleClick'])
+    assert.equal(app.current(), original)
+    assert.equal(original.destroyed, false)
+    assert.equal(app.writes.length, writesBeforeResize)
   } finally { await app.unmount() }
 })
 
@@ -363,47 +402,41 @@ test('confirmed website targets use the same normalized value in the node and st
 for (const [preset, behaviorType, nodePrefix, parameters] of [
   ['wheel', 'wheel', 'wheel', {}],
   ['cursorMove', 'cursorMove', 'cursor', { distance: 123 }],
-]) test(`${preset} opens a draft, cancels without saving, and commits a directional node for each choice`, async () => {
+]) test(`${preset} saves its default immediately, keeps it when closing, and saves each directional edit`, async () => {
   for (const direction of ['up', 'down', 'left', 'right']) {
     const app = await render({ ...empty(), click: [delay(751)] })
     try {
       const instance = app.current()
-      const insert = async () => {
-        const node = palette(preset)
-        branches(instance).doubleClick.push(node)
-        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-      }
-      await insert()
-      assert.equal(app.writes.length, 0)
+      const node = palette(preset)
+      branches(instance).doubleClick.push(node)
+      await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+      assert.equal(app.writes.length, 1)
       const firstDialog = await openContextEditor(app, 'doubleClick')
-      const draft = firstDialog.props.edit.behavior
-      assert.equal(draft.type, behaviorType)
-      assert.equal(draft.direction, 'up')
-      if (preset === 'cursorMove') assert.equal(draft.distance, 50)
+      const initial = copy(firstDialog.props.edit.behavior)
+      assert.equal(initial.type, behaviorType)
+      assert.equal(initial.direction, 'up')
+      if (preset === 'cursorMove') assert.equal(initial.distance, 50)
+      assert.deepEqual(app.writes[0][1].doubleClick, [initial])
       await act(async () => firstDialog.props.onClose())
       assert.equal(branches(instance).doubleClick.length, 1)
-      assert.equal(app.writes.length, 0)
-      // The close icon only dismisses the editor; explicit deletion removes
-      // the draft before the next insertion in this test.
-      branches(instance).doubleClick.splice(0, 1)
-      await insert()
+      assert.equal(app.writes.length, 1)
       const behavior = { id: `new-${preset}`, type: behaviorType, enabled: true, direction, ...parameters }
       const secondDialog = await openContextEditor(app, 'doubleClick')
       await act(async () => secondDialog.props.edit.onSave(behavior))
-      assert.equal(app.writes.length, 1)
-      const saved = app.writes[0][1]
+      assert.equal(app.writes.length, preset === 'wheel' && direction === 'up' ? 1 : 2)
+      const saved = app.writes.at(-1)[1]
       assert.deepEqual(saved.doubleClick, [behavior])
       assert.deepEqual(saved.click, [delay(751)])
-      const node = branches(instance).doubleClick[0]
-      assert.equal(node.type, `${nodePrefix}${direction[0].toUpperCase()}${direction.slice(1)}`)
-      assert.equal(node.properties.draftGroup, undefined)
+      const savedNode = branches(instance).doubleClick[0]
+      assert.equal(savedNode.type, `${nodePrefix}${direction[0].toUpperCase()}${direction.slice(1)}`)
+      assert.equal(savedNode.properties.draftGroup, undefined)
       await app.update({ sequences: saved })
       assert.equal(app.current(), instance)
     } finally { await app.unmount() }
   }
 })
 
-test('grouped mouse and media actions cancel without writes and save each choice in the legacy format', async () => {
+test('grouped mouse and media actions save their default immediately and allow changing each choice', async () => {
   const groups = [
     ['mouseButton', [
       ['mouseLeft', { type: 'mouse', button: 'left' }], ['mouseRight', { type: 'mouse', button: 'right' }],
@@ -419,30 +452,68 @@ test('grouped mouse and media actions cancel without writes and save each choice
     const app = await render({ ...empty(), click: [delay(751)] })
     try {
       const instance = app.current()
-      const insert = async () => {
-        const node = palette(preset)
-        branches(instance).longPress.push(node)
-        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-      }
-      await insert()
-      assert.equal(app.writes.length, 0)
+      const node = palette(preset)
+      branches(instance).longPress.push(node)
+      await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+      assert.equal(app.writes.length, 1)
       const firstDialog = await openContextEditor(app, 'longPress')
       assert.deepEqual(copy(firstDialog.props.edit.behavior), { id: `new-${preset}`, enabled: true, ...options[0][1] })
+      assert.deepEqual(app.writes[0][1].longPress, [copy(firstDialog.props.edit.behavior)])
       await act(async () => firstDialog.props.onClose())
       assert.equal(branches(instance).longPress.length, 1)
-      assert.equal(app.writes.length, 0)
-      branches(instance).longPress.splice(0, 1)
-      await insert()
+      assert.equal(app.writes.length, 1)
       const behavior = { id: `new-${preset}`, enabled: true, ...value }
       const secondDialog = await openContextEditor(app, 'longPress')
       await act(async () => secondDialog.props.edit.onSave(behavior))
-      assert.equal(app.writes.length, 1)
-      assert.deepEqual(app.writes[0][1], { click: [delay(751)], doubleClick: [], longPress: [behavior] })
+      assert.equal(app.writes.length, nodeType === options[0][0] ? 1 : 2)
+      assert.deepEqual(app.writes.at(-1)[1], { click: [delay(751)], doubleClick: [], longPress: [behavior] })
       assert.equal(branches(instance).longPress[0].type, nodeType)
       assert.equal(branches(instance).longPress[0].properties.draftGroup, undefined)
-      await app.update({ sequences: app.writes[0][1] })
+      await app.update({ sequences: app.writes.at(-1)[1] })
       assert.equal(app.current(), instance)
       assert.equal(instance.destroyed, false)
+    } finally { await app.unmount() }
+  }
+})
+
+test('defaulted actions survive click additions, drops, and key switches before a drop notification', async () => {
+  const defaults = [
+    ['volumeControl', { type: 'key', key: 'VolumeUp' }],
+    ['mediaTrack', { type: 'key', key: 'MediaPrevious' }],
+    ['mouseButton', { type: 'mouse', button: 'left' }],
+    ['wheel', { type: 'wheel', direction: 'up' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'up', distance: 50 }],
+  ]
+  for (const mode of ['click', 'drop', 'pending-drop']) for (const [preset, value] of defaults) {
+    const app = await render({ ...empty(), doubleClick: [delay(751)] })
+    try {
+      const original = app.current()
+      if (mode === 'click') {
+        const toolbox = app.view.root.findByType(WorkflowToolbox)
+        const action = toolbox.props.palettes.flatMap(group => group.groups).flatMap(group => group.steps).find(step => step.type === preset)
+        await act(async () => toolbox.props.onAddStep(action))
+      } else {
+        const node = palette(preset)
+        branches(original).click.push(node)
+        if (mode === 'drop') await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+      }
+      if (mode !== 'pending-drop') {
+        assert.equal(app.writes.length, 1, `${mode}: ${preset} saves without editing`)
+        await app.update({ sequences: app.writes[0][1] })
+      }
+      await app.update({ button: { id: 'power', label: '电源键' }, sequences: empty() })
+      assert.equal(original.destroyed, true)
+      assert.equal(app.writes.length, 1, `${mode}: ${preset} saves exactly once`)
+      const [inputId, saved] = app.writes[0]
+      assert.equal(inputId, 'tv')
+      assert.deepEqual(saved.click, [{ id: saved.click[0]?.id, enabled: true, ...value }])
+      assert.deepEqual(saved.doubleClick, [delay(751)])
+      assert.deepEqual(saved.longPress, [])
+      assert.deepEqual(copy(branches(app.current()).click), [])
+      await app.update({ button: { id: 'tv', label: '电视键' }, sequences: saved })
+      const reopened = await openContextEditor(app, 'click')
+      assert.deepEqual(copy(reopened.props.edit.behavior), saved.click[0])
+      assert.equal(app.writes.length, 1)
     } finally { await app.unmount() }
   }
 })
