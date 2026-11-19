@@ -1,6 +1,6 @@
 import { recordLibraryAdditions } from '../cloud/libraryUsage'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, Step, StepDefinition } from 'sequential-workflow-designer'
@@ -45,7 +45,8 @@ import { fixedWorkflowViewport } from './WorkflowViewport'
 import { bindWorkflowSelection } from './workflowSelection'
 import { createWorkflowDraggedSteps } from './WorkflowDraggedSteps'
 import { bindWorkflowTrash } from './workflowTrash'
-import { workflowLaneLayout } from './workflowLaneLayout'
+import { workflowLaneLayout, workflowUsesTriggerTabs } from './workflowLaneLayout'
+import { MappingColumnSplitter } from './MappingColumnSplitter'
 import { WorkflowSplitPane } from './WorkflowSplitPane'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
@@ -67,6 +68,8 @@ type WorkflowAxonkeyProps<Id extends string> = {
   button: MappingInput<Id>
   sequences: TriggerBehaviors
   activeTrigger?: TriggerType
+  libraryWidth?: number
+  onLibraryWidthChange?: (width: number | undefined) => void
   onRequestProfileSwitch: (
     inputId: Id,
     trigger: TriggerType,
@@ -87,16 +90,22 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   button,
   sequences,
   activeTrigger,
+  libraryWidth,
+  onLibraryWidthChange,
   onChange,
   onRequestProfileSwitch,
   toolboxCategory,
   onToolboxCategoryChange,
   quickOverlayContext,
 }: WorkflowAxonkeyProps<Id>) {
+  const [canvasWidth, setCanvasWidth] = useState(0)
+  const [selectedTrigger, setSelectedTrigger] = useState<TriggerType>('click')
+  const useTriggerTabs = !button.triggerLabel && !activeTrigger && workflowUsesTriggerTabs(canvasWidth)
+  const visibleTrigger = activeTrigger ?? (useTriggerTabs ? selectedTrigger : undefined)
   const triggers = button.triggerLabel
     ? [{ id: 'click' as const, label: button.triggerLabel }]
-    : activeTrigger
-      ? defaultWorkflowTriggers.filter(trigger => trigger.id === activeTrigger)
+    : visibleTrigger
+      ? defaultWorkflowTriggers.filter(trigger => trigger.id === visibleTrigger)
       : defaultWorkflowTriggers
   const triggersRef = useRef(triggers)
   triggersRef.current = triggers
@@ -162,6 +171,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       if (!api || api.editor.isReadonly()) return
       const editor = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
       if (!editor || isWorkflowLaneDisabled(workflowBranches(api.editor.getDefinition())[editor.trigger])) return
+      setSelectedTrigger(editor.trigger)
       const edit: WorkflowStepEdit = {
         stepId,
         trigger: editor.trigger,
@@ -574,16 +584,17 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       if (next) persist(next)
     }
     const resizeObserver = new ResizeObserver(() => {
+      setCanvasWidth(canvasRef.current!.clientWidth)
       if (!ready || designer.isDragging()) return
       designer.updateLayout()
       workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
       designer.resetViewport()
     })
     resizeObserver.observe(canvasRef.current)
+    setCanvasWidth(canvasRef.current.clientWidth)
     // Change only the rendered lanes. Keep every branch, pending edits, lane
     // scroll position and the toolbox alive when switching the visible trigger.
     refreshLanesRef.current = () => {
-      designer.clearSelectedStep()
       workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
       designer.resetViewport()
     }
@@ -636,7 +647,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
 
   useEffect(() => {
     refreshLanesRef.current?.()
-  }, [activeTrigger, button.triggerLabel])
+  }, [visibleTrigger, button.triggerLabel])
 
   useEffect(() => {
     if (!designerApi) return
@@ -703,9 +714,61 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   }
 
   return (
-    <section className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
+    <section
+      className="workflow-axonkey"
+      aria-label={`${inputLabel} · 行为流程图`}
+      style={
+        { '--workflow-library-width': libraryWidth === undefined ? undefined : `${libraryWidth}px` } as CSSProperties
+      }
+    >
       <WorkflowSplitPane
-        header={header}
+        header={
+          <>
+            {header}
+            {useTriggerTabs && (
+              <div className="workflow-trigger-tabs" role="tablist" aria-label="触发方式">
+                {defaultWorkflowTriggers.map(trigger => (
+                  <button
+                    key={trigger.id}
+                    type="button"
+                    role="tab"
+                    className={`workflow-trigger-${trigger.id}`}
+                    aria-selected={selectedTrigger === trigger.id}
+                    tabIndex={selectedTrigger === trigger.id ? 0 : -1}
+                    onClick={() => setSelectedTrigger(trigger.id)}
+                    onKeyDown={event => {
+                      const index = defaultWorkflowTriggers.findIndex(item => item.id === trigger.id)
+                      const count = defaultWorkflowTriggers.length
+                      let next: number
+                      switch (event.key) {
+                        case 'ArrowRight':
+                          next = (index + 1) % count
+                          break
+                        case 'ArrowLeft':
+                          next = (index + count - 1) % count
+                          break
+                        case 'Home':
+                          next = 0
+                          break
+                        case 'End':
+                          next = count - 1
+                          break
+                        default:
+                          return
+                      }
+                      event.preventDefault()
+                      setSelectedTrigger(defaultWorkflowTriggers[next].id)
+                      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('button')[next].focus()
+                    }}
+                  >
+                    {trigger.label}
+                    <span>{sequences[trigger.id].length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        }
         ratio={splitRatio}
         onRatioChange={onSplitRatioChange}
         canvas={
@@ -743,6 +806,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           )
         }
       />
+      <MappingColumnSplitter panel="library" onResize={onLibraryWidthChange ?? (() => {})} />
       <aside className="sqd-toolbox workflow-toolbox" aria-label="行为工具箱">
         <WorkflowToolbox
           api={designerApi}

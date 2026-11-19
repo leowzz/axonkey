@@ -12,6 +12,7 @@ const personalDataKeys = [
   'axonkey.device-instances.preview.v1',
   'axonkey.remote-interaction-hint.v1',
   'axonkey.device-hub-discovered-expanded.v1',
+  'axonkey.mapping-panel-layout.v1',
   deviceInputSelectionStorageKey,
 ]
 

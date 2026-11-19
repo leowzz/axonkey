@@ -7,6 +7,7 @@ import {
   resetAppStorageForTests,
   storageMigrationMarkerKey,
 } from '../src/appStorage.ts'
+import { readMappingPanelWidths, storeMappingPanelWidths, mappingPanelLayoutStorageKey } from '../src/components/mappingPanelLayout.ts'
 
 function createMapStorage(seed = {}) {
   const map = new Map(Object.entries(seed))
@@ -154,4 +155,45 @@ test('non-native mode delegates directly to fallback localStorage', t => {
   assert.equal(fallback.map.get('axonkey.settings.v1'), '{"mouseEnabled":true}')
   appStorage.removeItem('axonkey.settings.v1')
   assert.equal(appStorage.getItem('axonkey.settings.v1'), null)
+})
+
+test('panel widths persist per device across native reloads, migrate from legacy storage and reset independently', async t => {
+  t.after(() => resetAppStorageForTests())
+  const disk = new Map()
+  const legacy = createMapStorage({ [mappingPanelLayoutStorageKey]: JSON.stringify({ g17: { diagram: 420, library: 280 } }) })
+  const invokeFn = async (cmd, args) => {
+    if (cmd === 'load_app_config') return Object.fromEntries(disk)
+    assert.equal(cmd, 'update_app_config')
+    for (const [key, value] of Object.entries(args.updates)) {
+      if (value === null) disk.delete(key)
+      else disk.set(key, value)
+    }
+  }
+  await bootstrapAppStorage({ forceNative: true, legacyStorage: legacy, invokeFn })
+  assert.deepEqual(readMappingPanelWidths('g17'), { diagram: 420, library: 280 })
+  assert.deepEqual(readMappingPanelWidths('g17-second'), {})
+  storeMappingPanelWidths('g17-second', { diagram: 310, library: 250 })
+  storeMappingPanelWidths('g17', { diagram: undefined, library: 360 })
+  await flushAppStorage()
+  resetAppStorageForTests()
+  await bootstrapAppStorage({ forceNative: true, legacyStorage: legacy, invokeFn })
+  assert.deepEqual(readMappingPanelWidths('g17'), { library: 360 })
+  assert.deepEqual(readMappingPanelWidths('g17-second'), { diagram: 310, library: 250 })
+  storeMappingPanelWidths('g17', {})
+  assert.deepEqual(readMappingPanelWidths('g17'), {})
+  assert.deepEqual(readMappingPanelWidths('g17-second'), { diagram: 310, library: 250 })
+  await flushAppStorage()
+})
+
+test('invalid panel preferences fall back to automatic sizing while valid fields remain usable', async t => {
+  t.after(() => resetAppStorageForTests())
+  await bootstrapAppStorage({ forceNative: true, legacyStorage: null, invokeFn: async cmd => cmd === 'load_app_config' ? { [storageMigrationMarkerKey]: '1' } : undefined })
+  for (const raw of ['{broken', 'null', '[]', '42']) {
+    appStorage.setItem(mappingPanelLayoutStorageKey, raw)
+    assert.deepEqual(readMappingPanelWidths('one'), {})
+  }
+  appStorage.setItem(mappingPanelLayoutStorageKey, JSON.stringify({ one: { diagram: -1, library: 280 }, two: { diagram: '300', library: null } }))
+  assert.deepEqual(readMappingPanelWidths('one'), { library: 280 })
+  assert.deepEqual(readMappingPanelWidths('two'), {})
+  await flushAppStorage()
 })

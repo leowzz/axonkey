@@ -649,6 +649,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1187,6 +1189,8 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1563,7 +1567,7 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
   }
 })
 
-test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows driver notices and edits per-profile and per-device OLED screen settings', async t => {
+test('Kivo K18 Lite workspace delegates responsive lanes to the workflow and edits per-profile and per-device OLED screen settings', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const previewCalls = []
   const screenEditorMod = compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
@@ -1613,6 +1617,8 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1685,17 +1691,12 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
   })
   try {
     const rootDiv = view.root.find(node => node.type === 'div' && node.props.className?.includes('managed-instance-workspace'))
-    assert.match(rootDiv.props.className, /\bis-controller\b/)
-    assert.equal(view.root.findAllByProps({ className: 'remote-stage managed-controller-stage' }).length, 1)
+    assert.equal(rootDiv.props.className, 'mapping-page mapping-flow-page managed-instance-workspace')
+    assert.equal(view.root.findAllByProps({ className: 'remote-stage' }).length, 1)
     assert.equal(view.root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     assert.ok(view.root.findByType(RemoteControl).props.screenRegion)
 
-    const triggerGroup = view.root.findByProps({ className: 'managed-workflow-triggers' })
-    const triggerBtns = triggerGroup.findAllByType('button')
-    assert.deepEqual(triggerBtns.map(text), ['单击1', '双击1', '长按0'])
-    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'click')
-    act(() => triggerBtns[1].props.onClick())
-    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'doubleClick')
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, undefined)
 
     // Click OLED screen region -> switches right panel to KivoScreenEditor
     act(() => view.root.findByType(RemoteControl).props.onSelect('__screen__'))
@@ -1835,6 +1836,8 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
       window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: () => null },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),

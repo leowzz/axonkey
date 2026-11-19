@@ -325,6 +325,8 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/DeviceRail': { DeviceRecordingStatus: nullComponent },
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
+    '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
+    '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../../components/QuickOverlayConfigurator': { QuickOverlayConfigurator: nullComponent },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },

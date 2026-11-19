@@ -26,6 +26,10 @@ export type WorkflowDropSlot = {
   empty?: boolean
 }
 
+export function workflowUsesTriggerTabs(width: number, laneCount = 3) {
+  return laneCount > 1 && width < laneCount * 220 + (laneCount - 1) * 6 + 8
+}
+
 export function workflowLaneLayout(width: number, height: number, laneCount = 3, maxLabelLength = 2) {
   const gap = 6
   const padding = 4
