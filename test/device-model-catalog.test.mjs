@@ -412,7 +412,7 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
   }
 })
 
-test('parseRuntimeDescriptorSvg matches all 12 bundled SVGs and strictly rejects unsafe or malformed cloud SVGs without breaking built-in models', () => {
+test('parseRuntimeDescriptorSvg matches all bundled SVGs and strictly rejects unsafe or malformed cloud SVGs without breaking built-in models', () => {
   try {
     // 1. Every official bundled SVG parses with identical geometry, buttons, voice, and identities
     for (const file of readdirSync('public/device-descriptors').filter(name => name.endsWith('.svg'))) {
@@ -481,7 +481,7 @@ test('parseRuntimeDescriptorSvg matches all 12 bundled SVGs and strictly rejects
     ])
     assert.equal(packageFor('rc003').artwork, bundledRc003.artwork)
     assert.equal(packageFor('rc003').remoteView, bundledRc003.remoteView)
-    assert.equal(getSupportPackages().length, 13)
+    assert.deepEqual(getSupportPackages().map(pkg => pkg.kind), bundledSupportPackages.map(pkg => pkg.kind))
 
     // 3b. Built-in kivoK18Lite and xboxBluetooth preserve single-lane workspaceLayout & OLED screenRegion when overlaid from cloud SVG
     const kivoSvg = readFileSync('public/device-descriptors/kivo-k18-lite.svg', 'utf8')
@@ -737,6 +737,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
     '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+    '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
     '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
     '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
@@ -1096,7 +1097,11 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
       view.root
         .findByProps({ className: 'managed-catalog-list-pane' })
         .findAll(node => node.type === 'button' && node.props.className === 'managed-package')
-    assert.equal(packageCards().length, 14, '13 bundled + 1 dynamic cloud model')
+    assert.deepEqual(
+      packageCards().map(card => card.props['data-kind']).sort(),
+      [...h.model.bundledSupportPackages.map(pkg => pkg.kind), 'customRemoteX'].sort(),
+      'retains every bundled model and adds the dynamic cloud model',
+    )
 
     act(() => {
       brandGroup
