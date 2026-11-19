@@ -2663,8 +2663,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {
@@ -3050,8 +3049,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {

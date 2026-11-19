@@ -121,8 +121,8 @@ Windows RC003 输入和语音服务都按实例维护；每个实例注册自己
 | 型号   | 前端目录                         | Rust 入口                           | 联合身份条件                                                    | 已采集按键 | 语音                                       |
 | ------ | -------------------------------- | ----------------------------------- | --------------------------------------------------------------- | ---------- | ------------------------------------------ |
 | RC802A | `src/devices/tcl-rc802a-remote/` | `src-tauri/src/devices/tcl_rc802a/` | `DEV_VID&010416_PID&0301` + 2A24 含 `BT_RC802A` + 2A29 含 `TCL` | 22         | EB 启停 / EC ICO 按住语音                  |
-| RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N`                    | 22         | ATVV BLE On-request 语音（A 键，按住 / 点击启停） |
-| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V`                    | 27         | ATVV BLE On-request 语音（A 键，按住 / 点击启停） |
+| RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N`                    | 22         | ATVV BLE HTT 语音（A 键，按住说话、松手停止） |
+| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V`                    | 27         | ATVV BLE HTT 语音（A 键，按住说话、松手停止） |
 
 型号匹配声明来自 SVG。Windows/macOS 读取 Device Information 的 `2A24/modelNumber`、`2A29/manufacturer` 和 `2A28/softwareRevision`，发现候选不代表已确认型号。绑定、驱动目标和输入启动都要求真实信息字段匹配，不能仅凭名称或 `detectedKind` 回退。RC902N/V 共用硬件候选身份，识别后只更新型号，不重算已发现实物 ID。
 
@@ -130,7 +130,7 @@ Windows RC003 输入和语音服务都按实例维护；每个实例注册自己
 
 RC802A 仅支持按住录音、松开停止（`hold`），复用现有 CMIOT-A15 的按住录音控制、G.722.1 解码和每实例 PCM 输出。协议细节及验证边界见 [RC802A 音频说明](../src-tauri/src/devices/tcl_rc802a/README.md)。
 
-RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务以 On-request (`0x00`) 模式接入各自 `A` 键（`tcl-rc902n.assistant` / `tcl-rc902v.assistant`）语音，保留 HID `A` 键边沿上报，支持按住录音、松开停止（`hold`）和按下开始、再次按下停止（`click`）两种模式，复用 `xiaomi_remote::voice` 的实例级蓝牙工作线程与虚拟麦克风输出。协议细节及验证边界见 [RC902N 音频说明](../src-tauri/src/devices/tcl_rc902n/README.md) 与 [RC902V 音频说明](../src-tauri/src/devices/tcl_rc902v/README.md)。
+RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务以 HTT (`0x03`) 模式接入各自 `A` 键（`tcl-rc902n.assistant` / `tcl-rc902v.assistant`）语音，仅支持按住说话、松手停止，复用 `xiaomi_remote::voice` 的实例级蓝牙工作线程与虚拟麦克风输出。协议细节及验证边界见 [RC902N 音频说明](../src-tauri/src/devices/tcl_rc902n/README.md) 与 [RC902V 音频说明](../src-tauri/src/devices/tcl_rc902v/README.md)。
 
 ## 投影仪语音遥控器（按键 HID 已采集，音频待接入）
 

@@ -5,11 +5,9 @@
 ## 录音与传输
 
 - 采用 Google ATVV BLE GATT 通道（服务 `AB5E0001-5A21-4F05-BC7D-AF01F617B664`，写入 `AB5E0002`，音频通知 `AB5E0003`，控制通知 `AB5E0004`）。
-- 支持 **PTT（Press-to-Talk）** 两种触发模式（`trigger-modes="hold click"`）：
-  - **按住录音，松开停止（`hold`）**：按下 `A` 键开始流式录音，松开 `A` 键主机立即发送 `MIC_CLOSE` 停止远端麦克风并结束会话。
-  - **点击开始，再次点击停止（`click`，默认）**：首次按下 `A` 键开始录音，松手后保持麦克风持续采音（流期间每 8 s 发送 `MIC_EXTEND` 保活）；再次按下 `A` 键立即发送 `MIC_CLOSE` 停止录音（同时兼容 HID 边沿先到或 BLE `AUDIO_START` / `AUDIO_STOP(0x04)` 先到的固件时序）。切换录制模式、实例禁用、断连或流静默超时（5 s）时均主动发送 `MIC_CLOSE`。
-- 连接并订阅 `AUDIO`、`CONTROL` 通知后，主机发送 `GET_CAPS = 0A 01 00 00 03 01`（声明 ATVV v1.0、能力协商通告 On-request + PTT `0x0001` 以避免固件退化为松手自动关麦的 HTT、支持 IMA ADPCM 8 kHz/16 kHz）。根据遥控器返回的 `CAPS_RESP` 版本严格分派 `AtvvV10`（`0x0100`，裸 ADPCM 流与带 `stream_id` 的 `MIC_CLOSE`）与 `AtvvV04`（`0x0004`，6 字节帧头与无参 `MIC_CLOSE`），未知协议版本立即停止且不盲写控制指令；同时兼容 On-request `START_SEARCH (0x08)` -> `MIC_OPEN`、PTT `AUDIO_START (reason=0x01)` 与 HTT `AUDIO_START (reason=0x03)` 回退。非 `STREAMING` 状态下到达的 `AB5E0003` 通知直接丢弃并计数。
-- Windows 与 macOS 复用 `xiaomi_remote::voice` 的实例级 BLE GATT 桥接、增益校准与虚拟麦克风输出（Windows `Quarbor Virtual Microphone`，macOS `MiRemoteV 2ch`），并将 HID 输入层的 `A` 键按下/松开边沿与录制模式同步至 `AtvvSession`；按实例绑定的 12 位蓝牙地址筛选目标设备（Windows 要求 `AB5E0001` 服务路径匹配绑定蓝牙地址及 `VID&010417_PID&0304` 或地址路径，避免误连其他同 VID/PID 的 RC902N/RC902V 实例）。RC902N 同样声明 `engine="tcl-rc902v-atvv"` 复刻此 PTT 语音链路。
+- 固定为 **HTT（Hold-to-Talk，按住说话、松手结束）** 模式（`trigger-modes="hold"`）：按下 `A` 键后等待遥控器发送 `AUDIO_START(reason=0x03)`，松手由遥控器发送 `AUDIO_STOP(reason=0x02)`，主机不使用 HID 边沿主动关闭或切换录音模式。
+- 连接并订阅 `AUDIO`、`CONTROL` 通知后，主机发送 `GET_CAPS = 0A 01 00 00 03 03`（声明 ATVV v1.0 的 On-request/PTT/HTT 能力集合），仅接受返回的 HTT (`model=0x03`) 能力和 `AUDIO_START(reason=0x03)`；`START_SEARCH (0x08)`、On-request/PTT 会话均不会触发录音。未知协议版本或非 HTT 能力立即停止且不盲写控制指令。
+- Windows 与 macOS 复用 `xiaomi_remote::voice` 的实例级 BLE GATT 桥接、增益校准与虚拟麦克风输出（Windows `Quarbor Virtual Microphone`，macOS `MiRemoteV 2ch`），设备设置不提供录音模式切换；旧配置中的模式值也会被服务端固定收敛为 `hold`。按实例绑定的 12 位蓝牙地址筛选目标设备。
 
 ## ADPCM 解码与重采样
 
@@ -20,5 +18,5 @@
 ## 验证边界
 
 - 已确认事实：RC902V 暴露 `AB5E0001` ATVV 服务及 `A` 键 HID 报告 `03 21 02` / `03 00 00`。
-- 自动测试全部使用合成 ATVV 控制报文与合成 IMA ADPCM 向量，覆盖 `GET_CAPS`/`CAPS_RESP`（v1.0 PTT/On-request/HTT 与 v0.4e，以及未知版本安全阻断）、`hold` 按住松开关闭、`click` 按下录音/再次按下停止录音（含 HID/GATT 不同先后到达时序）、模式切换主动关闭、跨流解码状态隔离、非流态丢包、`AUDIO_SYNC` 帧对齐与缺口计数、`MIC_EXTEND` 保活、超时恢复、WAV 封装及 Windows/macOS 实例路由。
+- 自动测试全部使用合成 ATVV 控制报文与合成 IMA ADPCM 向量，覆盖 HTT 能力协商、非 HTT `AUDIO_START` 主动关闭、按住说话生命周期、跨流解码状态隔离、非流态丢包、`AUDIO_SYNC` 帧对齐与缺口计数、`MIC_EXTEND` 保活、超时恢复、WAV 封装及 Windows/macOS 实例路由。
 - 尚未采集 RC902V FMR1 实机 `CAPS_RESP` 原始字节、`AB5E0003` 单包通知长度及真实人声录音；实机蓝牙抓包与语音听感仍待硬件联调确认。

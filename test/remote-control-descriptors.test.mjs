@@ -67,7 +67,7 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
     assert.deepEqual(deviceDescriptors[id].voice, {
       engine: 'tcl-rc902v-atvv',
       transport: 'gatt',
-      triggerModes: ['hold', 'click'],
+      triggerModes: ['hold'],
     })
   }
   assert.equal(deviceDescriptors.rc003.voice.transport, 'gatt')
