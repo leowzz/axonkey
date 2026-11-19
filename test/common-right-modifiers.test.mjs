@@ -15,6 +15,9 @@ const dropListeners = new Set()
 let clipboardRead = async () => ''
 const browserClipboard = { readText: async () => 'browser clipboard', writeText: async () => {} }
 const nativeClipboard = { readText: async () => 'native clipboard', writeText: async () => {} }
+const focusRoot = { inert: false }
+const focusDocument = { activeElement: null, body: { style: { overflow: '' } }, getElementById: () => focusRoot }
+class FocusElement {}
 
 function load(file) {
   file = resolve(file)
@@ -25,6 +28,7 @@ function load(file) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText
   const localRequire = name => {
+    if (name === 'react-dom') return { createPortal: node => node }
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: props => React.createElement('profile-confirm', props, props.children) }
     if (name === '../clipboard') return { readClipboardText: () => clipboardRead() }
     if (name === '@tauri-apps/plugin-clipboard-manager') return nativeClipboard
@@ -42,7 +46,7 @@ function load(file) {
     if (existsSync(`${path}.tsx`)) return load(`${path}.tsx`)
     return load(`${path}.ts`)
   }
-  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console, URL, setTimeout, clearTimeout, window: testWindow, navigator: { clipboard: browserClipboard } }, { filename: file })
+  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console, URL, setTimeout, clearTimeout, window: testWindow, navigator: { clipboard: browserClipboard }, document: focusDocument, HTMLElement: FocusElement, SVGElement: FocusElement }, { filename: file })
   return module.exports
 }
 
@@ -62,6 +66,22 @@ test('first launch and invalid saved pages open Home', () => {
     for (const stored of [null, '{}', 'invalid', 'null', JSON.stringify({activePage:'unknown'})]) {
       testWindow.localStorage = { getItem: () => stored }
       assert.equal(getStoredUiState().activePage, 'home')
+    }
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('mapping editor defaults to flow and remembers an explicit legacy preference across reloads', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const [value, expected] of [[undefined, 'flow'], ['flow', 'flow'], ['legacy', 'legacy'], ['unknown', 'flow'], [false, 'flow']]) {
+      let stored = JSON.stringify({ mappingStyle: value, activePage: 'mapping' })
+      testWindow.localStorage = { getItem: () => stored, setItem: (_key, next) => { stored = next } }
+      const state = getStoredUiState()
+      assert.equal(state.mappingStyle, expected)
+      saveStoredUiState({ ...state, mappingStyle: 'legacy', activePage: 'home' })
+      assert.equal(getStoredUiState().mappingStyle, 'legacy')
+      saveStoredUiState({ ...getStoredUiState(), activePage: 'mapping', selectedDeviceId: 'mouse' })
+      assert.equal(getStoredUiState().mappingStyle, 'legacy')
     }
   } finally { testWindow.localStorage = previousStorage }
 })
@@ -408,6 +428,7 @@ function renderDialog(platform, initial, draft = true, extraProps = {}) {
   }
   act(() => { view = Renderer.create(React.createElement(BehaviorEditDialog, { ...props, behavior }), {
     createNodeMock: element => element.type === 'section' ? {
+      contains: () => true,
       getBoundingClientRect: () => ({ left: 100, right: 700, top: 100, bottom: 500 }),
       querySelector: () => ({ focus() { captureFocuses += 1 } }),
     } : null,
@@ -479,7 +500,7 @@ test('launch dialogs validate drafts and retain existing targets during incomple
     const initial = { id: 'launch', enabled: true, type, [field]: target }
     const draft = renderDialog('windows', { ...initial, [field]: '' })
     const existing = renderDialog('windows', initial, false)
-    const change = (dialog, value) => act(() => dialog.view.root.findByProps({ id: 'behavior-launch-target' }).props.onChange({ target: { value } }))
+    const change = (dialog, value) => act(() => dialog.view.root.find(node => node.type === 'input' && node.props.id?.endsWith('-behavior-launch-target')).props.onChange({ target: { value } }))
     try {
       assert.equal(draft.save().props.disabled, true)
       change(draft, invalid)
@@ -515,7 +536,7 @@ test('native application drops preserve shortcut paths, reject invalid drops and
     send({ type: 'drop', paths: ['C:\\桌面\\Tool.lnk'], position })
     assert.equal(dialog.behavior().path, 'C:\\桌面\\Tool.lnk')
     assert.equal(dialog.save().props.disabled, false)
-    assert.equal(dialog.view.root.findByProps({ id: 'behavior-launch-target' }).props.value, 'C:\\桌面\\Tool.lnk')
+    assert.equal(dialog.view.root.find(node => node.type === 'input' && node.props.id?.endsWith('-behavior-launch-target')).props.value, 'C:\\桌面\\Tool.lnk')
     send({ type: 'drop', paths: ['C:\\Other.exe'], position: { x: 20, y: 20 } })
     assert.equal(dialog.behavior().path, 'C:\\桌面\\Tool.lnk')
     send({ type: 'drop', paths: ['C:\\A.exe', 'C:\\B.exe'], position })

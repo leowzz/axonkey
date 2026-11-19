@@ -14,13 +14,16 @@ import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
-import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
+import type { MacPermissionKind, MacPermissions, MappingEditorStyle, Platform } from '../appTypes'
+import { SelectControl } from './SelectControl'
 import type { DriverActionKind, DriverState } from '../systemState'
 import './SettingsPanelLayout.css'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
 
 type SettingsPageProps = {
+  mappingStyle: MappingEditorStyle
+  onMappingStyleChange: (style: MappingEditorStyle) => void
   presentation?: 'page' | 'panel'
   onOpenConfigMigration: () => void
   debugMode: boolean
@@ -70,6 +73,8 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  mappingStyle,
+  onMappingStyleChange,
   presentation = 'page',
   onOpenConfigMigration,
   debugMode,
@@ -557,6 +562,24 @@ export function SettingsPage({
               <span>更改自动保存</span>
             </div>
             <div className="settings-form-fields">
+              <div className="settings-form-row">
+                <label className="settings-form-label" htmlFor="settings-mapping-editor">
+                  映射编辑器：
+                </label>
+                <div className="settings-form-control">
+                  <SelectControl
+                    id="settings-mapping-editor"
+                    value={mappingStyle}
+                    onChange={event => onMappingStyleChange(event.target.value === 'legacy' ? 'legacy' : 'flow')}
+                  >
+                    <option value="flow">新版流程图编辑器</option>
+                    <option value="legacy">旧版列表编辑器</option>
+                  </SelectControl>
+                  <SettingsHelp id="mapping-editor-help" label="映射编辑器">
+                    默认使用新版。读屏或纯键盘操作可选择旧版列表编辑器；选择自动保存，重启后仍然生效，不影响已有映射。
+                  </SettingsHelp>
+                </div>
+              </div>
               <div className="settings-form-row">
                 <span className="settings-form-label">录音悬浮窗：</span>
                 <div className="settings-form-control">

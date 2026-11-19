@@ -555,7 +555,7 @@ test('switching inputs keeps the library search and list scroll while routing ac
     }))
     assert.equal(previous.drags.length, 0)
     assert.equal(app.current().drags[0].step.type, 'enter')
-    await act(async () => enter.findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
+    await act(async () => enter.findByProps({ className: 'workflow-toolbox-add' }).props.onClick({ detail: 1 }))
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'power')
     assert.equal(app.writes[0][1].click[0].key, 'Enter')
@@ -849,6 +849,24 @@ test('library add buttons append independent actions to the current trigger and 
     await act(async () => toolbox.props.onAddStep(action))
     assert.equal(app.writes.at(-1)[1].longPress.length, 1)
     assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
+  } finally { await app.unmount() }
+})
+
+test('keyboard additions can target double click on wide canvases and open a modal editor', async () => {
+  const app = await render()
+  try {
+    await act(async () => app.view.root.findByType('select').props.onChange({ target: { value: 'doubleClick' } }))
+    const toolbox = app.view.root.findByType(WorkflowToolbox)
+    assert.equal(toolbox.props.addLabel, '添加到双击')
+    const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === 'paste')
+    await act(async () => toolbox.props.onAddStep(action, true))
+    const modal = app.view.root.findAllByType('workflow-dialog').find(dialog => !dialog.props.inline)
+    assert.ok(modal)
+    assert.equal(modal.props.edit.trigger, 'doubleClick')
+    assert.equal(app.writes.length, 0, 'incomplete drafts do not overwrite stored mappings')
+    await act(async () => modal.props.edit.onSave({ ...modal.props.edit.behavior, text: '键盘操作' }))
+    assert.equal(app.writes.at(-1)[1].doubleClick[0].text, '键盘操作')
+    assert.equal(app.writes.at(-1)[1].click.length, 0)
   } finally { await app.unmount() }
 })
 

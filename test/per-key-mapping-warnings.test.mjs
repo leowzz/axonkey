@@ -190,6 +190,7 @@ test('InstanceWorkspace isolates per-key warnings, renders valid steps safely, a
       '../../components/DeviceRail': { DeviceRecordingStatus: () => null },
       '../../components/MappingColumnSplitter': { MappingColumnSplitter: props => React.createElement('column-splitter', props) },
       '../../components/mappingPanelLayout': require('../src/components/mappingPanelLayout.ts'),
+      '../../components/LegacyMappingEditor': { LegacyMappingEditor: () => null },
       '../../components/WorkflowAxonkey': { WorkflowAxonkey },
       '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: 0.54 },
       '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: () => null },

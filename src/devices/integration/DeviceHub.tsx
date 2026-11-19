@@ -28,7 +28,7 @@ import {
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
+import type { MacPermissions, ManagedDriverAction, MappingEditorStyle, Platform } from '../../appTypes'
 import { BehaviorLibraryContext } from '../../cloud/BehaviorLibraryContext'
 import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog'
 import { useDeviceModelCatalog } from '../../cloud/useDeviceModelCatalog'
@@ -75,6 +75,7 @@ const ConnectionTroubleshootPage = lazy(() =>
 )
 
 type Props = {
+  mappingStyle: MappingEditorStyle
   bindInstanceId?: string | null
   onBindingOpened?: () => void
   selectedInstanceId: string | null

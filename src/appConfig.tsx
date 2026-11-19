@@ -4,7 +4,15 @@ import type { BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from '
 import { inputIds } from './devices/index.ts'
 import type { DeviceId } from './devices/index.ts'
 import { createDefaultDeviceProfiles, extractDeviceBehaviors, parseStoredDeviceProfiles } from './deviceProfiles'
-import type { AppPage, MappingProfile, Platform, RemoteButton, StoredProfiles, StoredSettings } from './appTypes'
+import type {
+  AppPage,
+  MappingEditorStyle,
+  MappingProfile,
+  Platform,
+  RemoteButton,
+  StoredProfiles,
+  StoredSettings,
+} from './appTypes'
 import type { KeyboardEvent } from 'react'
 import { xiaomiRemoteButtons, cmiotA15RemoteButtons } from './devices/index.ts'
 
@@ -51,6 +59,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export type StoredUiState = {
+  mappingStyle: MappingEditorStyle
   sidebarCollapsed: boolean
   activePage: AppPage
   selectedDeviceId: DeviceId
@@ -81,6 +90,7 @@ function isKnownInput(value: unknown): value is InputId {
 }
 
 const defaultUiState: StoredUiState = {
+  mappingStyle: 'flow',
   sidebarCollapsed: false,
   activePage: 'home',
   selectedDeviceId: 'rc003',
@@ -116,6 +126,7 @@ export function getStoredUiState(): StoredUiState {
       : {}
 
     return {
+      mappingStyle: parsed.mappingStyle === 'legacy' ? 'legacy' : 'flow',
       sidebarCollapsed:
         typeof parsed.sidebarCollapsed === 'boolean' ? parsed.sidebarCollapsed : fallback.sidebarCollapsed,
       activePage:

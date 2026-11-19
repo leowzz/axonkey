@@ -8,7 +8,7 @@ import { QuickOverlayConfigurator } from '../../components/QuickOverlayConfigura
 import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
 import { iconFor } from '../../components/InputIcon'
-import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
+import type { MacPermissions, ManagedDriverAction, MappingEditorStyle, MappingInput, Platform } from '../../appTypes'
 import type {
   ButtonId,
   SanitizedProfileBehaviors,
@@ -34,6 +34,7 @@ import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
+import { LegacyMappingEditor } from '../../components/LegacyMappingEditor'
 import { MappingColumnSplitter } from '../../components/MappingColumnSplitter'
 import { useMappingPanelWidths } from '../../components/mappingPanelLayout'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
@@ -104,6 +105,7 @@ function findQuickTriggerBinding(
 }
 
 type Props = {
+  mappingStyle: MappingEditorStyle
   instance: DeviceInstance
   controller: DeviceController
   native: boolean
@@ -124,6 +126,7 @@ type Props = {
   onSelectDevice?: (id: string) => void
 }
 export function InstanceWorkspace({
+  mappingStyle,
   instance,
   controller,
   native,
@@ -152,6 +155,7 @@ export function InstanceWorkspace({
   const voiceModes = voice?.triggerModes ?? []
   const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
+  const MappingEditor = mappingStyle === 'legacy' ? LegacyMappingEditor : WorkflowAxonkey
   const [railMode, setRailMode] = useState<'diagram' | 'list'>('diagram')
   const [selected, setSelected] = useState<string>(() =>
     getStoredDeviceInput(instance.id, [
@@ -983,7 +987,7 @@ export function InstanceWorkspace({
           )}
         </aside>
         <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
-        <section className="mapping-main" aria-label="设备映射流程图工作区">
+        <section className="mapping-main" aria-label="设备映射工作区">
           {status?.error && !driverCommunicationError && (
             <p role="alert" className="managed-error">
               {status.error}
@@ -1021,7 +1025,7 @@ export function InstanceWorkspace({
               onUpdate={update}
             />
           ) : (
-            <WorkflowAxonkey
+            <MappingEditor
               header={
                 <section className="key-picker">
                   <div className="key-picker-head">

@@ -140,6 +140,8 @@ export function createTriggerRootExtension(
       const canvas = parent.closest<HTMLElement>('.workflow-axonkey-canvas')
       const workspaceRoot = canvas?.parentElement ?? null
       const svg = parent.ownerSVGElement
+      svg?.setAttribute('role', 'group')
+      svg?.setAttribute('aria-label', '触发方式与行为')
       const svgBounds = svg?.getBoundingClientRect()
       const width = canvas?.clientWidth ?? svg?.clientWidth ?? svgBounds?.width ?? 800
       const height = canvas?.clientHeight ?? svg?.clientHeight ?? svgBounds?.height ?? 400
@@ -157,6 +159,8 @@ export function createTriggerRootExtension(
           class: `workflow-trigger-lane workflow-trigger-${id}${disabled ? ' workflow-trigger-disabled' : ''}`,
           'data-trigger': id,
           'data-compact-header': String(compactHeader),
+          role: 'group',
+          'aria-label': `${label}行为`,
         })
         g.appendChild(lane)
         const viewport = Dom.svg('svg', {
@@ -167,6 +171,7 @@ export function createTriggerRootExtension(
           height: bodyHeight,
           id: `workflow-trigger-content-${id}`,
           'data-trigger-scroll': id,
+          role: 'group',
           'aria-label': `${label}流程内容`,
         })
         lane.appendChild(viewport)

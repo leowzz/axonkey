@@ -291,3 +291,34 @@ test('ArrowDown and ArrowUp move focus vertically across lane steps and scroll o
     else delete globalThis.CustomEvent
   }
 })
+
+test('workflow steps expose names and support keyboard or screen reader activation, deletion and reordering', () => {
+  const calls = []
+  const extension = createWorkflowStepInteraction(id => calls.push(['inline', id]), undefined, undefined,
+    id => calls.push(['dialog', id]), {
+      select: id => calls.push(['select', id]),
+      remove: id => calls.push(['remove', id]),
+      move: (id, direction) => calls.push(['move', id, direction]),
+    })
+  const listeners = new Map(), attrs = new Map()
+  const view = { g: { classList: { add() {} }, setAttribute: (key, value) => attrs.set(key, value),
+    addEventListener: (key, value) => listeners.set(key, value) } }
+  extension.stepComponentViewWrapper.wrap(view, { isPreview: false, step: { ...step('paste'), name: '粘贴你好' } })
+  assert.equal(attrs.get('role'), 'button')
+  assert.equal(attrs.get('tabindex'), '0')
+  assert.equal(attrs.get('aria-label'), '编辑粘贴你好')
+  listeners.get('focus')()
+  const event = { preventDefault() {}, stopPropagation() {} }
+  listeners.get('keydown')({ ...event, key: 'Enter' })
+  listeners.get('keydown')({ ...event, key: ' ', repeat: true })
+  listeners.get('click')({ ...event, detail: 0 })
+  listeners.get('keydown')({ ...event, key: 'Delete' })
+  listeners.get('keydown')({ ...event, key: 'ArrowUp', altKey: true })
+  listeners.get('keydown')({ ...event, key: 'ArrowDown', altKey: true })
+  assert.deepEqual(calls, [['select', 'paste'], ['dialog', 'paste'], ['dialog', 'paste'], ['remove', 'paste'], ['move', 'paste', -1], ['move', 'paste', 1]])
+
+  extension.stepComponentViewWrapper.wrap(view, { isPreview: false, step: { ...step('disabled'), name: '禁用' } })
+  assert.equal(attrs.get('aria-label'), '禁用')
+  listeners.get('keydown')({ ...event, key: 'Delete' })
+  assert.deepEqual(calls.at(-1), ['remove', 'disabled'])
+})

@@ -7,17 +7,43 @@ export function createWorkflowStepInteraction(
   finishDrag?: (interrupt: boolean) => void,
   canDragStep?: (step: Step, source: Step[]) => boolean,
   openDialog?: (stepId: string) => void,
+  keyboard?: {
+    select: (stepId: string) => void
+    remove: (stepId: string) => void
+    move: (stepId: string, direction: -1 | 1) => void
+  },
 ): DesignerExtension {
   return {
     stepComponentViewWrapper: {
       wrap(view, context) {
-        if (context.isPreview || !isEditableWorkflowStep(context.step)) return view
+        if (context.isPreview) return view
+        const editable = isEditableWorkflowStep(context.step)
         view.g.classList.add('workflow-editable-step')
         view.g.setAttribute('role', 'button')
         view.g.setAttribute('tabindex', '0')
-        view.g.setAttribute('aria-label', `编辑${context.step.name}`)
-        view.g.setAttribute('aria-description', '单击在下方编辑，双击或 Alt+Enter 打开编辑弹窗')
+        view.g.setAttribute('aria-label', `${editable ? '编辑' : ''}${context.step.name}`)
+        view.g.setAttribute('aria-description', `${editable ? '回车编辑，' : ''}Delete 删除，Alt+上下方向键调整顺序`)
+        view.g.addEventListener('focus', () => keyboard?.select(context.step.id))
+        // Screen readers can activate an SVG button with a synthetic click.
+        view.g.addEventListener('click', event => {
+          if (event.detail !== 0 || !editable) return
+          event.preventDefault()
+          event.stopPropagation()
+          ;(openDialog ?? openEditor)(context.step.id)
+        })
         view.g.addEventListener('keydown', event => {
+          if (
+            keyboard &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            (event.key === 'Delete' || (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')))
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            if (event.key === 'Delete') keyboard.remove(context.step.id)
+            else keyboard.move(context.step.id, event.key === 'ArrowUp' ? -1 : 1)
+            return
+          }
           if (
             !event.altKey &&
             !event.ctrlKey &&
@@ -53,11 +79,10 @@ export function createWorkflowStepInteraction(
             }
             return
           }
-          if (event.key !== 'Enter' && event.key !== ' ') return
+          if (event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return
           event.preventDefault()
           event.stopPropagation()
-          if (event.altKey && openDialog) openDialog(context.step.id)
-          else openEditor(context.step.id)
+          if (editable) (openDialog ?? openEditor)(context.step.id)
         })
         return view
       },
