@@ -7,6 +7,7 @@ export type RailOverviewItem = {
   input: MappingInput<string>
   summary: string
   short?: string
+  warning?: string
   groups: { label: string; behaviors: Behavior[] }[]
   hasAbbreviatedDetails: boolean
 }
@@ -53,12 +54,14 @@ export function buildRailOverviewItems(
   behaviors: Record<string, TriggerBehaviors>,
   platform: Platform,
   viewButtons?: readonly { id: string; kind?: string; short?: string }[],
+  warnings?: Readonly<Record<string, string>>,
 ): RailOverviewItem[] {
   const items: RailOverviewItem[] = []
   for (const input of inputs) {
     if (!isOverviewButton(input, viewButtons)) continue
     const sequences = behaviors[input.id]
-    if (!isButtonConfigured(sequences)) continue
+    const warning = warnings?.[input.id]
+    if (!isButtonConfigured(sequences) && !warning) continue
     const groups = triggerTypes.flatMap(trigger => {
       const list = sequences?.[trigger] ?? []
       return list.length > 0 ? [{ label: triggerLabels[trigger], behaviors: list }] : []
@@ -71,10 +74,12 @@ export function buildRailOverviewItems(
           behavior => (behavior.type === 'paste' || behavior.type === 'typeText') && behavior.text.length > 12,
         ),
       )
+    const baseSummary = summarizeRailButton(sequences, platform)
     items.push({
       input,
-      summary: summarizeRailButton(sequences, platform),
+      summary: baseSummary ? (warning ? `${baseSummary} · ${warning}` : baseSummary) : (warning ?? ''),
       short: viewButtons?.find(button => button.id === input.id)?.short,
+      ...(warning ? { warning } : {}),
       groups,
       hasAbbreviatedDetails,
     })

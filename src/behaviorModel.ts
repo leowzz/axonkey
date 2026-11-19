@@ -26,6 +26,7 @@ export const behaviorTypes = [
   'openPath',
   'openWebsite',
   'switchProfile',
+  'quickOverlay',
   'disabled',
 ] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
@@ -79,6 +80,7 @@ export type CursorMoveBehavior = BehaviorBase & { type: 'cursorMove'; direction:
 export type OpenAppBehavior = BehaviorBase & { type: 'openApp'; path: string }
 export type ProfileDirection = 'previous' | 'next'
 export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
+export type QuickOverlayBehavior = BehaviorBase & { type: 'quickOverlay'; profileId: string }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 
 export type Behavior =
@@ -95,6 +97,7 @@ export type Behavior =
   | OpenWebsiteBehavior
   | DisabledBehavior
   | SwitchProfileBehavior
+  | QuickOverlayBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -132,14 +135,29 @@ export type CreateBehaviorOptions = { libraryItemId?: string } & (
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
   | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
+  | { type: 'quickOverlay'; profileId?: string; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
 )
 
 const maxDelayMs = 300_000
 
 export const newBehaviorMinAppVersion = '1.8.11'
+export const quickOverlayMinAppVersion = '1.9.11'
+export function minAppVersionForBehaviors(behaviors: readonly Behavior[]): string | undefined {
+  if (behaviors.some(behavior => behavior.type === 'quickOverlay')) return quickOverlayMinAppVersion
+  if (behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath'))
+    return newBehaviorMinAppVersion
+  return undefined
+}
 export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): boolean {
-  return behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath')
+  return Boolean(minAppVersionForBehaviors(behaviors))
+}
+
+export function normalizeProfileReferenceId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim()
+  if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null
+  return id
 }
 
 export function normalizeFilePath(value: unknown): string | null {
@@ -253,6 +271,12 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
         type: 'switchProfile',
         direction: options.direction ?? 'next',
         wrap: options.wrap !== false,
+      }
+    case 'quickOverlay':
+      return {
+        ...base,
+        type: 'quickOverlay',
+        profileId: normalizeProfileReferenceId(options.profileId) ?? '',
       }
     case 'disabled':
       return { ...base, type: 'disabled' }
@@ -368,6 +392,10 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
         (value.wrap === undefined || typeof value.wrap === 'boolean')
         ? { ...base, type, direction: value.direction, wrap: value.wrap !== false }
         : null
+    case 'quickOverlay': {
+      const profileId = normalizeProfileReferenceId(value.profileId)
+      return profileId ? { ...base, type, profileId } : null
+    }
     case 'disabled':
       return { ...base, type }
   }
@@ -428,6 +456,114 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   return result
 }
 
+export type SanitizedInputBehaviors = {
+  sequences: TriggerBehaviors
+  warning: string | null
+  hasDroppedItems: boolean
+}
+
+/** Sanitize a single input's raw trigger object while collecting per-button warnings. */
+export function sanitizeInputBehaviors(
+  inputId: string,
+  raw: unknown,
+  validProfileIds?: ReadonlySet<string>,
+): SanitizedInputBehaviors {
+  const sequences = emptyTriggers()
+  if (raw === undefined || raw === null) {
+    return { sequences, warning: null, hasDroppedItems: false }
+  }
+  if (!isRecord(raw)) {
+    return { sequences, warning: '映射格式无效', hasDroppedItems: true }
+  }
+
+  const reasons: string[] = []
+  const pushReason = (reason: string) => {
+    if (!reasons.includes(reason)) reasons.push(reason)
+  }
+  let hasDroppedItems = false
+
+  for (const trigger of triggerTypes) {
+    const rawList = raw[trigger]
+    if (rawList === undefined || rawList === null) continue
+    if (!Array.isArray(rawList)) {
+      hasDroppedItems = true
+      pushReason('触发序列格式无效')
+      continue
+    }
+    rawList.forEach((entry, index) => {
+      const normalized = normalizeBehavior(entry, `${inputId}-${trigger}-${index + 1}`)
+      if (!normalized) {
+        hasDroppedItems = true
+        const kind = isRecord(entry) && typeof entry.type === 'string' ? entry.type.trim() : ''
+        pushReason(kind ? `包含无法识别或无效的动作（${kind}）` : '包含格式无效的动作')
+        return
+      }
+      sequences[trigger].push(normalized)
+      if (normalized.enabled && normalized.type === 'quickOverlay') {
+        if (!normalized.profileId) {
+          pushReason('未选择快捷交互配置')
+        } else if (validProfileIds && !validProfileIds.has(normalized.profileId)) {
+          pushReason('关联的快捷交互配置不存在')
+        }
+      }
+    })
+  }
+
+  return {
+    sequences,
+    warning: reasons.length > 0 ? reasons.join('；') : null,
+    hasDroppedItems,
+  }
+}
+
+export type SanitizedProfileBehaviors = {
+  behaviors: Record<string, TriggerBehaviors>
+  warnings: Record<string, string>
+  droppedInputIds: Set<string>
+}
+
+/** Sanitize an entire profile's raw behavior map at the UI boundary. */
+export function sanitizeProfileBehaviors(
+  rawBehaviors: unknown,
+  validProfileIds?: ReadonlySet<string>,
+): SanitizedProfileBehaviors {
+  const behaviors: Record<string, TriggerBehaviors> = {}
+  const warnings: Record<string, string> = {}
+  const droppedInputIds = new Set<string>()
+  if (!isRecord(rawBehaviors)) {
+    return { behaviors, warnings, droppedInputIds }
+  }
+
+  for (const [inputId, raw] of Object.entries(rawBehaviors)) {
+    const result = sanitizeInputBehaviors(inputId, raw, validProfileIds)
+    if (
+      result.sequences.click.length > 0 ||
+      result.sequences.doubleClick.length > 0 ||
+      result.sequences.longPress.length > 0
+    ) {
+      behaviors[inputId] = result.sequences
+    }
+    if (result.warning) warnings[inputId] = result.warning
+    if (result.hasDroppedItems) droppedInputIds.add(inputId)
+  }
+
+  return { behaviors, warnings, droppedInputIds }
+}
+
+/** Collect per-input warnings for an already normalized device BehaviorMap. */
+export function inspectBehaviorMapWarnings(
+  behaviors: Partial<Record<string, TriggerBehaviors>>,
+  targetInputIds: readonly string[],
+  validProfileIds?: ReadonlySet<string>,
+): Record<string, string> {
+  const warnings: Record<string, string> = {}
+  for (const inputId of targetInputIds) {
+    const result = sanitizeInputBehaviors(inputId, behaviors[inputId], validProfileIds)
+    if (result.warning) warnings[inputId] = result.warning
+  }
+  return warnings
+}
+
 /** Build the stable, versioned JSON shape used for mapping file transfers. */
 export function createMappingExport(
   behaviors: BehaviorMap,
@@ -446,13 +582,12 @@ export function createMappingExport(
     enabled,
     behaviors: Object.fromEntries(device.inputIds.map(id => [id, cloned[id]])),
   }
-  if (
-    requiresNewBehaviorVersion(
-      Object.values(transfer.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
-    )
-  ) {
+  const minAppVersion = minAppVersionForBehaviors(
+    Object.values(transfer.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
+  )
+  if (minAppVersion) {
     transfer.version = 3
-    transfer.minAppVersion = newBehaviorMinAppVersion
+    transfer.minAppVersion = minAppVersion
   }
   const name =
     typeof profileName === 'string'
@@ -513,6 +648,9 @@ export function serializeSequence(behaviors: Behavior[]): string {
           break
         case 'switchProfile':
           line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`
+          break
+        case 'quickOverlay':
+          line = `quick ${sequenceArgument(behavior.profileId)}`
           break
         case 'disabled':
           line = 'disabled'
@@ -585,6 +723,7 @@ function parseSequenceText(text: string): unknown[] | null {
       ['wrap', 'stop'].includes(args[1])
     )
       behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
+    else if (command === 'quick' && args.length === 1) behavior = { type: 'quickOverlay', profileId: args[0] }
     else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
     else return null
     behaviors.push({ ...behavior, enabled })

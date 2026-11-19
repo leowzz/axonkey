@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="524" height="520" viewBox="0 0 524 520" fill="none"
+     class="g17-keypad"
+     role="img" aria-labelledby="g17-touch-title g17-touch-description"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="g17.touch"
+     data-ak-revision="1">
+  <title id="g17-touch-title">G17 Touch 17+4T 小键盘按键示意图</title>
+  <desc id="g17-touch-description">左侧为 17 键数字小键盘俯视图，右侧为 4 段式电容触摸滑条（上滑、T1–T4 四段触摸、下滑）。</desc>
+  <style>
+svg.g17-keypad {
+  --blue: #1478e8;
+  --blue-soft: #dbeafe;
+  --green: #24975e;
+  --green-soft: #d1fae5;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.g17-keypad text {
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+.g17-keypad .key {
+  cursor: pointer;
+  outline: none;
+}
+.g17-keypad .key .cap-shadow {
+  fill: #090d14;
+  fill-opacity: 0.45;
+}
+.g17-keypad .key .halo {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 3.5;
+  transition: stroke 0.12s;
+}
+.g17-keypad .key .hit {
+  fill: url(#g17-cap-skirt);
+  stroke: #cbd5e1;
+  stroke-width: 1.3;
+  transition: fill 0.12s, stroke 0.12s;
+}
+.g17-keypad .key .cap-bevel {
+  stroke: #d6dde7;
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.g17-keypad .key .cap-top {
+  fill: url(#g17-cap-dish);
+  stroke: #ffffff;
+  stroke-width: 1.2;
+  pointer-events: none;
+  transition: fill 0.12s, stroke 0.12s;
+}
+.g17-keypad .key text {
+  fill: #1e293b;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+  dominant-baseline: central;
+  transition: fill 0.12s;
+}
+.g17-keypad .touch-zone .touch-hit {
+  fill: #182232;
+  stroke: #334155;
+  stroke-width: 1.3;
+}
+.g17-keypad .touch-zone.gesture .touch-hit {
+  fill: #1e293b;
+  stroke: #475569;
+}
+.g17-keypad .touch-zone .chevron {
+  fill: none;
+  stroke: #64748b;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.g17-keypad .touch-zone .chevron-sub {
+  fill: none;
+  stroke: #334155;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.g17-keypad .touch-zone .gesture-arrow {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.g17-keypad .touch-zone text.touch-label {
+  fill: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+}
+.g17-keypad .touch-zone text.gesture-label {
+  fill: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+}
+.g17-keypad .key .mapped-dot {
+  fill: var(--blue);
+  stroke: #ffffff;
+  stroke-width: 2;
+  visibility: hidden;
+  pointer-events: none;
+}
+.g17-keypad .key.mapped .mapped-dot {
+  visibility: visible;
+}
+.g17-keypad .key:hover .halo,
+.g17-keypad .key:focus-visible .halo {
+  stroke: #8cbcf0;
+}
+.g17-keypad .key:hover .hit,
+.g17-keypad .key:focus-visible .hit {
+  stroke: #60a5fa;
+}
+.g17-keypad .key.selected .halo {
+  stroke: var(--blue);
+  stroke-width: 4;
+}
+.g17-keypad .key.selected .hit {
+  fill: var(--blue-soft);
+  stroke: var(--blue);
+}
+.g17-keypad .key.selected .cap-top {
+  fill: #eff6ff;
+  stroke: #93c5fd;
+}
+.g17-keypad .key.selected text {
+  fill: #0f4c9c;
+}
+.g17-keypad .touch-zone.selected .touch-hit {
+  fill: #1e3a5f;
+  stroke: #38bdf8;
+}
+.g17-keypad .touch-zone.selected .chevron,
+.g17-keypad .touch-zone.selected .gesture-arrow {
+  stroke: #7dd3fc;
+}
+.g17-keypad .touch-zone.selected text {
+  fill: #e0f2fe;
+}
+.g17-keypad .key.pressed .halo {
+  stroke: #36bc77;
+  stroke-width: 4;
+}
+.g17-keypad .key.pressed .hit {
+  fill: var(--green-soft);
+  stroke: var(--green);
+}
+.g17-keypad .key.pressed .cap-top {
+  fill: #ecfdf5;
+  stroke: #6ee7b7;
+}
+.g17-keypad .key.pressed text {
+  fill: #14532d;
+}
+.g17-keypad .touch-zone.pressed .touch-hit {
+  fill: #14532d;
+  stroke: #34d399;
+}
+.g17-keypad .touch-zone.pressed .chevron,
+.g17-keypad .touch-zone.pressed .gesture-arrow {
+  stroke: #6ee7b7;
+}
+.g17-keypad .touch-zone.pressed text {
+  fill: #ecfdf5;
+}
+@media (prefers-reduced-motion: reduce) {
+  .g17-keypad .key .hit,
+  .g17-keypad .key .halo,
+  .g17-keypad .key .cap-top,
+  .g17-keypad .key text {
+    transition: none;
+  }
+}
+  </style>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="g17.touch" vendor="G17" model="G17 Touch" revision="1" display-name="G17 Touch 17+4T 小键盘">
+      <ak:identity>
+        <ak:match transport="usb-hid" vid="0x1209" pid="0xA017" usage-page="0xFF60" usage="0x01" serial-policy="reject-ambiguous" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="keys" direction="input" report-id="0x01" length="8" encoding="bit-field" payload-offset="0" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="g17.touch.num" label="Num" short="Num" kind="button" icon="center" original="false" report="keys" offset="1" bit="0" width="1" target="#key-num" order="0" />
+        <ak:input id="g17.touch.div" label="÷" short="÷" kind="button" icon="center" original="false" report="keys" offset="1" bit="1" width="1" target="#key-div" order="1" />
+        <ak:input id="g17.touch.mul" label="×" short="×" kind="button" icon="center" original="false" report="keys" offset="1" bit="2" width="1" target="#key-mul" order="2" />
+        <ak:input id="g17.touch.sub" label="-" short="-" kind="button" icon="center" original="false" report="keys" offset="1" bit="3" width="1" target="#key-sub" order="3" />
+        <ak:input id="g17.touch.k7" label="7" short="7" kind="button" icon="number" original="false" report="keys" offset="1" bit="4" width="1" target="#key-k7" order="4" />
+        <ak:input id="g17.touch.k8" label="8" short="8" kind="button" icon="number" original="false" report="keys" offset="1" bit="5" width="1" target="#key-k8" order="5" />
+        <ak:input id="g17.touch.k9" label="9" short="9" kind="button" icon="number" original="false" report="keys" offset="1" bit="6" width="1" target="#key-k9" order="6" />
+        <ak:input id="g17.touch.add" label="+" short="+" kind="button" icon="center" original="false" report="keys" offset="1" bit="7" width="1" target="#key-add" order="7" />
+        <ak:input id="g17.touch.k4" label="4" short="4" kind="button" icon="number" original="false" report="keys" offset="2" bit="0" width="1" target="#key-k4" order="8" />
+        <ak:input id="g17.touch.k5" label="5" short="5" kind="button" icon="number" original="false" report="keys" offset="2" bit="1" width="1" target="#key-k5" order="9" />
+        <ak:input id="g17.touch.k6" label="6" short="6" kind="button" icon="number" original="false" report="keys" offset="2" bit="2" width="1" target="#key-k6" order="10" />
+        <ak:input id="g17.touch.k1" label="1" short="1" kind="button" icon="number" original="false" report="keys" offset="2" bit="3" width="1" target="#key-k1" order="11" />
+        <ak:input id="g17.touch.k2" label="2" short="2" kind="button" icon="number" original="false" report="keys" offset="2" bit="4" width="1" target="#key-k2" order="12" />
+        <ak:input id="g17.touch.k3" label="3" short="3" kind="button" icon="number" original="false" report="keys" offset="2" bit="5" width="1" target="#key-k3" order="13" />
+        <ak:input id="g17.touch.enter" label="Enter" short="↵" kind="button" icon="center" original="false" report="keys" offset="2" bit="6" width="1" target="#key-enter" order="14" />
+        <ak:input id="g17.touch.k0" label="0" short="0" kind="button" icon="number" original="false" report="keys" offset="2" bit="7" width="1" target="#key-k0" order="15" />
+        <ak:input id="g17.touch.dot" label="." short="." kind="button" icon="center" original="false" report="keys" offset="3" bit="0" width="1" target="#key-dot" order="16" />
+        <ak:input id="g17.touch.swipeUp" label="滑条上滑" short="上滑" kind="button" icon="up" original="false" report="keys" offset="4" bit="0" width="1" target="#touch-swipeUp" order="17" />
+        <ak:input id="g17.touch.t1" label="触控 1 (顶)" short="T1" kind="button" icon="center" original="false" report="keys" offset="3" bit="4" width="1" target="#touch-t1" order="18" />
+        <ak:input id="g17.touch.t2" label="触控 2" short="T2" kind="button" icon="center" original="false" report="keys" offset="3" bit="5" width="1" target="#touch-t2" order="19" />
+        <ak:input id="g17.touch.t3" label="触控 3" short="T3" kind="button" icon="center" original="false" report="keys" offset="3" bit="6" width="1" target="#touch-t3" order="20" />
+        <ak:input id="g17.touch.t4" label="触控 4 (底)" short="T4" kind="button" icon="center" original="false" report="keys" offset="3" bit="7" width="1" target="#touch-t4" order="21" />
+        <ak:input id="g17.touch.swipeDown" label="滑条下滑" short="下滑" kind="button" icon="down" original="false" report="keys" offset="4" bit="1" width="1" target="#touch-swipeDown" order="22" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <defs>
+    <linearGradient id="g17-pcb-fill" x1="262" y1="10" x2="262" y2="510" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1b2332" />
+      <stop offset="1" stop-color="#111722" />
+    </linearGradient>
+    <linearGradient id="g17-cap-skirt" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ffffff" />
+      <stop offset="0.55" stop-color="#edf1f7" />
+      <stop offset="1" stop-color="#dde3ec" />
+    </linearGradient>
+    <linearGradient id="g17-cap-dish" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#f3f6fa" />
+      <stop offset="0.6" stop-color="#fafbfd" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+  </defs>
+
+  <g id="g17-touch-shell" aria-hidden="true">
+    <rect x="10" y="10" width="504" height="500" rx="16" fill="url(#g17-pcb-fill)" stroke="#2c374b" stroke-width="1.8" />
+    <rect x="18" y="18" width="390" height="484" rx="12" fill="#0f1520" stroke="#232d3f" stroke-width="1.2" />
+    <rect x="416" y="18" width="90" height="484" rx="12" fill="#101722" stroke="#283548" stroke-width="1.2" />
+    <!-- Brass mounting screws matching physical touch strip -->
+    <circle cx="461" cy="84" r="3.5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
+    <circle cx="461" cy="435" r="3.5" fill="#d4a017" stroke="#854d0e" stroke-width="1" />
+  </g>
+
+  <g id="g17-touch-keys" data-ak-view="front">
+    <g id="key-num" class="key" data-ak-key="g17.touch.num" data-ak-role="input" aria-label="Num" tabindex="0" role="button">
+      <rect class="cap-shadow" x="26" y="27" width="88" height="88" rx="12" />
+      <rect class="halo" x="24" y="22" width="92" height="92" rx="14" />
+      <rect class="hit" x="26" y="24" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 30 28 L 39 35 M 110 28 L 101 35 M 30 108 L 39 97 M 110 108 L 101 97" />
+      <rect class="cap-top" x="37" y="33" width="66" height="66" rx="8" />
+      <text x="70" y="68">Num</text>
+      <circle class="mapped-dot" cx="103" cy="35" r="5" />
+    </g>
+    <g id="key-div" class="key" data-ak-key="g17.touch.div" data-ak-role="input" aria-label="÷" tabindex="0" role="button">
+      <rect class="cap-shadow" x="122" y="27" width="88" height="88" rx="12" />
+      <rect class="halo" x="120" y="22" width="92" height="92" rx="14" />
+      <rect class="hit" x="122" y="24" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 126 28 L 135 35 M 206 28 L 197 35 M 126 108 L 135 97 M 206 108 L 197 97" />
+      <rect class="cap-top" x="133" y="33" width="66" height="66" rx="8" />
+      <text x="166" y="68">÷</text>
+      <circle class="mapped-dot" cx="199" cy="35" r="5" />
+    </g>
+    <g id="key-mul" class="key" data-ak-key="g17.touch.mul" data-ak-role="input" aria-label="×" tabindex="0" role="button">
+      <rect class="cap-shadow" x="218" y="27" width="88" height="88" rx="12" />
+      <rect class="halo" x="216" y="22" width="92" height="92" rx="14" />
+      <rect class="hit" x="218" y="24" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 222 28 L 231 35 M 302 28 L 293 35 M 222 108 L 231 97 M 302 108 L 293 97" />
+      <rect class="cap-top" x="229" y="33" width="66" height="66" rx="8" />
+      <text x="262" y="68">×</text>
+      <circle class="mapped-dot" cx="295" cy="35" r="5" />
+    </g>
+    <g id="key-sub" class="key" data-ak-key="g17.touch.sub" data-ak-role="input" aria-label="-" tabindex="0" role="button">
+      <rect class="cap-shadow" x="314" y="27" width="88" height="88" rx="12" />
+      <rect class="halo" x="312" y="22" width="92" height="92" rx="14" />
+      <rect class="hit" x="314" y="24" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 318 28 L 327 35 M 398 28 L 389 35 M 318 108 L 327 97 M 398 108 L 389 97" />
+      <rect class="cap-top" x="325" y="33" width="66" height="66" rx="8" />
+      <text x="358" y="68">-</text>
+      <circle class="mapped-dot" cx="391" cy="35" r="5" />
+    </g>
+    <g id="key-k7" class="key" data-ak-key="g17.touch.k7" data-ak-role="input" aria-label="7" tabindex="0" role="button">
+      <rect class="cap-shadow" x="26" y="123" width="88" height="88" rx="12" />
+      <rect class="halo" x="24" y="118" width="92" height="92" rx="14" />
+      <rect class="hit" x="26" y="120" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 30 124 L 39 131 M 110 124 L 101 131 M 30 204 L 39 193 M 110 204 L 101 193" />
+      <rect class="cap-top" x="37" y="129" width="66" height="66" rx="8" />
+      <text x="70" y="164">7</text>
+      <circle class="mapped-dot" cx="103" cy="131" r="5" />
+    </g>
+    <g id="key-k8" class="key" data-ak-key="g17.touch.k8" data-ak-role="input" aria-label="8" tabindex="0" role="button">
+      <rect class="cap-shadow" x="122" y="123" width="88" height="88" rx="12" />
+      <rect class="halo" x="120" y="118" width="92" height="92" rx="14" />
+      <rect class="hit" x="122" y="120" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 126 124 L 135 131 M 206 124 L 197 131 M 126 204 L 135 193 M 206 204 L 197 193" />
+      <rect class="cap-top" x="133" y="129" width="66" height="66" rx="8" />
+      <text x="166" y="164">8</text>
+      <circle class="mapped-dot" cx="199" cy="131" r="5" />
+    </g>
+    <g id="key-k9" class="key" data-ak-key="g17.touch.k9" data-ak-role="input" aria-label="9" tabindex="0" role="button">
+      <rect class="cap-shadow" x="218" y="123" width="88" height="88" rx="12" />
+      <rect class="halo" x="216" y="118" width="92" height="92" rx="14" />
+      <rect class="hit" x="218" y="120" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 222 124 L 231 131 M 302 124 L 293 131 M 222 204 L 231 193 M 302 204 L 293 193" />
+      <rect class="cap-top" x="229" y="129" width="66" height="66" rx="8" />
+      <text x="262" y="164">9</text>
+      <circle class="mapped-dot" cx="295" cy="131" r="5" />
+    </g>
+    <g id="key-add" class="key" data-ak-key="g17.touch.add" data-ak-role="input" aria-label="+" tabindex="0" role="button">
+      <rect class="cap-shadow" x="314" y="123" width="88" height="184" rx="12" />
+      <rect class="halo" x="312" y="118" width="92" height="188" rx="14" />
+      <rect class="hit" x="314" y="120" width="88" height="184" rx="12" />
+      <path class="cap-bevel" d="M 318 124 L 327 131 M 398 124 L 389 131 M 318 300 L 327 289 M 398 300 L 389 289" />
+      <rect class="cap-top" x="325" y="129" width="66" height="162" rx="8" />
+      <text x="358" y="212">+</text>
+      <circle class="mapped-dot" cx="391" cy="131" r="5" />
+    </g>
+    <g id="key-k4" class="key" data-ak-key="g17.touch.k4" data-ak-role="input" aria-label="4" tabindex="0" role="button">
+      <rect class="cap-shadow" x="26" y="219" width="88" height="88" rx="12" />
+      <rect class="halo" x="24" y="214" width="92" height="92" rx="14" />
+      <rect class="hit" x="26" y="216" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 30 220 L 39 227 M 110 220 L 101 227 M 30 300 L 39 289 M 110 300 L 101 289" />
+      <rect class="cap-top" x="37" y="225" width="66" height="66" rx="8" />
+      <text x="70" y="260">4</text>
+      <circle class="mapped-dot" cx="103" cy="227" r="5" />
+    </g>
+    <g id="key-k5" class="key" data-ak-key="g17.touch.k5" data-ak-role="input" aria-label="5" tabindex="0" role="button">
+      <rect class="cap-shadow" x="122" y="219" width="88" height="88" rx="12" />
+      <rect class="halo" x="120" y="214" width="92" height="92" rx="14" />
+      <rect class="hit" x="122" y="216" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 126 220 L 135 227 M 206 220 L 197 227 M 126 300 L 135 289 M 206 300 L 197 289" />
+      <rect class="cap-top" x="133" y="225" width="66" height="66" rx="8" />
+      <text x="166" y="260">5</text>
+      <circle class="mapped-dot" cx="199" cy="227" r="5" />
+    </g>
+    <g id="key-k6" class="key" data-ak-key="g17.touch.k6" data-ak-role="input" aria-label="6" tabindex="0" role="button">
+      <rect class="cap-shadow" x="218" y="219" width="88" height="88" rx="12" />
+      <rect class="halo" x="216" y="214" width="92" height="92" rx="14" />
+      <rect class="hit" x="218" y="216" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 222 220 L 231 227 M 302 220 L 293 227 M 222 300 L 231 289 M 302 300 L 293 289" />
+      <rect class="cap-top" x="229" y="225" width="66" height="66" rx="8" />
+      <text x="262" y="260">6</text>
+      <circle class="mapped-dot" cx="295" cy="227" r="5" />
+    </g>
+    <g id="key-k1" class="key" data-ak-key="g17.touch.k1" data-ak-role="input" aria-label="1" tabindex="0" role="button">
+      <rect class="cap-shadow" x="26" y="315" width="88" height="88" rx="12" />
+      <rect class="halo" x="24" y="310" width="92" height="92" rx="14" />
+      <rect class="hit" x="26" y="312" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 30 316 L 39 323 M 110 316 L 101 323 M 30 396 L 39 385 M 110 396 L 101 385" />
+      <rect class="cap-top" x="37" y="321" width="66" height="66" rx="8" />
+      <text x="70" y="356">1</text>
+      <circle class="mapped-dot" cx="103" cy="323" r="5" />
+    </g>
+    <g id="key-k2" class="key" data-ak-key="g17.touch.k2" data-ak-role="input" aria-label="2" tabindex="0" role="button">
+      <rect class="cap-shadow" x="122" y="315" width="88" height="88" rx="12" />
+      <rect class="halo" x="120" y="310" width="92" height="92" rx="14" />
+      <rect class="hit" x="122" y="312" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 126 316 L 135 323 M 206 316 L 197 323 M 126 396 L 135 385 M 206 396 L 197 385" />
+      <rect class="cap-top" x="133" y="321" width="66" height="66" rx="8" />
+      <text x="166" y="356">2</text>
+      <circle class="mapped-dot" cx="199" cy="323" r="5" />
+    </g>
+    <g id="key-k3" class="key" data-ak-key="g17.touch.k3" data-ak-role="input" aria-label="3" tabindex="0" role="button">
+      <rect class="cap-shadow" x="218" y="315" width="88" height="88" rx="12" />
+      <rect class="halo" x="216" y="310" width="92" height="92" rx="14" />
+      <rect class="hit" x="218" y="312" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 222 316 L 231 323 M 302 316 L 293 323 M 222 396 L 231 385 M 302 396 L 293 385" />
+      <rect class="cap-top" x="229" y="321" width="66" height="66" rx="8" />
+      <text x="262" y="356">3</text>
+      <circle class="mapped-dot" cx="295" cy="323" r="5" />
+    </g>
+    <g id="key-enter" class="key" data-ak-key="g17.touch.enter" data-ak-role="input" aria-label="Enter" tabindex="0" role="button">
+      <rect class="cap-shadow" x="314" y="315" width="88" height="184" rx="12" />
+      <rect class="halo" x="312" y="310" width="92" height="188" rx="14" />
+      <rect class="hit" x="314" y="312" width="88" height="184" rx="12" />
+      <path class="cap-bevel" d="M 318 316 L 327 323 M 398 316 L 389 323 M 318 492 L 327 481 M 398 492 L 389 481" />
+      <rect class="cap-top" x="325" y="321" width="66" height="162" rx="8" />
+      <text x="358" y="404">↵</text>
+      <circle class="mapped-dot" cx="391" cy="323" r="5" />
+    </g>
+    <g id="key-k0" class="key" data-ak-key="g17.touch.k0" data-ak-role="input" aria-label="0" tabindex="0" role="button">
+      <rect class="cap-shadow" x="26" y="411" width="184" height="88" rx="12" />
+      <rect class="halo" x="24" y="406" width="188" height="92" rx="14" />
+      <rect class="hit" x="26" y="408" width="184" height="88" rx="12" />
+      <path class="cap-bevel" d="M 30 412 L 39 419 M 206 412 L 197 419 M 30 492 L 39 481 M 206 492 L 197 481" />
+      <rect class="cap-top" x="37" y="417" width="162" height="66" rx="8" />
+      <text x="118" y="452">0</text>
+      <circle class="mapped-dot" cx="199" cy="419" r="5" />
+    </g>
+    <g id="key-dot" class="key" data-ak-key="g17.touch.dot" data-ak-role="input" aria-label="." tabindex="0" role="button">
+      <rect class="cap-shadow" x="218" y="411" width="88" height="88" rx="12" />
+      <rect class="halo" x="216" y="406" width="92" height="92" rx="14" />
+      <rect class="hit" x="218" y="408" width="88" height="88" rx="12" />
+      <path class="cap-bevel" d="M 222 412 L 231 419 M 302 412 L 293 419 M 222 492 L 231 481 M 302 492 L 293 481" />
+      <rect class="cap-top" x="229" y="417" width="66" height="66" rx="8" />
+      <text x="262" y="452">.</text>
+      <circle class="mapped-dot" cx="295" cy="419" r="5" />
+    </g>
+    <g id="touch-swipeUp" class="key touch-zone gesture" data-ak-key="g17.touch.swipeUp" data-ak-role="input" aria-label="滑条上滑" tabindex="0" role="button">
+      <rect class="halo" x="422" y="22" width="78" height="58" rx="12" />
+      <rect class="hit touch-hit" x="424" y="24" width="74" height="54" rx="10" />
+      <path class="gesture-arrow" d="M 453 49 L 461 40 L 469 49" /><text class="gesture-label" x="461" y="63">上滑</text>
+      <circle class="mapped-dot" cx="488" cy="34" r="4.5" />
+    </g>
+    <g id="touch-t1" class="key touch-zone zone" data-ak-key="g17.touch.t1" data-ak-role="input" aria-label="触控 1 (顶)" tabindex="0" role="button">
+      <rect class="halo" x="422" y="88" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="90" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 138 L 461 120 L 483 138" /><path class="chevron-sub" d="M 445 145 L 461 131 L 477 145" /><text class="touch-label" x="437" y="106">T1</text>
+      <circle class="mapped-dot" cx="488" cy="100" r="4.5" />
+    </g>
+    <g id="touch-t2" class="key touch-zone zone" data-ak-key="g17.touch.t2" data-ak-role="input" aria-label="触控 2" tabindex="0" role="button">
+      <rect class="halo" x="422" y="174" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="176" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 224 L 461 206 L 483 224" /><path class="chevron-sub" d="M 445 231 L 461 217 L 477 231" /><text class="touch-label" x="437" y="192">T2</text>
+      <circle class="mapped-dot" cx="488" cy="186" r="4.5" />
+    </g>
+    <g id="touch-t3" class="key touch-zone zone" data-ak-key="g17.touch.t3" data-ak-role="input" aria-label="触控 3" tabindex="0" role="button">
+      <rect class="halo" x="422" y="260" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="262" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 310 L 461 292 L 483 310" /><path class="chevron-sub" d="M 445 317 L 461 303 L 477 317" /><text class="touch-label" x="437" y="278">T3</text>
+      <circle class="mapped-dot" cx="488" cy="272" r="4.5" />
+    </g>
+    <g id="touch-t4" class="key touch-zone zone" data-ak-key="g17.touch.t4" data-ak-role="input" aria-label="触控 4 (底)" tabindex="0" role="button">
+      <rect class="halo" x="422" y="346" width="78" height="84" rx="12" />
+      <rect class="hit touch-hit" x="424" y="348" width="74" height="80" rx="10" />
+      <path class="chevron" d="M 439 396 L 461 378 L 483 396" /><path class="chevron-sub" d="M 445 403 L 461 389 L 477 403" /><text class="touch-label" x="437" y="364">T4</text>
+      <circle class="mapped-dot" cx="488" cy="358" r="4.5" />
+    </g>
+    <g id="touch-swipeDown" class="key touch-zone gesture" data-ak-key="g17.touch.swipeDown" data-ak-role="input" aria-label="滑条下滑" tabindex="0" role="button">
+      <rect class="halo" x="422" y="440" width="78" height="58" rx="12" />
+      <rect class="hit touch-hit" x="424" y="442" width="74" height="54" rx="10" />
+      <path class="gesture-arrow" d="M 453 460 L 461 469 L 469 460" /><text class="gesture-label" x="461" y="481">下滑</text>
+      <circle class="mapped-dot" cx="488" cy="452" r="4.5" />
+    </g>
+  </g>
+
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="g17.touch.num" data-ak-anchor="70 68" d="M 38 24 H 102 A 12 12 0 0 1 114 36 V 100 A 12 12 0 0 1 102 112 H 38 A 12 12 0 0 1 26 100 V 36 A 12 12 0 0 1 38 24 Z" />
+    <path data-ak-region="g17.touch.div" data-ak-anchor="166 68" d="M 134 24 H 198 A 12 12 0 0 1 210 36 V 100 A 12 12 0 0 1 198 112 H 134 A 12 12 0 0 1 122 100 V 36 A 12 12 0 0 1 134 24 Z" />
+    <path data-ak-region="g17.touch.mul" data-ak-anchor="262 68" d="M 230 24 H 294 A 12 12 0 0 1 306 36 V 100 A 12 12 0 0 1 294 112 H 230 A 12 12 0 0 1 218 100 V 36 A 12 12 0 0 1 230 24 Z" />
+    <path data-ak-region="g17.touch.sub" data-ak-anchor="358 68" d="M 326 24 H 390 A 12 12 0 0 1 402 36 V 100 A 12 12 0 0 1 390 112 H 326 A 12 12 0 0 1 314 100 V 36 A 12 12 0 0 1 326 24 Z" />
+    <path data-ak-region="g17.touch.k7" data-ak-anchor="70 164" d="M 38 120 H 102 A 12 12 0 0 1 114 132 V 196 A 12 12 0 0 1 102 208 H 38 A 12 12 0 0 1 26 196 V 132 A 12 12 0 0 1 38 120 Z" />
+    <path data-ak-region="g17.touch.k8" data-ak-anchor="166 164" d="M 134 120 H 198 A 12 12 0 0 1 210 132 V 196 A 12 12 0 0 1 198 208 H 134 A 12 12 0 0 1 122 196 V 132 A 12 12 0 0 1 134 120 Z" />
+    <path data-ak-region="g17.touch.k9" data-ak-anchor="262 164" d="M 230 120 H 294 A 12 12 0 0 1 306 132 V 196 A 12 12 0 0 1 294 208 H 230 A 12 12 0 0 1 218 196 V 132 A 12 12 0 0 1 230 120 Z" />
+    <path data-ak-region="g17.touch.add" data-ak-anchor="358 212" d="M 326 120 H 390 A 12 12 0 0 1 402 132 V 292 A 12 12 0 0 1 390 304 H 326 A 12 12 0 0 1 314 292 V 132 A 12 12 0 0 1 326 120 Z" />
+    <path data-ak-region="g17.touch.k4" data-ak-anchor="70 260" d="M 38 216 H 102 A 12 12 0 0 1 114 228 V 292 A 12 12 0 0 1 102 304 H 38 A 12 12 0 0 1 26 292 V 228 A 12 12 0 0 1 38 216 Z" />
+    <path data-ak-region="g17.touch.k5" data-ak-anchor="166 260" d="M 134 216 H 198 A 12 12 0 0 1 210 228 V 292 A 12 12 0 0 1 198 304 H 134 A 12 12 0 0 1 122 292 V 228 A 12 12 0 0 1 134 216 Z" />
+    <path data-ak-region="g17.touch.k6" data-ak-anchor="262 260" d="M 230 216 H 294 A 12 12 0 0 1 306 228 V 292 A 12 12 0 0 1 294 304 H 230 A 12 12 0 0 1 218 292 V 228 A 12 12 0 0 1 230 216 Z" />
+    <path data-ak-region="g17.touch.k1" data-ak-anchor="70 356" d="M 38 312 H 102 A 12 12 0 0 1 114 324 V 388 A 12 12 0 0 1 102 400 H 38 A 12 12 0 0 1 26 388 V 324 A 12 12 0 0 1 38 312 Z" />
+    <path data-ak-region="g17.touch.k2" data-ak-anchor="166 356" d="M 134 312 H 198 A 12 12 0 0 1 210 324 V 388 A 12 12 0 0 1 198 400 H 134 A 12 12 0 0 1 122 388 V 324 A 12 12 0 0 1 134 312 Z" />
+    <path data-ak-region="g17.touch.k3" data-ak-anchor="262 356" d="M 230 312 H 294 A 12 12 0 0 1 306 324 V 388 A 12 12 0 0 1 294 400 H 230 A 12 12 0 0 1 218 388 V 324 A 12 12 0 0 1 230 312 Z" />
+    <path data-ak-region="g17.touch.enter" data-ak-anchor="358 404" d="M 326 312 H 390 A 12 12 0 0 1 402 324 V 484 A 12 12 0 0 1 390 496 H 326 A 12 12 0 0 1 314 484 V 324 A 12 12 0 0 1 326 312 Z" />
+    <path data-ak-region="g17.touch.k0" data-ak-anchor="118 452" d="M 38 408 H 198 A 12 12 0 0 1 210 420 V 484 A 12 12 0 0 1 198 496 H 38 A 12 12 0 0 1 26 484 V 420 A 12 12 0 0 1 38 408 Z" />
+    <path data-ak-region="g17.touch.dot" data-ak-anchor="262 452" d="M 230 408 H 294 A 12 12 0 0 1 306 420 V 484 A 12 12 0 0 1 294 496 H 230 A 12 12 0 0 1 218 484 V 420 A 12 12 0 0 1 230 408 Z" />
+    <path data-ak-region="g17.touch.swipeUp" data-ak-anchor="461 51" d="M 434 24 H 488 A 10 10 0 0 1 498 34 V 68 A 10 10 0 0 1 488 78 H 434 A 10 10 0 0 1 424 68 V 34 A 10 10 0 0 1 434 24 Z" />
+    <path data-ak-region="g17.touch.t1" data-ak-anchor="461 130" d="M 434 90 H 488 A 10 10 0 0 1 498 100 V 160 A 10 10 0 0 1 488 170 H 434 A 10 10 0 0 1 424 160 V 100 A 10 10 0 0 1 434 90 Z" />
+    <path data-ak-region="g17.touch.t2" data-ak-anchor="461 216" d="M 434 176 H 488 A 10 10 0 0 1 498 186 V 246 A 10 10 0 0 1 488 256 H 434 A 10 10 0 0 1 424 246 V 186 A 10 10 0 0 1 434 176 Z" />
+    <path data-ak-region="g17.touch.t3" data-ak-anchor="461 302" d="M 434 262 H 488 A 10 10 0 0 1 498 272 V 332 A 10 10 0 0 1 488 342 H 434 A 10 10 0 0 1 424 332 V 272 A 10 10 0 0 1 434 262 Z" />
+    <path data-ak-region="g17.touch.t4" data-ak-anchor="461 388" d="M 434 348 H 488 A 10 10 0 0 1 498 358 V 418 A 10 10 0 0 1 488 428 H 434 A 10 10 0 0 1 424 418 V 358 A 10 10 0 0 1 434 348 Z" />
+    <path data-ak-region="g17.touch.swipeDown" data-ak-anchor="461 469" d="M 434 442 H 488 A 10 10 0 0 1 498 452 V 486 A 10 10 0 0 1 488 496 H 434 A 10 10 0 0 1 424 486 V 452 A 10 10 0 0 1 434 442 Z" />
+  </g>
+</svg>

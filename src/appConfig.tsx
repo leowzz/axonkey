@@ -1,3 +1,4 @@
+import { appStorage } from './appStorage'
 import { createBehavior, createDefaultBehaviorMap, parseStoredBehaviors, triggerTypes } from './behaviorModel'
 import type { BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
 import { inputIds } from './devices/index.ts'
@@ -93,7 +94,7 @@ export function getStoredUiState(): StoredUiState {
   if (typeof window === 'undefined') return defaultUiState
   const fallback = { ...defaultUiState, sidebarCollapsed: window.matchMedia?.('(max-width: 1200px)')?.matches === true }
   try {
-    const stored = window.localStorage.getItem(uiStateStorageKey)
+    const stored = appStorage.getItem(uiStateStorageKey)
     if (!stored) return fallback
     const parsed = JSON.parse(stored) as unknown
     if (!isRecord(parsed)) return fallback
@@ -150,7 +151,7 @@ export function getStoredUiState(): StoredUiState {
 export function saveStoredUiState(state: StoredUiState) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(uiStateStorageKey, JSON.stringify(state))
+    appStorage.setItem(uiStateStorageKey, JSON.stringify(state))
   } catch {
     // UI state is best-effort and must not interrupt editing when storage is unavailable.
   }
@@ -174,7 +175,7 @@ export function getStoredSettings(): StoredSettings {
   }
   if (typeof window === 'undefined') return fallback
   try {
-    const stored = window.localStorage.getItem(settingsStorageKey)
+    const stored = appStorage.getItem(settingsStorageKey)
     if (!stored) return fallback
     const parsed = JSON.parse(stored) as Record<string, unknown>
     return {
@@ -234,19 +235,25 @@ export function getStoredProfiles(): StoredProfiles {
   const fallback = createDefaultDeviceProfiles(behaviors)
   if (typeof window === 'undefined') return fallback
   try {
-    const stored = window.localStorage.getItem(profilesStorageKey)
+    const stored = appStorage.getItem(profilesStorageKey)
     return parseStoredDeviceProfiles(stored, behaviors)
   } catch {
     return fallback
   }
 }
 
-export function createMappingProfile(name: string, behaviors: BehaviorMap, deviceId: DeviceId): MappingProfile {
+export function createMappingProfile(
+  name: string,
+  behaviors: BehaviorMap,
+  deviceId: DeviceId,
+  quick = false,
+): MappingProfile {
   return {
     id: createProfileId(),
     name: cleanProfileName(name),
     deviceId,
     behaviors: extractDeviceBehaviors(behaviors, deviceId),
+    ...(quick ? { quick: true } : {}),
   }
 }
 
@@ -257,7 +264,7 @@ export function normalizeProfileName(value: string, fallback = '配置文件') {
 export function getStoredAudioGain() {
   if (typeof window === 'undefined') return defaultAudioGain
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(audioSettingsStorageKey) ?? '{}') as Record<string, unknown>
+    const parsed = JSON.parse(appStorage.getItem(audioSettingsStorageKey) ?? '{}') as Record<string, unknown>
     const gain =
       typeof parsed.gain === 'number' && Number.isFinite(parsed.gain) ? Math.round(parsed.gain) : defaultAudioGain
     return Math.max(audioGainMin, Math.min(audioGainMax, gain))
@@ -269,7 +276,7 @@ export function getStoredAudioGain() {
 export function getStoredAudioStretchCompensation() {
   if (typeof window === 'undefined') return false
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(audioSettingsStorageKey) ?? '{}')
+    const parsed: unknown = JSON.parse(appStorage.getItem(audioSettingsStorageKey) ?? '{}')
     return isRecord(parsed) && parsed.stretchCompensation === true
   } catch {
     return false
@@ -289,6 +296,7 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   openApp: '打开应用',
   openWebsite: '打开网站',
   switchProfile: '切换配置文件',
+  quickOverlay: '快捷交互窗',
   disabled: '禁用按键',
 }
 

@@ -8,9 +8,21 @@ static CGEventRef previous_posted_event = NULL;
 static int posted_event_count = 0;
 static CGEventTapLocation captured_posted_tap = kCGAnnotatedSessionEventTap;
 static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event);
+static bool simulate_held_secondary_fn = false;
+
+static CGEventRef CreateKeyboardEvent(CGEventSourceRef source, CGKeyCode key, bool down) {
+    CGEventRef event = CGEventCreateKeyboardEvent(source, key, down);
+    if (event && simulate_held_secondary_fn &&
+        CGEventSourceGetSourceStateID(source) == kCGEventSourceStateHIDSystemState) {
+        CGEventSetFlags(event, CGEventGetFlags(event) | kCGEventFlagMaskSecondaryFn);
+    }
+    return event;
+}
 
 #define CGEventPost CaptureEventPost
+#define CGEventCreateKeyboardEvent CreateKeyboardEvent
 #import "../src-tauri/native/macos_input.m"
+#undef CGEventCreateKeyboardEvent
 #undef CGEventPost
 
 typedef struct {
@@ -201,6 +213,23 @@ static int CheckControlRightArrowEvent(bool down) {
             (long long)code,
             (unsigned long long)actual_flags
         );
+        return 1;
+    }
+    return 0;
+}
+
+static int CheckPasteShortcutWithHeldSecondaryFn(bool mapped_fn) {
+    CGEventFlags expected = kCGEventFlagMaskCommand | (mapped_fn ? kCGEventFlagMaskSecondaryFn : 0);
+    simulate_held_secondary_fn = true;
+    bool posted = axonkey_macos_post_key(9, true, expected, false, false);
+    simulate_held_secondary_fn = false;
+    if (!posted || captured_posted_event == NULL || CGEventGetType(captured_posted_event) != kCGEventKeyDown) {
+        fputs("failed to post paste shortcut\n", stderr);
+        return 1;
+    }
+    CGEventFlags flags = CGEventGetFlags(captured_posted_event);
+    if ((flags & (kCGEventFlagMaskCommand | kCGEventFlagMaskSecondaryFn)) != expected) {
+        fprintf(stderr, "unexpected paste shortcut flags: 0x%llx\n", (unsigned long long)flags);
         return 1;
     }
     return 0;
@@ -584,6 +613,8 @@ int main(void) {
             ) ||
             CheckControlRightArrowEvent(true) ||
             CheckControlRightArrowEvent(false) ||
+            CheckPasteShortcutWithHeldSecondaryFn(false) ||
+            CheckPasteShortcutWithHeldSecondaryFn(true) ||
             CheckModifierMappingReplacementAndRestore() ||
             CheckDescriptorReportBoundary() ||
             CheckHardwareMappedFnPassThrough() ||

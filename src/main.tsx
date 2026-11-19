@@ -1,8 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { bootstrapAppStorage } from './appStorage'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { ProfileSwitchOverlay } from './components/ProfileSwitchOverlay'
+import { QuickOverlay } from './components/QuickOverlay'
 import './styles.css'
 import { installRuntimeLogging, logInfo } from './runtimeLogging'
 import { initializeTencentRum } from './telemetry'
@@ -33,11 +35,24 @@ window.addEventListener('contextmenu', event => {
 installRuntimeLogging()
 logInfo('Frontend runtime initialized')
 
-const root = createRoot(document.getElementById('root')!)
-const isProfileSwitchOverlay = new URLSearchParams(window.location.search).get('view') === 'profile-switch-overlay'
+const overlayView = new URLSearchParams(window.location.search).get('view')
+const isProfileSwitchOverlay = overlayView === 'profile-switch-overlay'
+const isQuickOverlay = overlayView === 'quick-overlay'
 if (isProfileSwitchOverlay) document.documentElement.classList.add('profile-switch-overlay-window')
-root.render(
-  <StrictMode>
-    <AppErrorBoundary>{isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : <App />}</AppErrorBoundary>
-  </StrictMode>,
-)
+if (isQuickOverlay) document.documentElement.classList.add('quick-overlay-window')
+
+async function mount() {
+  if (!isProfileSwitchOverlay && !isQuickOverlay) {
+    await bootstrapAppStorage()
+  }
+  const root = createRoot(document.getElementById('root')!)
+  root.render(
+    <StrictMode>
+      <AppErrorBoundary>
+        {isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : isQuickOverlay ? <QuickOverlay /> : <App />}
+      </AppErrorBoundary>
+    </StrictMode>,
+  )
+}
+
+void mount()

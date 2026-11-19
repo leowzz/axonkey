@@ -10,9 +10,11 @@ import {
   ClipboardPaste,
   Copy,
   Clock3,
+  Eye,
   FolderOpen,
   Globe,
   Keyboard,
+  LayoutGrid,
   MousePointer2,
   MoveDown,
   MoveLeft,
@@ -20,6 +22,7 @@ import {
   MoveUp,
   Pencil,
   Play,
+  Plus,
   RotateCcw,
   SkipBack,
   SkipForward,
@@ -624,6 +627,21 @@ function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEd
   )
 }
 
+export type QuickOverlayProfileOption = {
+  id: string
+  name: string
+  quick?: boolean
+  configuredCount: number
+}
+
+export type QuickOverlayEditorContext = {
+  currentProfileId: string
+  profiles: QuickOverlayProfileOption[]
+  onCreateQuickProfile: (name: string) => Promise<string | null> | string | null
+  onEditProfile?: (profileId: string) => void
+  onPreviewProfile?: (profileId: string, triggerInputId: string) => void
+}
+
 type BehaviorEditDialogProps = {
   platform: Platform
   button: MappingInput<string>
@@ -639,6 +657,7 @@ type BehaviorEditDialogProps = {
   saveLabel?: string
   saveTone?: 'warning'
   actionChoices?: { label: string; options: { label: string; selected: boolean; behavior: Behavior }[] }
+  quickOverlayContext?: QuickOverlayEditorContext
   onStartCapture: () => void
   onCancelCapture: () => void
   onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => void
@@ -691,6 +710,165 @@ function ManualKeySelect({
   )
 }
 
+function QuickOverlayEditorFields({
+  profileId,
+  triggerInputId,
+  context,
+  onSelectProfile,
+  onSaveBeforeEdit,
+}: {
+  profileId: string
+  triggerInputId: string
+  context?: QuickOverlayEditorContext
+  onSelectProfile: (profileId: string) => void
+  onSaveBeforeEdit?: () => void
+}) {
+  const candidates = useMemo(() => {
+    const list = (context?.profiles ?? []).filter(item => item.id !== context?.currentProfileId)
+    return [...list].sort((a, b) => Number(Boolean(b.quick)) - Number(Boolean(a.quick)))
+  }, [context?.currentProfileId, context?.profiles])
+  const quickCandidates = candidates.filter(item => item.quick)
+  const regularCandidates = candidates.filter(item => !item.quick)
+  const selectedTarget = candidates.find(item => item.id === profileId)
+  const [creating, setCreating] = useState(() => candidates.length === 0)
+  const [draftName, setDraftName] = useState('快捷交互')
+  const [creatingBusy, setCreatingBusy] = useState(false)
+
+  useEffect(() => {
+    if (candidates.length === 0) setCreating(true)
+  }, [candidates.length])
+
+  const submitCreate = async () => {
+    const trimmed = draftName.trim()
+    if (!trimmed || !context || creatingBusy) return
+    setCreatingBusy(true)
+    try {
+      const createdId = await context.onCreateQuickProfile(trimmed)
+      if (createdId) {
+        onSelectProfile(createdId)
+        setCreating(false)
+      }
+    } finally {
+      setCreatingBusy(false)
+    }
+  }
+
+  return (
+    <div className="settings-form-fields behavior-dialog-form behavior-quick-overlay-form">
+      <div className="settings-form-row">
+        <div className="behavior-launch-label">
+          <label htmlFor={creating ? 'behavior-quick-profile-name' : 'behavior-quick-profile-select'}>关联配置：</label>
+          <SettingsHelp id="behavior-quick-overlay-help" label="快捷交互窗">
+            按下此键唤起所选的独立配置文件，并在桌面顶层显示该配置下其他按键的功能预览；按下其他按键执行对应行为并退出模式，再次按下此触发键直接退出。
+          </SettingsHelp>
+        </div>
+        <div className="settings-form-control">
+          {!creating && candidates.length > 0 ? (
+            <>
+              <div className="manual-key-select">
+                <select
+                  id="behavior-quick-profile-select"
+                  value={profileId}
+                  onChange={event => onSelectProfile(event.target.value)}
+                >
+                  <option value="">请选择独立配置…</option>
+                  {quickCandidates.length > 0 && (
+                    <optgroup label="快捷交互配置">
+                      {quickCandidates.map(item => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}（已配 {item.configuredCount} 键）
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {regularCandidates.length > 0 && (
+                    <optgroup label="其他配置">
+                      {regularCandidates.map(item => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}（已配 {item.configuredCount} 键）
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <span className="manual-key-select-icon" aria-hidden="true">
+                  <ChevronDown size={14} />
+                </span>
+              </div>
+              {context && (
+                <button type="button" className="dialog-secondary" onClick={() => setCreating(true)}>
+                  <Plus size={14} aria-hidden="true" /> 新建快捷配置
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                id="behavior-quick-profile-name"
+                className="behavior-launch-input"
+                style={{ maxWidth: 190 }}
+                value={draftName}
+                maxLength={40}
+                placeholder="例如：AI 提示词"
+                onChange={event => setDraftName(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void submitCreate()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="button primary"
+                disabled={!draftName.trim() || !context || creatingBusy}
+                onClick={() => void submitCreate()}
+              >
+                创建并关联
+              </button>
+              {candidates.length > 0 && (
+                <button type="button" className="dialog-secondary" onClick={() => setCreating(false)}>
+                  选择已有
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {selectedTarget && context && (context.onEditProfile || context.onPreviewProfile) && (
+        <div className="settings-form-row">
+          <span className="settings-form-label">配置内容：</span>
+          <div className="settings-form-control">
+            {selectedTarget.quick && context.onEditProfile && (
+              <button
+                type="button"
+                className="dialog-secondary behavior-quick-overlay-edit"
+                onClick={() => {
+                  onSaveBeforeEdit?.()
+                  context.onEditProfile?.(selectedTarget.id)
+                }}
+              >
+                <LayoutGrid size={14} aria-hidden="true" />{' '}
+                {onSaveBeforeEdit ? '保存并配置交互窗按键' : '配置交互窗按键'}
+              </button>
+            )}
+            {context.onPreviewProfile && (
+              <button
+                type="button"
+                className="dialog-secondary"
+                onClick={() => context.onPreviewProfile?.(selectedTarget.id, triggerInputId)}
+              >
+                <Eye size={14} aria-hidden="true" /> 预览交互窗
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BehaviorEditDialog({
   platform,
   button,
@@ -702,6 +880,7 @@ export function BehaviorEditDialog({
   title,
   delayStep = 10,
   actionChoices,
+  quickOverlayContext,
   children,
   headerActions,
   saveLabel = '保存',
@@ -877,7 +1056,9 @@ export function BehaviorEditDialog({
         ? behavior.keys.length > 0
         : behavior.type === 'paste' || behavior.type === 'typeText'
           ? Boolean(behavior.text.trim())
-          : true
+          : behavior.type === 'quickOverlay'
+            ? Boolean(behavior.profileId.trim())
+            : true
   return (
     <div
       className={inline ? 'behavior-inline-container' : 'behavior-dialog-backdrop'}
@@ -1174,6 +1355,18 @@ export function BehaviorEditDialog({
                 </div>
               </div>
             </div>
+          ) : behavior.type === 'quickOverlay' ? (
+            <QuickOverlayEditorFields
+              profileId={behavior.profileId}
+              triggerInputId={button.id}
+              context={quickOverlayContext}
+              onSaveBeforeEdit={draft ? onSave : undefined}
+              onSelectProfile={nextProfileId =>
+                onUpdate(current =>
+                  current.type === 'quickOverlay' ? { ...current, profileId: nextProfileId } : current,
+                )
+              }
+            />
           ) : launchBehavior ? (
             <div className="behavior-dialog-field">
               <div className="behavior-launch-label">

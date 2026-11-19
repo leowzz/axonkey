@@ -148,6 +148,21 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
         },
       },
     ]
+  if (preset === 'quickOverlay') {
+    const initialProfileId = typeof step.properties.profileId === 'string' ? step.properties.profileId.trim() : ''
+    return [
+      {
+        ...step,
+        properties: {
+          ...step.properties,
+          behaviorType: 'quickOverlay',
+          enabled: true,
+          profileId: initialProfileId,
+          ...(initialProfileId ? {} : { draftGroup: step.id }),
+        },
+      },
+    ]
+  }
   const choices = workflowActionChoiceStep(preset)
   if (choices?.preset === preset)
     return [
@@ -158,7 +173,6 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
           behaviorType: choices.options[0].behavior.type,
           enabled: true,
           choice: choices.options[0].stepType,
-          draftGroup: step.id,
         },
       },
     ]
@@ -171,7 +185,6 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
           behaviorType: preset,
           enabled: true,
           direction: 'up',
-          draftGroup: step.id,
           ...(preset === 'cursorMove' ? { distance: defaultCursorDistance } : {}),
         },
       },

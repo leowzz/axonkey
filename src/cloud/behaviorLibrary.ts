@@ -216,6 +216,7 @@ export function parseLibraryPage(value: unknown, platform: Platform, builtins: S
         const behaviors = item.content.behaviors.map(entry => normalizeBehavior(entry))
         if (
           behaviors.every(entry => entry !== null) &&
+          !behaviors.some(entry => entry?.type === 'quickOverlay') &&
           (behaviors.length === 1 || !behaviors.some(entry => entry?.type === 'switchProfile'))
         ) {
           step = {

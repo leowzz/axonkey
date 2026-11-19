@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { downloadDir, join } from '@tauri-apps/api/path'
 import AppController from '../app/index'
+import { appStorage, flushAppStorage } from '../appStorage'
 import { ConfigMigrationDialog } from './ConfigMigrationDialog'
 import {
   createLegacyConfigExport,
@@ -15,7 +16,7 @@ import { migrateBackupImport } from '../backupImport'
 import type { LegacyBackupImport } from '../backupImport'
 
 export function ConfigMigrationFlow() {
-  const [plan, setPlan] = useState(() => inspectConfigMigration(window.localStorage))
+  const [plan, setPlan] = useState(() => inspectConfigMigration(appStorage))
   const [open, setOpen] = useState(plan.found)
   const [imported, setImported] = useState<{ data: LegacyBackupImport; fileName: string } | null>(null)
   const [appRevision, setAppRevision] = useState(0)
@@ -71,7 +72,7 @@ export function ConfigMigrationFlow() {
     setOpen(false)
     if (imported) {
       setImported(null)
-      setPlan(inspectConfigMigration(window.localStorage))
+      setPlan(inspectConfigMigration(appStorage))
       setAppRevision(revision => revision + 1)
     }
   }
@@ -88,14 +89,15 @@ export function ConfigMigrationFlow() {
       let id: string | null = null
       if (skipMigration) {
         setStatus('正在删除已导出的旧配置…')
-        discardLegacyConfig(window.localStorage, plan)
+        discardLegacyConfig(appStorage, plan)
       } else {
         const target = remotes.find(instance => instance.id === remoteTargetId) ?? null
         const selection = { mouse: migrateMouse, remote: remoteTargetId !== 'skip' }
         id = imported
-          ? await migrateBackupImport(window.localStorage, imported.data, saveRemote, setStatus, target, selection)
-          : await migrateConfig(window.localStorage, plan, saveRemote, setStatus, target, true, selection)
+          ? await migrateBackupImport(appStorage, imported.data, saveRemote, setStatus, target, selection)
+          : await migrateConfig(appStorage, plan, saveRemote, setStatus, target, true, selection)
       }
+      await flushAppStorage()
       setSkipUserGuide(true)
       setExportOnly(skipMigration)
       if (imported && id) finish(id)
@@ -132,7 +134,7 @@ export function ConfigMigrationFlow() {
           }}
           onOpenConfigMigration={() => {
             setBindingId(null)
-            const nextPlan = inspectConfigMigration(window.localStorage)
+            const nextPlan = inspectConfigMigration(appStorage)
             setPlan(nextPlan)
             setMigrateMouse(true)
             setRemoteTargetId('')
@@ -171,7 +173,7 @@ export function ConfigMigrationFlow() {
               setOpen(false)
               if (imported) {
                 setImported(null)
-                setPlan(inspectConfigMigration(window.localStorage))
+                setPlan(inspectConfigMigration(appStorage))
               }
             }
           }}
@@ -183,7 +185,7 @@ export function ConfigMigrationFlow() {
 
 async function exportLegacyToDownloads() {
   if (!('__TAURI_INTERNALS__' in window)) throw new Error('请在桌面应用中导出并删除旧配置。')
-  const { filename, content } = createLegacyConfigExport(window.localStorage)
+  const { filename, content } = createLegacyConfigExport(appStorage)
   const path = await join(await downloadDir(), filename)
   await invoke('write_mapping_file', { path, content })
   return path

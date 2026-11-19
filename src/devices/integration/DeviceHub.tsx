@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
+import { appStorage } from '../../appStorage'
 import {
   ChevronDown,
   ChevronRight,
@@ -103,7 +104,7 @@ const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
 function getDiscoveredDevicesExpanded() {
   if (typeof window === 'undefined') return true
   try {
-    return window.localStorage.getItem(discoveredDevicesExpandedKey) !== '0'
+    return appStorage.getItem(discoveredDevicesExpandedKey) !== '0'
   } catch {
     return true
   }
@@ -444,7 +445,7 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   useEffect(() => {
     if (guide || typeof window === 'undefined') return
     try {
-      window.localStorage.setItem(discoveredDevicesExpandedKey, discoveredExpanded ? '1' : '0')
+      appStorage.setItem(discoveredDevicesExpandedKey, discoveredExpanded ? '1' : '0')
     } catch {
       /* UI preference is best-effort. */
     }

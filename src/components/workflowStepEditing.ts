@@ -21,9 +21,17 @@ const mouseButtons: Record<string, MouseBehavior['button']> = {
 
 export function isEditableWorkflowStep(step: Step) {
   return (
-    ['delay', 'paste', 'typeText', 'openPath', 'customKey', 'openApp', 'openWebsite', 'switchProfile'].includes(
-      step.type,
-    ) ||
+    [
+      'delay',
+      'paste',
+      'typeText',
+      'openPath',
+      'customKey',
+      'openApp',
+      'openWebsite',
+      'switchProfile',
+      'quickOverlay',
+    ].includes(step.type) ||
     step.type.startsWith('cursor') ||
     step.type.startsWith('wheel') ||
     Boolean(workflowActionChoiceStep(step.type))
@@ -80,6 +88,12 @@ export function workflowStepBehavior(step: Step): Behavior | null {
         type: 'switchProfile',
         direction: step.properties.direction === 'previous' ? 'previous' : 'next',
         wrap: step.properties.wrap !== false,
+      }
+    case 'quickOverlay':
+      return {
+        ...base,
+        type: 'quickOverlay',
+        profileId: typeof step.properties.profileId === 'string' ? step.properties.profileId.trim() : '',
       }
     case 'disabled':
       return { ...base, type: 'disabled' }
@@ -158,6 +172,10 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   }
   if (step.type === 'switchProfile' && behavior.type === 'switchProfile') {
     return { ...properties, direction: behavior.direction, wrap: behavior.wrap }
+  }
+  if (step.type === 'quickOverlay' && behavior.type === 'quickOverlay') {
+    const profileId = behavior.profileId.trim()
+    return profileId ? { ...properties, profileId } : null
   }
   if (step.type === 'openPath' && behavior.type === 'openPath') {
     const path = normalizeFilePath(behavior.path)

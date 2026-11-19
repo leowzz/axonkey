@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
@@ -9,6 +10,8 @@ import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './Mouse
 import type { MappingPageProps } from './MappingPage'
 import { defaultWorkflowSplitRatio } from './workflowSplitLayout'
 import { WorkflowAxonkey } from './WorkflowAxonkey'
+import { MappingColumnSplitter } from './MappingColumnSplitter'
+import { useMappingPanelWidths } from './mappingPanelLayout'
 
 export function MappingFlowPage({
   debugMode,
@@ -36,11 +39,22 @@ export function MappingFlowPage({
   showMouseKeyGrid,
   behaviorEditorProps,
   remoteView,
+  quickOverlayContext,
+  inputWarnings,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const panelLayout = useMappingPanelWidths(activeDeviceId ?? selectedDeviceId)
   return (
-    <div className="mapping-page mapping-flow-page">
+    <div
+      className="mapping-page mapping-flow-page"
+      style={
+        {
+          '--mapping-diagram-width':
+            panelLayout.widths.diagram === undefined ? undefined : `${panelLayout.widths.diagram}px`,
+        } as CSSProperties
+      }
+    >
       <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
         <DeviceWorkspaceHeader
           deviceName={
@@ -58,6 +72,7 @@ export function MappingFlowPage({
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}
+              warnings={inputWarnings}
               onSelect={id => {
                 selectBehaviorTarget(id, 'click', false)
                 mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -74,6 +89,7 @@ export function MappingFlowPage({
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
+                    warnings={inputWarnings}
                     onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
@@ -83,6 +99,7 @@ export function MappingFlowPage({
           )}
         </aside>
 
+        <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射流程图工作区">
           <WorkflowAxonkey
             header={
@@ -103,6 +120,12 @@ export function MappingFlowPage({
                     </div>
                     {toolbar}
                   </div>
+                  {inputWarnings?.[selectedBehavior.buttonId] && (
+                    <div className="key-picker-mapping-warning" role="status">
+                      <TriangleAlert size={14} aria-hidden="true" />
+                      <span>{inputWarnings[selectedBehavior.buttonId]}，已自动跳过无效项</span>
+                    </div>
+                  )}
                   {isMouse && showMouseKeyGrid && (
                     <MouseControlPicker
                       activeId={selectedBehavior.buttonId}
@@ -115,6 +138,7 @@ export function MappingFlowPage({
                     <MouseScopeSelector
                       behaviors={behaviors}
                       activeId={selectedBehavior.buttonId}
+                      warnings={inputWarnings}
                       onSelect={id => selectBehaviorTarget(id, 'click', false)}
                     />
                     {behaviorEditorProps.button.inheritDefault && (
@@ -125,6 +149,8 @@ export function MappingFlowPage({
               </>
             }
             splitRatio={splitRatio}
+            libraryWidth={panelLayout.widths.library}
+            onLibraryWidthChange={width => panelLayout.resize('library', width)}
             onSplitRatioChange={setSplitRatio}
             platform={platform}
             button={behaviorEditorProps.button}
@@ -133,6 +159,7 @@ export function MappingFlowPage({
             onRequestProfileSwitch={onRequestProfileSwitch}
             toolboxCategory={toolboxCategory}
             onToolboxCategoryChange={setToolboxCategory}
+            quickOverlayContext={quickOverlayContext}
           />
         </section>
       </div>

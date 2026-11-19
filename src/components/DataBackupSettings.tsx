@@ -14,7 +14,7 @@ import { logError } from '../runtimeLogging'
 export type DataBackupSettingsProps = {
   nativeRuntime: boolean
   onCreateBackup: () => BackupDocument
-  onRestoreBackup: (backup: ParsedBackup) => void
+  onRestoreBackup: (backup: ParsedBackup) => void | Promise<void>
   onImportLegacyConfig: (backup: LegacyBackupImport, fileName: string) => void
 }
 
@@ -245,14 +245,18 @@ export function DataBackupSettings({
               className="button primary"
               disabled={busy}
               onClick={() => {
-                setError('')
-                setBusy(true)
-                try {
-                  onRestoreBackup(pending.data)
-                } catch (error) {
-                  setBusy(false)
-                  setError(`导入失败：${error instanceof Error ? error.message : String(error)}`)
-                }
+                void (async () => {
+                  setError('')
+                  setBusy(true)
+                  try {
+                    await onRestoreBackup(pending.data)
+                  } catch (error) {
+                    if (active.current) {
+                      setBusy(false)
+                      setError(`导入失败：${error instanceof Error ? error.message : String(error)}`)
+                    }
+                  }
+                })()
               }}
             >
               导入并覆盖

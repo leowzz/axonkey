@@ -4,7 +4,7 @@ import { Trash2 } from 'lucide-react'
 import { behaviorFromCapturedKey, behaviorTypeLabels, formatCapturedKey } from '../appConfig'
 import type { Behavior, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
-import { BehaviorEditDialog } from './BehaviorEditor'
+import { BehaviorEditDialog, type QuickOverlayEditorContext } from './BehaviorEditor'
 import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup } from './workflowActionChoices'
 
 export type WorkflowStepEdit = {
@@ -25,6 +25,7 @@ export function WorkflowStepDialog({
   saveLabel,
   saveTone,
   inline = false,
+  quickOverlayContext,
 }: {
   edit: WorkflowStepEdit
   platform: Platform
@@ -35,6 +36,7 @@ export function WorkflowStepDialog({
   saveLabel?: string
   saveTone?: 'warning'
   inline?: boolean
+  quickOverlayContext?: QuickOverlayEditorContext
 }) {
   const [behavior, setBehavior] = useState(edit.behavior)
   const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
@@ -116,6 +118,7 @@ export function WorkflowStepDialog({
         }
         saveLabel={saveLabel}
         saveTone={saveTone}
+        quickOverlayContext={quickOverlayContext}
         headerActions={
           inline && edit.onDelete ? (
             <button type="button" className="workflow-inline-delete" onClick={edit.onDelete}>

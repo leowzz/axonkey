@@ -841,8 +841,11 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
     '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
     '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+    '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
     '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
+    '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
+    '../../appStorage.ts': require('../src/appStorage.ts'),
   })
   const controls = h.evalModule('src/devices/integration/IntegrationControls.tsx')
   const battery = h.evalModule('src/components/BatteryIndicator.tsx')
@@ -854,6 +857,7 @@ test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkb
     '../../openExternalUrl': require('../src/openExternalUrl.ts'),
   })
   const { DeviceHub } = h.evalModule('src/devices/integration/DeviceHub.tsx', {
+    '../../appStorage': require('../src/appStorage.ts'),
     '../../cloud/BehaviorLibraryContext': behaviorLibraryContext,
     '../../cloud/useDeviceModelCatalog': useDeviceModelCatalog,
     './InstanceWorkspace': { InstanceWorkspace: () => null },

@@ -30,6 +30,24 @@ export function bindMouseApplication(
   })
 }
 
+export function addMouseApplicationForEditing(
+  profiles: readonly MappingProfile[],
+  applicationId: string,
+  globalProfileId: string,
+  autoSwitching: boolean,
+): { profiles: MappingProfile[]; profileId: string; autoSwitching: boolean } {
+  const existing = mouseApplicationProfile(profiles, applicationId)
+  if (existing) return { profiles: [...profiles], profileId: existing.id, autoSwitching }
+  const hadBindings = profiles.some(
+    profile => profile.deviceId === 'mouse' && (profile.applicationIds?.length ?? 0) > 0,
+  )
+  return {
+    profiles: bindMouseApplication(profiles, applicationId, globalProfileId),
+    profileId: globalProfileId,
+    autoSwitching: hadBindings ? autoSwitching : true,
+  }
+}
+
 export function deleteMouseProfile(
   profiles: readonly MappingProfile[],
   profileId: string,
@@ -39,12 +57,12 @@ export function deleteMouseProfile(
   if (!removed) return { profiles: [...profiles], globalProfileId }
 
   const remaining = profiles.filter(profile => profile.id !== profileId)
-  const remainingMouseProfiles = remaining.filter(profile => profile.deviceId === 'mouse')
-  if (!remainingMouseProfiles.length) return { profiles: [...profiles], globalProfileId }
+  const remainingMouseRegular = remaining.filter(profile => profile.deviceId === 'mouse' && !profile.quick)
+  if (!remainingMouseRegular.length) return { profiles: [...profiles], globalProfileId }
 
   const nextGlobalProfileId =
-    profileId === globalProfileId && !remainingMouseProfiles.some(profile => profile.id === globalProfileId)
-      ? remainingMouseProfiles[0].id
+    profileId === globalProfileId && !remainingMouseRegular.some(profile => profile.id === globalProfileId)
+      ? remainingMouseRegular[0].id
       : globalProfileId
   let nextProfiles = remaining
   for (const applicationId of removed.applicationIds ?? [])

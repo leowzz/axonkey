@@ -1,13 +1,14 @@
-import { Check, ChevronDown, Copy, Layers, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Layers, LayoutGrid, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { SelectControl } from './SelectControl'
 import type { MappingProfile } from '../appTypes'
 
 type ProfileManagerProps = {
-  profiles: Pick<MappingProfile, 'id' | 'name'>[]
+  profiles: Pick<MappingProfile, 'id' | 'name' | 'quick'>[]
   activeProfileId: string
   onSwitch: (id: string) => void
   onCreate: () => void
+  onCreateQuick?: () => void
   onDuplicate: () => void
   onRename: (name: string) => void
   onDelete: () => void
@@ -20,6 +21,7 @@ export function ProfileManager({
   activeProfileId,
   onSwitch,
   onCreate,
+  onCreateQuick,
   onDuplicate,
   onRename,
   onDelete,
@@ -27,6 +29,9 @@ export function ProfileManager({
   onRemoveApplication,
 }: ProfileManagerProps) {
   const active = profiles.find(profile => profile.id === activeProfileId) ?? profiles[0]
+  const regularProfiles = profiles.filter(profile => !profile.quick)
+  const quickProfiles = profiles.filter(profile => profile.quick)
+  const canDelete = Boolean(active && (active.quick ? true : regularProfiles.length > 1))
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(active?.name ?? '')
   const popupRef = useRef<HTMLDetailsElement>(null)
@@ -74,11 +79,30 @@ export function ProfileManager({
           value={activeProfileId}
           onChange={event => onSwitch(event.target.value)}
         >
-          {profiles.map(profile => (
-            <option key={profile.id} value={profile.id}>
-              {profile.name}
-            </option>
-          ))}
+          {quickProfiles.length === 0 ? (
+            profiles.map(profile => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))
+          ) : (
+            <>
+              <optgroup label="常驻配置">
+                {regularProfiles.map(profile => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="快捷交互配置">
+                {quickProfiles.map(profile => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </optgroup>
+            </>
+          )}
         </SelectControl>
       )}
       <details ref={popupRef} className={`profile-manager${compact ? ' profile-manager-compact' : ''}`}>
@@ -91,11 +115,11 @@ export function ProfileManager({
           ) : (
             <>
               <span className="profile-manager-icon">
-                <Layers size={18} />
+                {active.quick ? <LayoutGrid size={18} /> : <Layers size={18} />}
               </span>
               <span className="profile-manager-current">
                 <strong>{active.name}</strong>
-                <small>配置文件</small>
+                <small>{active.quick ? '快捷交互配置' : '配置文件'}</small>
               </span>
               <ChevronDown size={14} />
             </>
@@ -105,7 +129,7 @@ export function ProfileManager({
           <div className="profile-manager-heading">{compact ? '配置操作' : '切换配置文件'}</div>
           {!compact && (
             <div className="profile-manager-list" role="group" aria-label="配置文件">
-              {profiles.map(profile => (
+              {regularProfiles.map(profile => (
                 <button
                   key={profile.id}
                   type="button"
@@ -114,6 +138,18 @@ export function ProfileManager({
                 >
                   <Layers size={15} />
                   <span>{profile.name}</span>
+                  {profile.id === activeProfileId && <Check size={15} />}
+                </button>
+              ))}
+              {quickProfiles.map(profile => (
+                <button
+                  key={profile.id}
+                  type="button"
+                  aria-pressed={profile.id === activeProfileId}
+                  onClick={() => runAction(() => onSwitch(profile.id))}
+                >
+                  <LayoutGrid size={15} />
+                  <span>{profile.name} · 快捷</span>
                   {profile.id === activeProfileId && <Check size={15} />}
                 </button>
               ))}
@@ -161,6 +197,11 @@ export function ProfileManager({
               <button type="button" onClick={() => runAction(onCreate)}>
                 <Plus size={15} /> 新增空配置文件
               </button>
+              {onCreateQuick && (
+                <button type="button" onClick={() => runAction(onCreateQuick)}>
+                  <LayoutGrid size={15} /> 新增快捷交互配置
+                </button>
+              )}
               <button type="button" onClick={() => runAction(onDuplicate)}>
                 <Copy size={15} /> 复制当前配置文件
               </button>
@@ -170,8 +211,8 @@ export function ProfileManager({
               <button
                 type="button"
                 className="profile-delete-button"
-                disabled={profiles.length <= 1}
-                title={profiles.length <= 1 ? '至少保留一个配置文件' : undefined}
+                disabled={!canDelete}
+                title={!canDelete ? '至少保留一个常驻配置文件' : undefined}
                 onClick={() => runAction(onDelete)}
               >
                 <Trash2 size={15} /> 删除当前配置文件

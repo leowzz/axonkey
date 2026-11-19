@@ -1,3 +1,4 @@
+import { appStorage } from '../../appStorage.ts'
 import type { TriggerBehaviors } from '../../behaviorModel'
 import type { ApplicationProfile } from '../../applications'
 import type { BuiltinDeviceKind, DeviceKind, DeviceSupportPackage } from '../types.ts'
@@ -13,7 +14,9 @@ import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
 import { rmfTx800cSupportPackage } from '../rmf-tx800c-remote/definition.ts'
 import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
 import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
+import { oneplusRc001aSupportPackage } from '../oneplus-rc-001a-remote/definition.ts'
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
+import { g17TouchSupportPackage } from '../g17-touch/definition.ts'
 
 export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
 export const deviceScreenSelectionId = '__screen__'
@@ -45,6 +48,7 @@ export type InstanceProfile = {
   name: string
   behaviors: Record<string, TriggerBehaviors>
   display?: ProfileDisplayConfig
+  quick?: boolean
 }
 export type DeviceInstance = {
   id: string
@@ -105,6 +109,7 @@ export type DeviceSnapshot = {
       effectiveProfileId?: string
       driverInstalled?: boolean
       driverState?: string
+      mappingErrors?: Record<string, Record<string, string>>
     }
   >
   error: string | null
@@ -124,7 +129,9 @@ export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.fr
   rmfTx800cSupportPackage,
   hisenseRcf3b65SupportPackage,
   phicommDb1RSupportPackage,
+  oneplusRc001aSupportPackage,
   kivoK18LiteSupportPackage,
+  g17TouchSupportPackage,
   xboxSupportPackage,
 ])
 
@@ -463,7 +470,7 @@ export const systemMouseCardId = 'system-mouse'
 export function getStoredDeviceCardOrder(): string[] {
   if (typeof window === 'undefined') return []
   try {
-    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
+    const value = JSON.parse(appStorage.getItem(deviceCardOrderKey) ?? '[]')
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
   } catch {
     return []
@@ -472,7 +479,7 @@ export function getStoredDeviceCardOrder(): string[] {
 
 export function saveDeviceCardOrder(order: string[]) {
   try {
-    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
+    appStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
   } catch {
     /* UI preference is best-effort. */
   }

@@ -29,6 +29,7 @@ impl A15Reader {
         let mut session = HidSession::for_kind(&instance.kind);
         session.start(instance.cmiot_a15_recording_mode);
         let mut actions = RemoteActions::default();
+        actions.set_source(&instance.id, &instance.kind, &instance.name);
         actions.synchronize(1, true);
         let switch_shared = shared.clone();
         let id = instance.id.clone();

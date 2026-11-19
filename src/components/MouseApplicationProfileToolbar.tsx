@@ -19,6 +19,7 @@ export function MouseApplicationProfileToolbar({
   onSwitchProfile,
   onToggle,
   onCreate,
+  onCreateQuick,
   onDuplicate,
   onRename,
   onDelete,
@@ -36,6 +37,7 @@ export function MouseApplicationProfileToolbar({
   onSwitchProfile: (id: string) => void
   onToggle: () => void
   onCreate: () => void
+  onCreateQuick?: () => void
   onDuplicate: () => void
   onRename: (name: string) => void
   onDelete: () => void
@@ -80,6 +82,7 @@ export function MouseApplicationProfileToolbar({
           activeProfileId={activeProfileId}
           onSwitch={onSwitchProfile}
           onCreate={onCreate}
+          onCreateQuick={onCreateQuick}
           onDuplicate={onDuplicate}
           onRename={onRename}
           onDelete={onDelete}

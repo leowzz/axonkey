@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { CheckCircle2, LoaderCircle, Mic } from 'lucide-react'
+import { appStorage } from '../appStorage'
 import { inspectConfigMigration } from '../configMigration'
 import type { DriverActionResult } from '../appTypes'
 import './ConfigMigrationDialog.css'
@@ -10,7 +11,7 @@ type RemovalResult = { logPath: string; rebootRequired: boolean; error: string |
 
 export function VirtualAudioUpgradeFlow({ children }: { children: ReactNode }) {
   const [state, setState] = useState<'checking' | 'required' | 'failed' | 'ready'>(() =>
-    '__TAURI_INTERNALS__' in window && inspectConfigMigration(window.localStorage).found ? 'checking' : 'ready',
+    '__TAURI_INTERNALS__' in window && inspectConfigMigration(appStorage).found ? 'checking' : 'ready',
   )
   const [error, setError] = useState('')
   const request = useRef<Promise<boolean> | null>(null)

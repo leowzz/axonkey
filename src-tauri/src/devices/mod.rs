@@ -5,6 +5,7 @@ pub(crate) mod engine;
 pub(crate) mod hisense_rcf3b65;
 pub(crate) mod kivo_k18_lite;
 pub(crate) mod obe_rcu_r5;
+pub(crate) mod oneplus_rc_001a;
 pub(crate) mod phicomm_db1_r;
 pub(crate) mod shared;
 pub(crate) mod tcl_rc802a;

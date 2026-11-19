@@ -50,7 +50,9 @@ async function settingsView(overrides = {}, component = 'CloudSyncSettings') {
     require: name =>
       name.endsWith('.css')
         ? {}
-        : name === './CloudRestorePicker'
+        : name === '../appStorage'
+          ? { appStorage: { getItem: () => null, setItem() {}, removeItem() {} } }
+          : name === './CloudRestorePicker'
           ? { CloudRestorePicker: () => null }
           : name === './SettingsHelp'
             ? { SettingsHelp: () => null }
@@ -219,6 +221,8 @@ async function setup({ credential = null, stored = null, clearError = null } = {
       removeEventListener() {},
     },
     require(name) {
+      if (name === '../appStorage')
+        return { appStorage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) } }
       if (name === './relayClient') return clientModule
       if (name === './cloudSync') return syncModule
       if (name === './cloudLogging') return loggingModule

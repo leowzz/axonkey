@@ -336,6 +336,402 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "g17-touch": {
+    "id": "g17.touch",
+    "ariaLabel": "G17 Touch 17+4T 小键盘",
+    "artworkUrl": "/device-descriptors/g17-touch.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          4617
+        ],
+        "productIds": [
+          40983
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 524,
+      "height": 520
+    },
+    "inputs": [
+      {
+        "id": "g17.touch.num",
+        "stableId": "g17.touch.num",
+        "label": "Num",
+        "short": "Num",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 38 24 H 102 A 12 12 0 0 1 114 36 V 100 A 12 12 0 0 1 102 112 H 38 A 12 12 0 0 1 26 100 V 36 A 12 12 0 0 1 38 24 Z",
+        "anchor": {
+          "x": 70,
+          "y": 68
+        }
+      },
+      {
+        "id": "g17.touch.div",
+        "stableId": "g17.touch.div",
+        "label": "÷",
+        "short": "÷",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 134 24 H 198 A 12 12 0 0 1 210 36 V 100 A 12 12 0 0 1 198 112 H 134 A 12 12 0 0 1 122 100 V 36 A 12 12 0 0 1 134 24 Z",
+        "anchor": {
+          "x": 166,
+          "y": 68
+        }
+      },
+      {
+        "id": "g17.touch.mul",
+        "stableId": "g17.touch.mul",
+        "label": "×",
+        "short": "×",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 230 24 H 294 A 12 12 0 0 1 306 36 V 100 A 12 12 0 0 1 294 112 H 230 A 12 12 0 0 1 218 100 V 36 A 12 12 0 0 1 230 24 Z",
+        "anchor": {
+          "x": 262,
+          "y": 68
+        }
+      },
+      {
+        "id": "g17.touch.sub",
+        "stableId": "g17.touch.sub",
+        "label": "-",
+        "short": "-",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 326 24 H 390 A 12 12 0 0 1 402 36 V 100 A 12 12 0 0 1 390 112 H 326 A 12 12 0 0 1 314 100 V 36 A 12 12 0 0 1 326 24 Z",
+        "anchor": {
+          "x": 358,
+          "y": 68
+        }
+      },
+      {
+        "id": "g17.touch.k7",
+        "stableId": "g17.touch.k7",
+        "label": "7",
+        "short": "7",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 38 120 H 102 A 12 12 0 0 1 114 132 V 196 A 12 12 0 0 1 102 208 H 38 A 12 12 0 0 1 26 196 V 132 A 12 12 0 0 1 38 120 Z",
+        "anchor": {
+          "x": 70,
+          "y": 164
+        }
+      },
+      {
+        "id": "g17.touch.k8",
+        "stableId": "g17.touch.k8",
+        "label": "8",
+        "short": "8",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 134 120 H 198 A 12 12 0 0 1 210 132 V 196 A 12 12 0 0 1 198 208 H 134 A 12 12 0 0 1 122 196 V 132 A 12 12 0 0 1 134 120 Z",
+        "anchor": {
+          "x": 166,
+          "y": 164
+        }
+      },
+      {
+        "id": "g17.touch.k9",
+        "stableId": "g17.touch.k9",
+        "label": "9",
+        "short": "9",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 230 120 H 294 A 12 12 0 0 1 306 132 V 196 A 12 12 0 0 1 294 208 H 230 A 12 12 0 0 1 218 196 V 132 A 12 12 0 0 1 230 120 Z",
+        "anchor": {
+          "x": 262,
+          "y": 164
+        }
+      },
+      {
+        "id": "g17.touch.add",
+        "stableId": "g17.touch.add",
+        "label": "+",
+        "short": "+",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 326 120 H 390 A 12 12 0 0 1 402 132 V 292 A 12 12 0 0 1 390 304 H 326 A 12 12 0 0 1 314 292 V 132 A 12 12 0 0 1 326 120 Z",
+        "anchor": {
+          "x": 358,
+          "y": 212
+        }
+      },
+      {
+        "id": "g17.touch.k4",
+        "stableId": "g17.touch.k4",
+        "label": "4",
+        "short": "4",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 38 216 H 102 A 12 12 0 0 1 114 228 V 292 A 12 12 0 0 1 102 304 H 38 A 12 12 0 0 1 26 292 V 228 A 12 12 0 0 1 38 216 Z",
+        "anchor": {
+          "x": 70,
+          "y": 260
+        }
+      },
+      {
+        "id": "g17.touch.k5",
+        "stableId": "g17.touch.k5",
+        "label": "5",
+        "short": "5",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 134 216 H 198 A 12 12 0 0 1 210 228 V 292 A 12 12 0 0 1 198 304 H 134 A 12 12 0 0 1 122 292 V 228 A 12 12 0 0 1 134 216 Z",
+        "anchor": {
+          "x": 166,
+          "y": 260
+        }
+      },
+      {
+        "id": "g17.touch.k6",
+        "stableId": "g17.touch.k6",
+        "label": "6",
+        "short": "6",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 230 216 H 294 A 12 12 0 0 1 306 228 V 292 A 12 12 0 0 1 294 304 H 230 A 12 12 0 0 1 218 292 V 228 A 12 12 0 0 1 230 216 Z",
+        "anchor": {
+          "x": 262,
+          "y": 260
+        }
+      },
+      {
+        "id": "g17.touch.k1",
+        "stableId": "g17.touch.k1",
+        "label": "1",
+        "short": "1",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 38 312 H 102 A 12 12 0 0 1 114 324 V 388 A 12 12 0 0 1 102 400 H 38 A 12 12 0 0 1 26 388 V 324 A 12 12 0 0 1 38 312 Z",
+        "anchor": {
+          "x": 70,
+          "y": 356
+        }
+      },
+      {
+        "id": "g17.touch.k2",
+        "stableId": "g17.touch.k2",
+        "label": "2",
+        "short": "2",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 134 312 H 198 A 12 12 0 0 1 210 324 V 388 A 12 12 0 0 1 198 400 H 134 A 12 12 0 0 1 122 388 V 324 A 12 12 0 0 1 134 312 Z",
+        "anchor": {
+          "x": 166,
+          "y": 356
+        }
+      },
+      {
+        "id": "g17.touch.k3",
+        "stableId": "g17.touch.k3",
+        "label": "3",
+        "short": "3",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 230 312 H 294 A 12 12 0 0 1 306 324 V 388 A 12 12 0 0 1 294 400 H 230 A 12 12 0 0 1 218 388 V 324 A 12 12 0 0 1 230 312 Z",
+        "anchor": {
+          "x": 262,
+          "y": 356
+        }
+      },
+      {
+        "id": "g17.touch.enter",
+        "stableId": "g17.touch.enter",
+        "label": "Enter",
+        "short": "↵",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 326 312 H 390 A 12 12 0 0 1 402 324 V 484 A 12 12 0 0 1 390 496 H 326 A 12 12 0 0 1 314 484 V 324 A 12 12 0 0 1 326 312 Z",
+        "anchor": {
+          "x": 358,
+          "y": 404
+        }
+      },
+      {
+        "id": "g17.touch.k0",
+        "stableId": "g17.touch.k0",
+        "label": "0",
+        "short": "0",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 38 408 H 198 A 12 12 0 0 1 210 420 V 484 A 12 12 0 0 1 198 496 H 38 A 12 12 0 0 1 26 484 V 420 A 12 12 0 0 1 38 408 Z",
+        "anchor": {
+          "x": 118,
+          "y": 452
+        }
+      },
+      {
+        "id": "g17.touch.dot",
+        "stableId": "g17.touch.dot",
+        "label": ".",
+        "short": ".",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 230 408 H 294 A 12 12 0 0 1 306 420 V 484 A 12 12 0 0 1 294 496 H 230 A 12 12 0 0 1 218 484 V 420 A 12 12 0 0 1 230 408 Z",
+        "anchor": {
+          "x": 262,
+          "y": 452
+        }
+      },
+      {
+        "id": "g17.touch.swipeUp",
+        "stableId": "g17.touch.swipeUp",
+        "label": "滑条上滑",
+        "short": "上滑",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 434 24 H 488 A 10 10 0 0 1 498 34 V 68 A 10 10 0 0 1 488 78 H 434 A 10 10 0 0 1 424 68 V 34 A 10 10 0 0 1 434 24 Z",
+        "anchor": {
+          "x": 461,
+          "y": 51
+        }
+      },
+      {
+        "id": "g17.touch.t1",
+        "stableId": "g17.touch.t1",
+        "label": "触控 1 (顶)",
+        "short": "T1",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 18,
+        "path": "M 434 90 H 488 A 10 10 0 0 1 498 100 V 160 A 10 10 0 0 1 488 170 H 434 A 10 10 0 0 1 424 160 V 100 A 10 10 0 0 1 434 90 Z",
+        "anchor": {
+          "x": 461,
+          "y": 130
+        }
+      },
+      {
+        "id": "g17.touch.t2",
+        "stableId": "g17.touch.t2",
+        "label": "触控 2",
+        "short": "T2",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 19,
+        "path": "M 434 176 H 488 A 10 10 0 0 1 498 186 V 246 A 10 10 0 0 1 488 256 H 434 A 10 10 0 0 1 424 246 V 186 A 10 10 0 0 1 434 176 Z",
+        "anchor": {
+          "x": 461,
+          "y": 216
+        }
+      },
+      {
+        "id": "g17.touch.t3",
+        "stableId": "g17.touch.t3",
+        "label": "触控 3",
+        "short": "T3",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 20,
+        "path": "M 434 262 H 488 A 10 10 0 0 1 498 272 V 332 A 10 10 0 0 1 488 342 H 434 A 10 10 0 0 1 424 332 V 272 A 10 10 0 0 1 434 262 Z",
+        "anchor": {
+          "x": 461,
+          "y": 302
+        }
+      },
+      {
+        "id": "g17.touch.t4",
+        "stableId": "g17.touch.t4",
+        "label": "触控 4 (底)",
+        "short": "T4",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 21,
+        "path": "M 434 348 H 488 A 10 10 0 0 1 498 358 V 418 A 10 10 0 0 1 488 428 H 434 A 10 10 0 0 1 424 418 V 358 A 10 10 0 0 1 434 348 Z",
+        "anchor": {
+          "x": 461,
+          "y": 388
+        }
+      },
+      {
+        "id": "g17.touch.swipeDown",
+        "stableId": "g17.touch.swipeDown",
+        "label": "滑条下滑",
+        "short": "下滑",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 22,
+        "path": "M 434 442 H 488 A 10 10 0 0 1 498 452 V 486 A 10 10 0 0 1 488 496 H 434 A 10 10 0 0 1 424 486 V 452 A 10 10 0 0 1 434 442 Z",
+        "anchor": {
+          "x": 461,
+          "y": 469
+        }
+      }
+    ]
+  },
   "hisense-rcf3b65": {
     "id": "hisense-rcf3b65",
     "ariaLabel": "Hisense RCF3B65",
@@ -1218,6 +1614,242 @@ export const deviceDescriptors = {
         "anchor": {
           "x": 332,
           "y": 748
+        }
+      }
+    ]
+  },
+  "oneplus-rc-001a": {
+    "id": "oneplus-rc-001a",
+    "ariaLabel": "OnePlus RC-001A",
+    "artworkUrl": "/device-descriptors/oneplus-rc-001a.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          11057
+        ],
+        "productIds": [
+          18520
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 200,
+      "height": 620
+    },
+    "inputs": [
+      {
+        "id": "oneplus.up",
+        "stableId": "oneplus.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 29.16 26.42 A 30 30 0 0 1 50 18 H 142 A 30 30 0 0 1 162.84 26.42 L 123.73 69.93 A 14 14 0 0 0 114 66 H 80 A 14 14 0 0 0 70.27 69.93 Z",
+        "anchor": {
+          "x": 96,
+          "y": 42
+        }
+      },
+      {
+        "id": "oneplus.down",
+        "stableId": "oneplus.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 162.84 163.58 A 30 30 0 0 1 142 172 H 50 A 30 30 0 0 1 29.16 163.58 L 70.27 122.07 A 14 14 0 0 0 80 126 H 114 A 14 14 0 0 0 123.73 122.07 Z",
+        "anchor": {
+          "x": 96,
+          "y": 149
+        }
+      },
+      {
+        "id": "oneplus.left",
+        "stableId": "oneplus.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 28.42 162.84 A 30 30 0 0 1 20 142 V 48 A 30 30 0 0 1 28.42 27.16 L 69.93 70.27 A 14 14 0 0 0 66 80 V 112 A 14 14 0 0 0 69.93 121.73 Z",
+        "anchor": {
+          "x": 43,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.right",
+        "stableId": "oneplus.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 163.58 27.16 A 30 30 0 0 1 172 48 V 142 A 30 30 0 0 1 163.58 162.84 L 124.07 121.73 A 14 14 0 0 0 128 112 V 80 A 14 14 0 0 0 124.07 70.27 Z",
+        "anchor": {
+          "x": 150,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.ok",
+        "stableId": "oneplus.ok",
+        "label": "OK",
+        "short": "OK",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 80 66 H 114 A 14 14 0 0 1 128 80 V 112 A 14 14 0 0 1 114 126 H 80 A 14 14 0 0 1 66 112 V 80 A 14 14 0 0 1 80 66 Z",
+        "anchor": {
+          "x": 97,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.oneplus",
+        "stableId": "oneplus.oneplus",
+        "label": "OnePlus 键",
+        "short": "OnePlus",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 33.5 210.5 A 26.5 26.5 0 1 0 86.5 210.5 A 26.5 26.5 0 1 0 33.5 210.5 Z",
+        "anchor": {
+          "x": 60,
+          "y": 210.5
+        }
+      },
+      {
+        "id": "oneplus.assistant",
+        "stableId": "oneplus.assistant",
+        "label": "Google Assistant 键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 33.5 275.5 A 26.5 26.5 0 1 0 86.5 275.5 A 26.5 26.5 0 1 0 33.5 275.5 Z",
+        "anchor": {
+          "x": 60,
+          "y": 275.5
+        }
+      },
+      {
+        "id": "oneplus.menu",
+        "stableId": "oneplus.menu",
+        "label": "Menu 键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 33.5 341 A 26.5 26.5 0 1 0 86.5 341 A 26.5 26.5 0 1 0 33.5 341 Z",
+        "anchor": {
+          "x": 60,
+          "y": 341
+        }
+      },
+      {
+        "id": "oneplus.volume.up",
+        "stableId": "oneplus.volume.up",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 183 182 A 3 3 0 0 1 189 182 V 219 H 183 Z",
+        "anchor": {
+          "x": 186,
+          "y": 199
+        }
+      },
+      {
+        "id": "oneplus.volume.down",
+        "stableId": "oneplus.volume.down",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 183 219 H 189 V 256 A 3 3 0 0 1 183 256 Z",
+        "anchor": {
+          "x": 186,
+          "y": 239
+        }
+      },
+      {
+        "id": "oneplus.back",
+        "stableId": "oneplus.back",
+        "label": "Back 键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 109 210 A 26 26 0 0 1 161 210 L 161 243 L 109 243 Z",
+        "anchor": {
+          "x": 135,
+          "y": 214
+        }
+      },
+      {
+        "id": "oneplus.home",
+        "stableId": "oneplus.home",
+        "label": "Home 键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 109 243 L 161 243 L 161 276 A 26 26 0 0 1 109 276 Z",
+        "anchor": {
+          "x": 135,
+          "y": 272
+        }
+      },
+      {
+        "id": "oneplus.prime",
+        "stableId": "oneplus.prime",
+        "label": "Prime Video 键",
+        "short": "Prime Video",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 108.5 341 A 26.5 26.5 0 1 0 161.5 341 A 26.5 26.5 0 1 0 108.5 341 Z",
+        "anchor": {
+          "x": 135,
+          "y": 341
         }
       }
     ]
@@ -2701,8 +3333,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {
@@ -3088,8 +3719,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {

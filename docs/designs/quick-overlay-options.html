@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Axonkey · 快捷交互窗现代化深度设计实验室</title>
+  <link rel="icon" href="../../src-tauri/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="quick-overlay/styles.css">
+</head>
+<body>
+  <div class="studio-root" data-scheme="01" data-device="rc003" data-bg="ide">
+    <header class="studio-topbar">
+      <div class="studio-brand">
+        <span class="brand-mark" aria-hidden="true">AK</span>
+        <div class="brand-copy">
+          <h1>快捷交互窗 · 现代化样式实验室</h1>
+          <span class="brand-sub">5 套无框置顶交互范式 × 4 类硬件设备</span>
+        </div>
+      </div>
+
+      <nav class="scheme-tabs" role="tablist" aria-label="快捷交互窗设计方案">
+        <button class="scheme-tab" role="tab" aria-selected="true" data-scheme="01">
+          <span class="tab-num">01</span>三维分层爆炸图
+        </button>
+        <button class="scheme-tab" role="tab" aria-selected="false" data-scheme="02">
+          <span class="tab-num">02</span>无框引力星环
+        </button>
+        <button class="scheme-tab" role="tab" aria-selected="false" data-scheme="03">
+          <span class="tab-num">03</span>X-Ray 工程蓝图
+        </button>
+        <button class="scheme-tab" role="tab" aria-selected="false" data-scheme="04">
+          <span class="tab-num">04</span>灵动微光胶囊岛
+        </button>
+        <button class="scheme-tab" role="tab" aria-selected="false" data-scheme="05">
+          <span class="tab-num">05</span>阳极铝光雕直投
+        </button>
+        <button class="scheme-tab is-overview" role="tab" aria-selected="false" data-scheme="all">
+          <span class="tab-num">⊞</span>5 套全景对比
+        </button>
+      </nav>
+
+      <div class="studio-controls">
+        <div class="control-group" role="group" aria-label="切换设备">
+          <button class="seg-btn is-active" data-device="rc003">RC003 遥控器</button>
+          <button class="seg-btn" data-device="mouse">系统鼠标</button>
+          <button class="seg-btn" data-device="k18">K18 小键盘</button>
+          <button class="seg-btn" data-device="xbox">Xbox 手柄</button>
+        </div>
+
+        <label class="select-wrap" aria-label="桌面背景环境">
+          <span>背景</span>
+          <select id="bg-select">
+            <option value="ide">深色代码 IDE</option>
+            <option value="keynote">浅色演示画布</option>
+            <option value="wallpaper">macOS 流体壁纸</option>
+          </select>
+        </label>
+
+        <button class="mode-toggle" id="oneshot-toggle" type="button" aria-pressed="false" title="开启后点击按键会模拟单次执行并短暂收起交互窗">
+          <span class="dot" aria-hidden="true"></span>
+          <span>单次收起模拟</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="scheme-meta-bar" id="scheme-meta-bar" aria-live="polite"></section>
+
+    <main class="desktop-stage" id="desktop-stage">
+      <!-- 拟真桌面环境底图，用于验证无框透明窗口的真实透色与抗干扰可读性 -->
+      <div class="desktop-backdrop" id="desktop-backdrop" aria-hidden="true"></div>
+
+      <!-- 主设计舞台（单方案全尺寸交互或 5 套全景对比） -->
+      <div class="hud-mount" id="hud-mount"></div>
+
+      <!-- 方案 01 专属 3D 爆炸拆解实时控制条 -->
+      <div class="explode-toolbar" id="explode-toolbar" hidden>
+        <div class="explode-sliders">
+          <label class="slider-item">
+            <span>爆炸层距</span>
+            <input id="explode-range" type="range" min="0" max="160" value="100">
+            <output id="explode-out">100%</output>
+          </label>
+          <label class="slider-item">
+            <span>俯仰视角</span>
+            <input id="pitch-range" type="range" min="18" max="68" value="46">
+            <output id="pitch-out">46°</output>
+          </label>
+          <label class="slider-item">
+            <span>偏航旋转</span>
+            <input id="yaw-range" type="range" min="-45" max="35" value="-24">
+            <output id="yaw-out">-24°</output>
+          </label>
+        </div>
+        <div class="layer-pills" role="group" aria-label="分层显隐高亮">
+          <button class="layer-pill is-on" data-layer="all">全部 4 层</button>
+          <button class="layer-pill" data-layer="L0">L0 底壳</button>
+          <button class="layer-pill" data-layer="L1">L1 微动电路</button>
+          <button class="layer-pill" data-layer="L2">L2 实体键帽</button>
+          <button class="layer-pill" data-layer="L3">L3 全息光签</button>
+          <button class="layer-pill is-reset" id="reset-3d" type="button">复位视角</button>
+        </div>
+      </div>
+
+      <!-- 方案 04 专属停靠位置切换 -->
+      <div class="island-dock-toolbar" id="island-dock-toolbar" hidden>
+        <span>灵动岛停靠边缘：</span>
+        <button class="seg-btn is-active" data-dock="top">顶部中央</button>
+        <button class="seg-btn" data-dock="bottom">底部悬浮</button>
+        <span class="dock-hint">悬停带提示词/多触发键可自动展开详情抽屉</span>
+      </div>
+
+      <!-- 键盘模拟提示与执行状态 Toast -->
+      <div class="hud-toast" id="hud-toast" role="status" aria-live="polite" hidden></div>
+
+      <footer class="stage-footnote">
+        <span>快捷键：数字 <kbd>1</kbd>–<kbd>5</kbd> 切方案 · <kbd>0</kbd> 全景对比 · <kbd>↑↓←→</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd> 模拟物理按键</span>
+        <span id="stage-metrics"></span>
+      </footer>
+    </main>
+  </div>
+
+  <script src="quick-overlay/devices.js"></script>
+  <script src="quick-overlay/app.js"></script>
+</body>
+</html>

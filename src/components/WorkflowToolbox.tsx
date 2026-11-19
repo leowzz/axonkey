@@ -1,4 +1,5 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react'
+import type { PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Search, Share2, Star, Trash2, X } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
@@ -34,6 +35,8 @@ export function WorkflowToolbox({
   selectedCategory,
   onCategoryChange,
   onAddStep,
+  onStepPointerDown,
+  allowStep,
   addLabel,
   getStepPreview,
   onRemoveSavedSequence,
@@ -46,6 +49,8 @@ export function WorkflowToolbox({
   selectedCategory: string
   onCategoryChange: (category: string) => void
   onAddStep: (step: StepDefinition) => void
+  onStepPointerDown?: (event: PointerEvent<HTMLButtonElement>, step: StepDefinition) => void
+  allowStep?: (step: StepDefinition) => boolean
   addLabel: string
   getStepPreview: (step: StepDefinition) => string[]
   onRemoveSavedSequence?: (id: string) => void
@@ -125,10 +130,12 @@ export function WorkflowToolbox({
     .filter(group => cloudView || mine || filter || currentCategory === 'all' || group.id === currentCategory)
     .map(group => ({
       ...group,
-      steps: group.steps.filter(step =>
-        `${group.palette} ${group.name} ${step.name} ${step.properties.description ?? ''}`
-          .toLocaleLowerCase()
-          .includes(filter),
+      steps: group.steps.filter(
+        step =>
+          (!allowStep || allowStep(step)) &&
+          `${group.palette} ${group.name} ${step.name} ${step.properties.description ?? ''}`
+            .toLocaleLowerCase()
+            .includes(filter),
       ),
     }))
     .filter(group => group.steps.length > 0)
@@ -271,12 +278,14 @@ export function WorkflowToolbox({
                         type="button"
                         className="workflow-toolbox-item-main"
                         aria-label={`查看${step.name}`}
+                        onPointerDown={event => onStepPointerDown?.(event, step)}
                         onMouseDown={event => {
                           if (event.button !== 0) return
                           dragOrigin.current = { x: event.clientX, y: event.clientY }
+                          if (!api) return
                           event.preventDefault()
                           event.stopPropagation()
-                          api?.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
+                          api.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
                         }}
                         onTouchStart={event => {
                           if (event.touches.length !== 1) return

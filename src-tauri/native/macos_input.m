@@ -1292,7 +1292,9 @@ bool axonkey_macos_post_key(
     bool autorepeat,
     bool modifier
 ) {
-    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    // A HID-state source can copy the remote Home key's transient Fn flag into
+    // an unrelated output key. A private source still supplies key-specific flags.
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStatePrivate);
     if (source == NULL) {
         return false;
     }
