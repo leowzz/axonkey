@@ -30,14 +30,15 @@ test('bound TCL and projector remotes are included in driver cleanup with their 
     ['tclRc902v', 'TCL RC902V'],
     ['hisenseRcf3b65', 'Hisense RCF3B65'],
     ['phicommDb1R', '斐讯 DB1-R'],
+    ['oneplusRc001a', 'OnePlus RC-001A'],
   ].map(([kind], index) => ({
     id: `remote-${index}`, name: `遥控器 ${index}`, kind, binding: `hid-${index}`,
   }))
   const h = await mount(async () => ({ store: { instances: devices } }))
   try {
     const list = h.view.root.findByProps({ 'aria-label': '本次解绑设备' })
-    assert.equal(list.findAllByType('li').length, 5)
-    for (const model of ['TCL RC802A', 'TCL RC902N', 'TCL RC902V', 'Hisense RCF3B65', '斐讯 DB1-R']) {
+    assert.equal(list.findAllByType('li').length, 6)
+    for (const model of ['TCL RC802A', 'TCL RC902N', 'TCL RC902V', 'Hisense RCF3B65', '斐讯 DB1-R', 'OnePlus RC-001A']) {
       assert.ok(text(list).includes(model))
     }
   } finally { h.unmount() }

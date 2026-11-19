@@ -1618,6 +1618,242 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "oneplus-rc-001a": {
+    "id": "oneplus-rc-001a",
+    "ariaLabel": "OnePlus RC-001A",
+    "artworkUrl": "/device-descriptors/oneplus-rc-001a.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          11057
+        ],
+        "productIds": [
+          18520
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 200,
+      "height": 620
+    },
+    "inputs": [
+      {
+        "id": "oneplus.up",
+        "stableId": "oneplus.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 29.16 26.42 A 30 30 0 0 1 50 18 H 142 A 30 30 0 0 1 162.84 26.42 L 123.73 69.93 A 14 14 0 0 0 114 66 H 80 A 14 14 0 0 0 70.27 69.93 Z",
+        "anchor": {
+          "x": 96,
+          "y": 42
+        }
+      },
+      {
+        "id": "oneplus.down",
+        "stableId": "oneplus.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 162.84 163.58 A 30 30 0 0 1 142 172 H 50 A 30 30 0 0 1 29.16 163.58 L 70.27 122.07 A 14 14 0 0 0 80 126 H 114 A 14 14 0 0 0 123.73 122.07 Z",
+        "anchor": {
+          "x": 96,
+          "y": 149
+        }
+      },
+      {
+        "id": "oneplus.left",
+        "stableId": "oneplus.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 28.42 162.84 A 30 30 0 0 1 20 142 V 48 A 30 30 0 0 1 28.42 27.16 L 69.93 70.27 A 14 14 0 0 0 66 80 V 112 A 14 14 0 0 0 69.93 121.73 Z",
+        "anchor": {
+          "x": 43,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.right",
+        "stableId": "oneplus.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 163.58 27.16 A 30 30 0 0 1 172 48 V 142 A 30 30 0 0 1 163.58 162.84 L 124.07 121.73 A 14 14 0 0 0 128 112 V 80 A 14 14 0 0 0 124.07 70.27 Z",
+        "anchor": {
+          "x": 150,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.ok",
+        "stableId": "oneplus.ok",
+        "label": "OK",
+        "short": "OK",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 80 66 H 114 A 14 14 0 0 1 128 80 V 112 A 14 14 0 0 1 114 126 H 80 A 14 14 0 0 1 66 112 V 80 A 14 14 0 0 1 80 66 Z",
+        "anchor": {
+          "x": 97,
+          "y": 96
+        }
+      },
+      {
+        "id": "oneplus.oneplus",
+        "stableId": "oneplus.oneplus",
+        "label": "OnePlus 键",
+        "short": "OnePlus",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 33.5 210.5 A 26.5 26.5 0 1 0 86.5 210.5 A 26.5 26.5 0 1 0 33.5 210.5 Z",
+        "anchor": {
+          "x": 60,
+          "y": 210.5
+        }
+      },
+      {
+        "id": "oneplus.assistant",
+        "stableId": "oneplus.assistant",
+        "label": "Google Assistant 键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 33.5 275.5 A 26.5 26.5 0 1 0 86.5 275.5 A 26.5 26.5 0 1 0 33.5 275.5 Z",
+        "anchor": {
+          "x": 60,
+          "y": 275.5
+        }
+      },
+      {
+        "id": "oneplus.menu",
+        "stableId": "oneplus.menu",
+        "label": "Menu 键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 33.5 341 A 26.5 26.5 0 1 0 86.5 341 A 26.5 26.5 0 1 0 33.5 341 Z",
+        "anchor": {
+          "x": 60,
+          "y": 341
+        }
+      },
+      {
+        "id": "oneplus.volume.up",
+        "stableId": "oneplus.volume.up",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 183 182 A 3 3 0 0 1 189 182 V 219 H 183 Z",
+        "anchor": {
+          "x": 186,
+          "y": 199
+        }
+      },
+      {
+        "id": "oneplus.volume.down",
+        "stableId": "oneplus.volume.down",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 183 219 H 189 V 256 A 3 3 0 0 1 183 256 Z",
+        "anchor": {
+          "x": 186,
+          "y": 239
+        }
+      },
+      {
+        "id": "oneplus.back",
+        "stableId": "oneplus.back",
+        "label": "Back 键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 109 210 A 26 26 0 0 1 161 210 L 161 243 L 109 243 Z",
+        "anchor": {
+          "x": 135,
+          "y": 214
+        }
+      },
+      {
+        "id": "oneplus.home",
+        "stableId": "oneplus.home",
+        "label": "Home 键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 109 243 L 161 243 L 161 276 A 26 26 0 0 1 109 276 Z",
+        "anchor": {
+          "x": 135,
+          "y": 272
+        }
+      },
+      {
+        "id": "oneplus.prime",
+        "stableId": "oneplus.prime",
+        "label": "Prime Video 键",
+        "short": "Prime Video",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 108.5 341 A 26.5 26.5 0 1 0 161.5 341 A 26.5 26.5 0 1 0 108.5 341 Z",
+        "anchor": {
+          "x": 135,
+          "y": 341
+        }
+      }
+    ]
+  },
   "phicomm-db1-r": {
     "id": "phicomm-db1-r",
     "ariaLabel": "斐讯 DB1-R",
@@ -2823,8 +3059,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {
@@ -3210,8 +3445,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc902v-atvv",
       "transport": "gatt",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {

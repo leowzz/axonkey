@@ -49,6 +49,10 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     'db1-r': 'phicommdb1r',
     db1r: 'phicommdb1r',
     'phicomm-db1-r': 'phicommdb1r',
+    'rc-001a': 'oneplusrc001a',
+    rc001a: 'oneplusrc001a',
+    'oneplus-rc-001a': 'oneplusrc001a',
+    'oneplus-rc': 'oneplusrc001a',
   }
   return aliases[device] ?? device
 }

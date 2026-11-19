@@ -51,7 +51,7 @@
                   transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
                   audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
                   control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
-                  engine="tcl-rc902v-atvv" trigger-modes="hold click"
+                  engine="tcl-rc902v-atvv" trigger-modes="hold"
                   sample-rate="16000" required="false" />
       </ak:capabilities>
     </ak:device>

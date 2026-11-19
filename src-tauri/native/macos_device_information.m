@@ -56,7 +56,7 @@ static NSString *AKCompactAddress(NSString *value) {
     if (key == nil) return;
     NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (value == nil) {
-        if (![uuid isEqualToString:@"2A28"]) [self.errors addObject:@"设备信息不是有效 UTF-8 文本"];
+        if (![uuid isEqualToString:@"2A24"] && ![uuid isEqualToString:@"2A28"]) [self.errors addObject:@"设备信息不是有效 UTF-8 文本"];
         return;
     }
     NSMutableCharacterSet *trim = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
@@ -271,7 +271,7 @@ typedef void (*AKDeviceInformationCallback)(void *context, size_t index, const c
     NSString *uuid = characteristic.UUID.UUIDString;
     if ([uuid isEqualToString:@"2A50"] || [uuid isEqualToString:@"2A25"]) device.identityPending -= 1;
     if (error) {
-        if (![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
+        if (![characteristic.UUID.UUIDString isEqualToString:@"2A24"] && ![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
             [device.errors addObject:error.localizedDescription];
         }
     } else {

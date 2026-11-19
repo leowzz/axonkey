@@ -17,6 +17,7 @@ import { tclRc902nRemoteView } from '../src/devices/tcl-rc902n-remote/view.ts'
 import { tclRc902vRemoteView } from '../src/devices/tcl-rc902v-remote/view.ts'
 import { hisenseRcf3b65RemoteView } from '../src/devices/hisense-rcf3b65-remote/view.ts'
 import { phicommDb1RRemoteView } from '../src/devices/phicomm-db1-r-remote/view.ts'
+import { oneplusRc001aRemoteView } from '../src/devices/oneplus-rc-001a-remote/view.ts'
 import { kivoK18LiteView } from '../src/devices/kivo-k18-lite/view.ts'
 import { kivoK18LiteSupportPackage } from '../src/devices/kivo-k18-lite/definition.ts'
 import { g17TouchView } from '../src/devices/g17-touch/view.ts'
@@ -120,7 +121,7 @@ test('each accessible SVG key selects its own input without activating its neigh
 })
 
 test('every bundled device renders its descriptor inputs through the common SVG control', () => {
-  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView, tclRc802aRemoteView, tclRc902nRemoteView, tclRc902vRemoteView, hisenseRcf3b65RemoteView, phicommDb1RRemoteView, kivoK18LiteView, g17TouchView]) {
+  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView, tclRc802aRemoteView, tclRc902nRemoteView, tclRc902vRemoteView, hisenseRcf3b65RemoteView, phicommDb1RRemoteView, oneplusRc001aRemoteView, kivoK18LiteView, g17TouchView]) {
     const { view, key, selected } = mount({ remoteView })
     assert.equal(view.root.findByType('image').props.href, remoteView.artworkUrl)
     assert.equal(view.root.findAllByProps({ role: 'button' }).length, remoteView.buttons.length)

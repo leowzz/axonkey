@@ -108,9 +108,27 @@ export function ManagedDriverCleanupDialog({
                       ? packageFor(device.kind).model
                       : device.kind === 'cmiotA15'
                         ? 'CMIOT A15'
-                        : device.kind === 'xboxBluetooth'
-                          ? 'Xbox 蓝牙手柄'
-                          : packageFor(device.kind).name || packageFor(device.kind).model}{' '}
+                        : device.kind === 'xmBt29'
+                          ? 'XM-BT-29'
+                          : device.kind === 'rc313'
+                            ? 'RC-313'
+                            : device.kind === 'obeRcuR5'
+                              ? 'OBE_RCU_R5'
+                              : device.kind === 'tclRc802a'
+                                ? 'TCL RC802A'
+                                : device.kind === 'tclRc902n'
+                                  ? 'TCL RC902N'
+                                  : device.kind === 'tclRc902v'
+                                    ? 'TCL RC902V'
+                                    : device.kind === 'hisenseRcf3b65'
+                                      ? 'Hisense RCF3B65'
+                                      : device.kind === 'phicommDb1R'
+                                        ? '斐讯 DB1-R'
+                                        : device.kind === 'oneplusRc001a'
+                                          ? 'OnePlus RC-001A'
+                                          : device.kind === 'xboxBluetooth'
+                                            ? 'Xbox 蓝牙手柄'
+                                            : packageFor(device.kind).name || packageFor(device.kind).model}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>

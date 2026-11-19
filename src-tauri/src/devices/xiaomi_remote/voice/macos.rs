@@ -936,7 +936,7 @@ mod tests {
     }
 
     #[test]
-    fn rc902_on_request_hold_and_click_toggle_drive_atvv_commands() {
+    fn rc902_htt_hold_to_talk_drives_atvv_commands() {
         let mut base = test_shared(false);
         base.rc902 = true;
         base.rc902_label = "TCL RC902V";
@@ -948,53 +948,34 @@ mod tests {
         };
         let context = service.callback_context.cast_mut().cast();
 
-        let caps = [0x0b_u8, 0x01, 0x00, 0x02, 0x00, 0x00, 0xa0, 0x01, 0x00];
+        let caps = [0x0b_u8, 0x01, 0x00, 0x02, 0x03, 0x00, 0xa0, 0x01, 0x00];
         unsafe {
             native_event_callback(context, EVENT_NEGOTIATE, std::ptr::null(), 0, 0, 0);
             native_event_callback(context, EVENT_CONTROL, caps.as_ptr(), caps.len(), 0x0b, 0);
         }
         assert_eq!(
             std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
-            vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x00]]
+            vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x03]]
         );
 
-        // Hold mode: START_SEARCH + press -> MIC_OPEN([0x0c, 0x00]) -> AUDIO_START -> release sends MIC_CLOSE(0).
-        service.set_recording_mode(RecordingMode::Hold);
-        let start_search = [0x08_u8];
-        let start_stream = [0x04_u8, 0x00, 0x02, 0x00];
-        unsafe {
-            native_event_callback(
-                context,
-                EVENT_CONTROL,
-                start_search.as_ptr(),
-                start_search.len(),
-                0x08,
-                0,
-            );
-        }
+        // Hold mode: AUDIO_START(reason=0x03) -> AUDIO_STOP(reason=0x02) on release.
         service.handle_voice_key_edge(true);
-        assert_eq!(
-            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
-            vec![vec![0x0c, 0x00]]
-        );
+        let start_hold = [0x04_u8, 0x03, 0x02, 0x03];
         unsafe {
             native_event_callback(
                 context,
                 EVENT_CONTROL,
-                start_stream.as_ptr(),
-                start_stream.len(),
+                start_hold.as_ptr(),
+                start_hold.len(),
                 0x04,
                 0,
             );
         }
         assert!(shared.recording_indicator.is_active());
         service.handle_voice_key_edge(false);
-        assert!(!shared.recording_indicator.is_active());
-        assert_eq!(
-            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
-            vec![vec![0x0d, 0x00]]
-        );
-        let stop_ack = [0x00_u8, 0x00];
+        assert!(shared.recording_indicator.is_active());
+        assert!(shared.rc902_sent_commands.lock().unwrap().is_empty());
+        let stop_ack = [0x00_u8, 0x02];
         unsafe {
             native_event_callback(
                 context,
@@ -1005,42 +986,7 @@ mod tests {
                 0,
             );
         }
-
-        // Click mode: 1st press + release keeps recording; 2nd press sends MIC_CLOSE(0).
-        service.set_recording_mode(RecordingMode::Click);
-        service.handle_voice_key_edge(true);
-        unsafe {
-            native_event_callback(
-                context,
-                EVENT_CONTROL,
-                start_search.as_ptr(),
-                start_search.len(),
-                0x08,
-                0,
-            );
-            native_event_callback(
-                context,
-                EVENT_CONTROL,
-                start_stream.as_ptr(),
-                start_stream.len(),
-                0x04,
-                0,
-            );
-        }
-        assert_eq!(
-            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
-            vec![vec![0x0c, 0x00]]
-        );
-        service.handle_voice_key_edge(false);
-        assert!(shared.recording_indicator.is_active());
-        assert!(shared.rc902_sent_commands.lock().unwrap().is_empty());
-
-        service.handle_voice_key_edge(true);
         assert!(!shared.recording_indicator.is_active());
-        assert_eq!(
-            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
-            vec![vec![0x0d, 0x00]]
-        );
     }
 
     #[test]
