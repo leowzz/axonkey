@@ -82,6 +82,7 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -95,11 +96,15 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: 20px 24px;
+  box-sizing: border-box;
 }
 
 .quick-overlay-config-stage .ceramic-chassis {
   margin-block: 0;
+  padding: 14px 16px;
 }
 
 .quick-overlay-config-stage .select-control {
@@ -116,12 +121,80 @@
 }
 
 .quick-overlay-config-stage .ceramic-chassis.is-panel:not(.has-side-rail) {
-  max-width: 540px;
+  max-width: 640px;
+}
+
+.quick-overlay-config-stage .ceramic-chassis.is-panel.has-side-rail {
+  max-width: 760px;
+}
+
+.quick-overlay-config-stage .ceramic-panel-main {
+  gap: 9px;
+}
+
+.quick-overlay-config-stage .ceramic-panel-main.density-compact {
+  gap: 6px;
+}
+
+.quick-overlay-config-stage .ceramic-row {
+  gap: 9px;
+}
+
+.quick-overlay-config-stage .ceramic-chassis.is-panel .ceramic-key {
+  min-height: 54px;
+  padding: 7px 11px 8px;
+}
+
+.quick-overlay-config-stage .ceramic-chassis.is-panel .ceramic-cross-well {
+  grid-template-rows: repeat(3, minmax(52px, auto));
+  gap: 7px;
+  padding: 9px;
+}
+
+.quick-overlay-config-stage .ceramic-panel-main.density-compact .ceramic-key {
+  min-height: 46px;
+  padding: 6px 9px;
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-config-stage .ceramic-chassis.is-panel .ceramic-key {
+  min-height: 66px;
+  padding: 8px 12px 9px;
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-config-stage .ceramic-chassis.is-panel .ceramic-cross-well {
+  grid-template-rows: repeat(3, minmax(60px, auto));
+  gap: 8px;
+  padding: 10px;
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-config-stage .ceramic-panel-main.density-compact .ceramic-key {
+  min-height: 52px;
+  padding: 6px 10px;
+}
+
+.quick-overlay-config-body.is-prompt-mode
+  .quick-overlay-config-stage
+  .ceramic-chassis.is-mouse
+  .ceramic-key.is-primary-click {
+  min-height: 92px;
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-config-stage .ceramic-chassis.is-mouse .ceramic-cross-well {
+  grid-template-rows: repeat(3, minmax(58px, auto));
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-config-stage .ceramic-chassis.is-matrix .ceramic-key {
+  min-height: 82px;
 }
 
 .quick-overlay-config-stage .quick-overlay-editor-key {
-  justify-content: flex-start;
+  justify-content: space-between;
   text-align: left;
+}
+
+.quick-overlay-config-stage .quick-overlay-editor-key.is-idle {
+  justify-content: flex-start;
+  align-items: center;
 }
 
 .quick-overlay-editor-key.is-idle:not(:disabled) {
@@ -153,6 +226,24 @@
 .quick-overlay-editor-key .ceramic-key-label {
   display: block;
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-overlay-config-body.is-prompt-mode .quick-overlay-editor-key .ceramic-key-label:not(.is-titled) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.quick-overlay-editor-key .ceramic-key-excerpt {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
