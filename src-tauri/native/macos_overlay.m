@@ -152,33 +152,100 @@ static AxonkeyQuickOverlayPanel *quickOverlayPanel;
 static __weak NSWindow *quickOverlaySourceWindow;
 static id quickOverlayGlobalEscapeMonitor;
 static id quickOverlayLocalEscapeMonitor;
+static uint64_t quickOverlayShowSerial = 0;
+static BOOL quickOverlayDemotedRegularPolicy = NO;
+static id quickOverlayAppActiveObserver = nil;
+
+static NSWindowCollectionBehavior axonkey_quick_overlay_collection_behavior(BOOL joinAllSpaces) {
+    NSWindowCollectionBehavior spaceBehavior = joinAllSpaces
+        ? NSWindowCollectionBehaviorCanJoinAllSpaces
+        : NSWindowCollectionBehaviorMoveToActiveSpace;
+    return spaceBehavior
+        | NSWindowCollectionBehaviorCanJoinAllApplications
+        | NSWindowCollectionBehaviorFullScreenAuxiliary
+        | NSWindowCollectionBehaviorFullScreenDisallowsTiling
+        | NSWindowCollectionBehaviorStationary
+        | NSWindowCollectionBehaviorIgnoresCycle;
+}
+
+static AxonkeyQuickOverlayPanel *createQuickOverlayPanelWithFrame(NSRect frame, BOOL joinAllSpaces) {
+    AxonkeyQuickOverlayPanel *panel = [[AxonkeyQuickOverlayPanel alloc]
+        initWithContentRect:frame
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+        backing:NSBackingStoreBuffered
+        defer:NO];
+    panel.title = @"快捷交互窗 · Axonkey";
+    panel.collectionBehavior = axonkey_quick_overlay_collection_behavior(joinAllSpaces);
+    panel.hidesOnDeactivate = NO;
+    panel.floatingPanel = YES;
+    // Set final level AFTER floatingPanel = YES (which resets level to NSFloatingWindowLevel).
+    panel.level = NSScreenSaverWindowLevel;
+    panel.opaque = NO;
+    panel.backgroundColor = NSColor.clearColor;
+    panel.hasShadow = NO;
+    panel.movable = NO;
+    panel.animationBehavior = NSWindowAnimationBehaviorNone;
+    panel.releasedWhenClosed = NO;
+    return panel;
+}
+
+static void attachContentViewToQuickOverlayPanel(AxonkeyQuickOverlayPanel *panel, NSView *webContent) {
+    if (!panel || !webContent) return;
+    NSRect bounds = NSMakeRect(0, 0, NSWidth(panel.frame), NSHeight(panel.frame));
+    webContent.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    webContent.frame = bounds;
+    if (panel.contentView != webContent) {
+        panel.contentView = webContent;
+    }
+    for (NSView *subview in webContent.subviews) {
+        subview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        subview.frame = webContent.bounds;
+    }
+    [webContent setNeedsLayout:YES];
+    [webContent layoutSubtreeIfNeeded];
+    [webContent setNeedsDisplay:YES];
+}
+
+static AxonkeyQuickOverlayPanel *rebuildQuickOverlayPanel(NSRect frame, BOOL joinAllSpaces) {
+    NSView *webContent = quickOverlayPanel ? quickOverlayPanel.contentView : nil;
+    if (quickOverlayPanel) {
+        quickOverlayPanel.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
+        [quickOverlayPanel orderOut:nil];
+    }
+    quickOverlayPanel = createQuickOverlayPanelWithFrame(frame, joinAllSpaces);
+    if (webContent) {
+        attachContentViewToQuickOverlayPanel(quickOverlayPanel, webContent);
+    }
+    return quickOverlayPanel;
+}
+
+static void installQuickOverlayPolicyRestoreObserver(void) {
+    if (quickOverlayAppActiveObserver) return;
+    quickOverlayAppActiveObserver = [NSNotificationCenter.defaultCenter
+        addObserverForName:NSApplicationDidBecomeActiveNotification
+        object:NSApp
+        queue:NSOperationQueue.mainQueue
+        usingBlock:^(__unused NSNotification *note) {
+            if (!quickOverlayDemotedRegularPolicy) return;
+            BOOL hasVisibleMainWindow = NO;
+            for (NSWindow *candidate in NSApp.windows) {
+                if (candidate == quickOverlaySourceWindow) continue;
+                if (![candidate isKindOfClass:NSPanel.class] && candidate.visible) {
+                    hasVisibleMainWindow = YES;
+                    break;
+                }
+            }
+            if (hasVisibleMainWindow) {
+                [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+                quickOverlayDemotedRegularPolicy = NO;
+            }
+        }];
+}
 
 static AxonkeyQuickOverlayPanel *ensureQuickOverlayPanel(NSWindow *tauriWindow, double width, double height) {
     if (!quickOverlayPanel) {
         NSRect initialFrame = NSMakeRect(0, 0, MAX((CGFloat)width, 320.0), MAX((CGFloat)height, 240.0));
-        AxonkeyQuickOverlayPanel *panel = [[AxonkeyQuickOverlayPanel alloc]
-            initWithContentRect:initialFrame
-            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
-            backing:NSBackingStoreBuffered
-            defer:NO];
-        panel.title = @"快捷交互窗 · Axonkey";
-        panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces
-            | NSWindowCollectionBehaviorCanJoinAllApplications
-            | NSWindowCollectionBehaviorFullScreenAuxiliary
-            | NSWindowCollectionBehaviorFullScreenDisallowsTiling
-            | NSWindowCollectionBehaviorStationary
-            | NSWindowCollectionBehaviorIgnoresCycle;
-        panel.hidesOnDeactivate = NO;
-        panel.floatingPanel = YES;
-        // Set final level AFTER floatingPanel = YES (which resets level to NSFloatingWindowLevel).
-        panel.level = NSScreenSaverWindowLevel;
-        panel.opaque = NO;
-        panel.backgroundColor = NSColor.clearColor;
-        panel.hasShadow = NO;
-        panel.movable = NO;
-        panel.animationBehavior = NSWindowAnimationBehaviorNone;
-        panel.releasedWhenClosed = NO;
-        quickOverlayPanel = panel;
+        quickOverlayPanel = createQuickOverlayPanelWithFrame(initialFrame, NO);
     }
 
     if (tauriWindow && quickOverlaySourceWindow != tauriWindow) {
@@ -188,13 +255,7 @@ static AxonkeyQuickOverlayPanel *ensureQuickOverlayPanel(NSWindow *tauriWindow, 
             tauriWindow.alphaValue = 0.0;
             tauriWindow.ignoresMouseEvents = YES;
             tauriWindow.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
-            webContent.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-            webContent.frame = NSMakeRect(0, 0, NSWidth(quickOverlayPanel.frame), NSHeight(quickOverlayPanel.frame));
-            quickOverlayPanel.contentView = webContent;
-            for (NSView *subview in webContent.subviews) {
-                subview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-                subview.frame = webContent.bounds;
-            }
+            attachContentViewToQuickOverlayPanel(quickOverlayPanel, webContent);
         }
         quickOverlaySourceWindow = tauriWindow;
     }
@@ -205,7 +266,7 @@ void axonkey_configure_quick_overlay_window(void *window_ptr, bool (*onEscape)(v
     NSCAssert(NSThread.isMainThread, @"Quick overlay configuration requires AppKit's main thread");
     if (!window_ptr) return;
     NSWindow *tauriWindow = (__bridge NSWindow *)window_ptr;
-    (void)ensureQuickOverlayPanel(tauriWindow, 880.0, 560.0);
+    (void)ensureQuickOverlayPanel(tauriWindow, 880.0, 660.0);
     // The panel cannot become key, so Escape normally goes to the foreground app.
     if (!quickOverlayGlobalEscapeMonitor) {
         quickOverlayGlobalEscapeMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown
@@ -222,12 +283,13 @@ void axonkey_configure_quick_overlay_window(void *window_ptr, bool (*onEscape)(v
     }
 }
 
-unsigned int axonkey_show_quick_overlay_window(void *window_ptr, double width, double height) {
+unsigned int axonkey_show_quick_overlay_window(void *window_ptr, double width, double height, bool force_reorder) {
     NSCAssert(NSThread.isMainThread, @"Quick overlay presentation requires AppKit's main thread");
     if (!window_ptr) return 0;
     NSWindow *tauriWindow = (__bridge NSWindow *)window_ptr;
     AxonkeyQuickOverlayPanel *panel = ensureQuickOverlayPanel(tauriWindow, width, height);
 
+    NSRect targetFrame = panel.frame;
     NSScreen *screen = axonkey_screen_for_mouse();
     if (screen) {
         NSRect screenFrame = screen.frame;
@@ -235,33 +297,78 @@ unsigned int axonkey_show_quick_overlay_window(void *window_ptr, double width, d
         NSRect area = (NSWidth(visible) >= 320.0 && NSHeight(visible) >= 240.0) ? visible : screenFrame;
         CGFloat w = MIN((CGFloat)width, MAX(320.0, NSWidth(area) - 32.0));
         CGFloat h = MIN((CGFloat)height, MAX(240.0, NSHeight(area) - 32.0));
-        NSRect frame = NSMakeRect(
+        targetFrame = NSMakeRect(
             NSMinX(area) + floor((NSWidth(area) - w) * 0.5),
             NSMinY(area) + floor((NSHeight(area) - h) * 0.5 + 12.0),
             w,
             h
         );
-        if (NSMaxX(frame) > NSMaxX(screenFrame) - 8.0) frame.origin.x = NSMaxX(screenFrame) - w - 8.0;
-        if (NSMinX(frame) < NSMinX(screenFrame) + 8.0) frame.origin.x = NSMinX(screenFrame) + 8.0;
-        if (NSMaxY(frame) > NSMaxY(screenFrame) - 8.0) frame.origin.y = NSMaxY(screenFrame) - h - 8.0;
-        if (NSMinY(frame) < NSMinY(screenFrame) + 8.0) frame.origin.y = NSMinY(screenFrame) + 8.0;
-
-        [panel setFrame:frame display:YES];
-        if (panel.contentView) {
-            panel.contentView.frame = NSMakeRect(0, 0, w, h);
-            for (NSView *subview in panel.contentView.subviews) {
-                subview.frame = NSMakeRect(0, 0, w, h);
-            }
-        }
+        if (NSMaxX(targetFrame) > NSMaxX(screenFrame) - 8.0) targetFrame.origin.x = NSMaxX(screenFrame) - w - 8.0;
+        if (NSMinX(targetFrame) < NSMinX(screenFrame) + 8.0) targetFrame.origin.x = NSMinX(screenFrame) + 8.0;
+        if (NSMaxY(targetFrame) > NSMaxY(screenFrame) - 8.0) targetFrame.origin.y = NSMaxY(screenFrame) - h - 8.0;
+        if (NSMinY(targetFrame) < NSMinY(screenFrame) + 8.0) targetFrame.origin.y = NSMinY(screenFrame) + 8.0;
     }
 
+    uint64_t serial = ++quickOverlayShowSerial;
+    if (!force_reorder && panel.visible && panel.onActiveSpace && NSEqualRects(panel.frame, targetFrame)) {
+        [panel.contentView setNeedsDisplay:YES];
+        return (panel.visible ? 1u : 0u)
+            | (panel.onActiveSpace ? 2u : 0u)
+            | (NSApp.activationPolicy == NSApplicationActivationPolicyAccessory ? 8u : 0u);
+    }
+
+    [panel orderOut:nil];
+    panel.collectionBehavior = axonkey_quick_overlay_collection_behavior(NO);
+    panel.hidesOnDeactivate = NO;
+    panel.floatingPanel = YES;
     panel.level = NSScreenSaverWindowLevel;
+    [panel setFrame:targetFrame display:YES];
+    attachContentViewToQuickOverlayPanel(panel, panel.contentView);
     [panel orderFrontRegardless];
-    return (panel.visible ? 1u : 0u) | (panel.onActiveSpace ? 2u : 0u);
+
+    BOOL recovered = NO;
+    if (!panel.onActiveSpace) {
+        [panel orderOut:nil];
+        panel.collectionBehavior = axonkey_quick_overlay_collection_behavior(YES);
+        panel.level = NSScreenSaverWindowLevel;
+        [panel orderFrontRegardless];
+        if (panel.onActiveSpace) recovered = YES;
+    }
+
+    if (!panel.onActiveSpace && NSApp.activationPolicy == NSApplicationActivationPolicyRegular && !NSApp.isActive) {
+        installQuickOverlayPolicyRestoreObserver();
+        quickOverlayDemotedRegularPolicy = YES;
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        panel = rebuildQuickOverlayPanel(targetFrame, NO);
+        [panel orderFrontRegardless];
+        if (panel.onActiveSpace) recovered = YES;
+    }
+
+    if (!panel.onActiveSpace) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            if (quickOverlayShowSerial != serial || !quickOverlayPanel || quickOverlayPanel.onActiveSpace) return;
+            [quickOverlayPanel orderOut:nil];
+            quickOverlayPanel.collectionBehavior = axonkey_quick_overlay_collection_behavior(NO);
+            quickOverlayPanel.level = NSScreenSaverWindowLevel;
+            [quickOverlayPanel orderFrontRegardless];
+            if (!quickOverlayPanel.onActiveSpace) {
+                [quickOverlayPanel orderOut:nil];
+                quickOverlayPanel.collectionBehavior = axonkey_quick_overlay_collection_behavior(YES);
+                quickOverlayPanel.level = NSScreenSaverWindowLevel;
+                [quickOverlayPanel orderFrontRegardless];
+            }
+        });
+    }
+
+    return (panel.visible ? 1u : 0u)
+        | (panel.onActiveSpace ? 2u : 0u)
+        | (recovered ? 4u : 0u)
+        | (NSApp.activationPolicy == NSApplicationActivationPolicyAccessory ? 8u : 0u);
 }
 
 void axonkey_hide_quick_overlay_window(void *window_ptr) {
     NSCAssert(NSThread.isMainThread, @"Quick overlay dismissal requires AppKit's main thread");
+    ++quickOverlayShowSerial;
     if (quickOverlayPanel) {
         [quickOverlayPanel orderOut:nil];
     }
