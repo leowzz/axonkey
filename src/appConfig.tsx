@@ -258,6 +258,7 @@ export function createMappingProfile(
   behaviors: BehaviorMap,
   deviceId: DeviceId,
   quick = false,
+  promptMode = false,
 ): MappingProfile {
   return {
     id: createProfileId(),
@@ -265,6 +266,7 @@ export function createMappingProfile(
     deviceId,
     behaviors: extractDeviceBehaviors(behaviors, deviceId),
     ...(quick ? { quick: true } : {}),
+    ...(quick && promptMode ? { promptMode: true } : {}),
   }
 }
 

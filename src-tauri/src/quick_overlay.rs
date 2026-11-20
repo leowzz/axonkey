@@ -40,6 +40,8 @@ pub struct QuickOverlaySession {
     pub behaviors: serde_json::Value,
     pub pressed: Vec<String>,
     pub preview: bool,
+    #[serde(default)]
+    pub prompt_mode: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub descriptor_svg: Option<String>,
 }
@@ -181,6 +183,7 @@ pub(crate) fn open(
     trigger_input: String,
     behaviors: serde_json::Value,
     preview: bool,
+    prompt_mode: bool,
 ) -> u64 {
     let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
     let session = {
@@ -196,6 +199,7 @@ pub(crate) fn open(
             behaviors,
             pressed: Vec::new(),
             preview,
+            prompt_mode,
             descriptor_svg,
         })
     };
@@ -486,6 +490,7 @@ pub async fn preview_quick_overlay(
     profile_name: String,
     trigger_input: String,
     behaviors: serde_json::Value,
+    prompt_mode: Option<bool>,
 ) -> Result<u64, String> {
     if window.label() != "main" {
         return Err("Preview must be opened from the main window".into());
@@ -499,6 +504,7 @@ pub async fn preview_quick_overlay(
         trigger_input,
         behaviors,
         true,
+        prompt_mode.unwrap_or(false),
     ))
 }
 
@@ -599,6 +605,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            prompt_mode: false,
             descriptor_svg: None,
         });
         let second = state.replace(QuickOverlaySession {
@@ -612,6 +619,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            prompt_mode: true,
             descriptor_svg: None,
         });
         assert!(second.revision > first.revision);

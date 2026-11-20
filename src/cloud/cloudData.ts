@@ -47,6 +47,7 @@ export function createCloudSnapshot(
                 name: profile.name,
                 ...(profile.applicationIds ? { applicationIds: [...profile.applicationIds] } : {}),
                 ...(profile.quick ? { quick: true } : {}),
+                ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
                 behaviors: profile.keys,
               })),
             ...(kind === 'mouse' && backup.applicationProfileSwitching
@@ -204,6 +205,7 @@ export function prepareCloudRestore(
             name: item.name,
             ...(item.applicationIds ? { applicationIds: [...item.applicationIds] } : {}),
             ...(item.quick ? { quick: true } : {}),
+            ...(item.quick && item.promptMode ? { promptMode: true } : {}),
             behaviors: item.keys,
           }))
       : target!.profiles
@@ -285,6 +287,7 @@ export function prepareCloudRestore(
           deviceId: legacyKind,
           ...(restored.applicationIds ? { applicationIds: [...restored.applicationIds] } : {}),
           ...(restored.quick ? { quick: true } : {}),
+          ...(restored.quick && restored.promptMode ? { promptMode: true } : {}),
           keys: restored.behaviors,
         })
     }
@@ -309,6 +312,7 @@ export function prepareCloudRestore(
           target.profiles.unshift({ ...structuredClone(firstNonQuick), id: crypto.randomUUID() })
         } else if (target.profiles[0]) {
           delete target.profiles[0].quick
+          delete target.profiles[0].promptMode
         }
       }
       if (!target.activeProfileId || !target.profiles.some(item => item.id === target.activeProfileId && !item.quick)) {
@@ -396,6 +400,7 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
     )
       return fail()
     if (profile.quick !== undefined && typeof profile.quick !== 'boolean') return fail()
+    if (profile.promptMode !== undefined && typeof profile.promptMode !== 'boolean') return fail()
     if (profile.display !== undefined) {
       if (!profile.display || typeof profile.display !== 'object' || Array.isArray(profile.display)) return fail()
       const pDisplay = profile.display as Record<string, unknown>

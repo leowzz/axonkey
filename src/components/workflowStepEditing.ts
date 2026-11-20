@@ -4,6 +4,7 @@ import {
   defaultCursorDistance,
   maxCursorDistance,
   normalizeApplicationPath,
+  normalizeBehaviorTitle,
   normalizeFilePath,
   normalizeWebsiteUrl,
   triggerTypes,
@@ -103,12 +104,16 @@ export function workflowStepBehavior(step: Step): Behavior | null {
         type: 'delay',
         ms: typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= 300000 ? ms : defaultWorkflowDelayMs,
       }
-    case 'typeText':
-      return { ...base, type: 'typeText', text: typeof text === 'string' ? text : '' }
+    case 'typeText': {
+      const title = normalizeBehaviorTitle(step.properties.title)
+      return { ...base, type: 'typeText', text: typeof text === 'string' ? text : '', ...(title ? { title } : {}) }
+    }
     case 'openPath':
       return { ...base, type: 'openPath', path: typeof path === 'string' ? path : '' }
-    case 'paste':
-      return { ...base, type: 'paste', text: typeof text === 'string' ? text : '' }
+    case 'paste': {
+      const title = normalizeBehaviorTitle(step.properties.title)
+      return { ...base, type: 'paste', text: typeof text === 'string' ? text : '', ...(title ? { title } : {}) }
+    }
     case 'openApp':
       return { ...base, type: 'openApp', path: typeof path === 'string' ? path : '' }
     case 'openWebsite':
@@ -168,7 +173,10 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
     step.type === behavior.type &&
     behavior.text.trim()
   ) {
-    return { ...properties, text: behavior.text }
+    const title = normalizeBehaviorTitle(behavior.title)
+    const rest: Record<string, unknown> = { ...properties }
+    delete rest.title
+    return { ...rest, text: behavior.text, ...(title ? { title } : {}) }
   }
   if (step.type === 'switchProfile' && behavior.type === 'switchProfile') {
     return { ...properties, direction: behavior.direction, wrap: behavior.wrap }

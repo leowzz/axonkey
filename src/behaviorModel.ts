@@ -60,9 +60,10 @@ export type ShortcutBehavior = BehaviorBase & {
 export type PasteBehavior = BehaviorBase & {
   type: 'paste'
   text: string
+  title?: string
 }
 
-export type TypeTextBehavior = BehaviorBase & { type: 'typeText'; text: string }
+export type TypeTextBehavior = BehaviorBase & { type: 'typeText'; text: string; title?: string }
 export type OpenPathBehavior = BehaviorBase & { type: 'openPath'; path: string }
 
 export type DelayBehavior = BehaviorBase & {
@@ -128,9 +129,9 @@ export type CreateBehaviorOptions = { libraryItemId?: string } & (
   | { type: 'cursorMove'; direction: CursorDirection; distance?: number; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
-  | { type: 'typeText'; text?: string; enabled?: boolean; id?: string }
+  | { type: 'typeText'; text?: string; title?: string; enabled?: boolean; id?: string }
   | { type: 'openPath'; path?: string; enabled?: boolean; id?: string }
-  | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
+  | { type: 'paste'; text?: string; title?: string; enabled?: boolean; id?: string }
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
@@ -144,13 +145,29 @@ const maxDelayMs = 300_000
 export const newBehaviorMinAppVersion = '1.8.11'
 export const quickOverlayMinAppVersion = '1.9.11'
 export function minAppVersionForBehaviors(behaviors: readonly Behavior[]): string | undefined {
-  if (behaviors.some(behavior => behavior.type === 'quickOverlay')) return quickOverlayMinAppVersion
+  if (
+    behaviors.some(
+      behavior =>
+        behavior.type === 'quickOverlay' ||
+        ((behavior.type === 'paste' || behavior.type === 'typeText') && Boolean(behavior.title)),
+    )
+  )
+    return quickOverlayMinAppVersion
   if (behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath'))
     return newBehaviorMinAppVersion
   return undefined
 }
 export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): boolean {
   return Boolean(minAppVersionForBehaviors(behaviors))
+}
+
+export function normalizeBehaviorTitle(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const clean = value
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, 40)
+  return clean || undefined
 }
 
 export function normalizeProfileReferenceId(value: unknown): string | null {
@@ -255,8 +272,15 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { ...base, type: 'shortcut', keys: keys.length > 0 ? keys : ['Ctrl', 'C'] }
     }
     case 'typeText':
-    case 'paste':
-      return { ...base, type: options.type, text: typeof options.text === 'string' ? options.text : '' }
+    case 'paste': {
+      const title = normalizeBehaviorTitle(options.title)
+      return {
+        ...base,
+        type: options.type,
+        text: typeof options.text === 'string' ? options.text : '',
+        ...(title ? { title } : {}),
+      }
+    }
     case 'delay':
       return { ...base, type: 'delay', ms: finiteDelay(options.ms) }
     case 'openPath':
@@ -371,8 +395,12 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return keys.length > 0 ? { ...base, type, keys } : null
     }
     case 'typeText':
-    case 'paste':
-      return typeof value.text === 'string' ? { ...base, type, text: value.text } : null
+    case 'paste': {
+      if (typeof value.text !== 'string') return null
+      if (value.title !== undefined && typeof value.title !== 'string') return null
+      const title = normalizeBehaviorTitle(value.title)
+      return { ...base, type, text: value.text, ...(title ? { title } : {}) }
+    }
     case 'delay':
       return { ...base, type, ms: finiteDelay(value.ms) }
     case 'openPath': {
@@ -623,13 +651,17 @@ export function serializeSequence(behaviors: Behavior[]): string {
           line = `wait ${behavior.ms}ms`
           break
         case 'typeText':
-          line = `type ${JSON.stringify(behavior.text)}`
+          line = behavior.title
+            ? `type ${JSON.stringify(behavior.text)} ${JSON.stringify(behavior.title)}`
+            : `type ${JSON.stringify(behavior.text)}`
           break
         case 'openPath':
           line = `path ${sequenceArgument(behavior.path)}`
           break
         case 'paste':
-          line = `text ${JSON.stringify(behavior.text)}`
+          line = behavior.title
+            ? `text ${JSON.stringify(behavior.text)} ${JSON.stringify(behavior.title)}`
+            : `text ${JSON.stringify(behavior.text)}`
           break
         case 'wheel':
           line = `wheel ${behavior.direction}`
@@ -705,9 +737,12 @@ function parseSequenceText(text: string): unknown[] | null {
       const ms = Number(args[0].replace(/ms$/, ''))
       if (ms > maxDelayMs) return null
       behavior = { type: 'delay', ms }
-    } else if (command === 'text' && args.length === 1) behavior = { type: 'paste', text: args[0] }
-    else if (command === 'type' && args.length === 1) behavior = { type: 'typeText', text: args[0] }
-    else if (command === 'path' && args.length === 1) behavior = { type: 'openPath', path: args[0] }
+    } else if (command === 'text' && (args.length === 1 || args.length === 2)) {
+      behavior = args.length === 2 ? { type: 'paste', text: args[0], title: args[1] } : { type: 'paste', text: args[0] }
+    } else if (command === 'type' && (args.length === 1 || args.length === 2)) {
+      behavior =
+        args.length === 2 ? { type: 'typeText', text: args[0], title: args[1] } : { type: 'typeText', text: args[0] }
+    } else if (command === 'path' && args.length === 1) behavior = { type: 'openPath', path: args[0] }
     else if (command === 'wheel' && args.length === 1) behavior = { type: 'wheel', direction: args[0] }
     else if (command === 'mouse' && args.length === 1) behavior = { type: 'mouse', button: args[0] }
     else if (command === 'move' && args.length === 2 && /^\d+$/.test(args[1])) {

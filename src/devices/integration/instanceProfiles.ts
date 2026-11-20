@@ -246,6 +246,7 @@ export function addQuickInstanceProfile(
           name,
           behaviors,
           quick: true,
+          ...(source?.promptMode ? { promptMode: true } : {}),
           ...(source?.display ? { display: structuredClone(source.display) } : {}),
         },
       ],

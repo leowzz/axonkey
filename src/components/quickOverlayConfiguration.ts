@@ -1,6 +1,6 @@
 import type { StepDefinition } from 'sequential-workflow-designer'
 import type { Platform } from '../appTypes.ts'
-import { createBehavior } from '../behaviorModel.ts'
+import { createBehavior, normalizeBehaviorTitle } from '../behaviorModel.ts'
 import type { Behavior, TriggerBehaviors } from '../behaviorModel.ts'
 import { behaviorSummary } from '../behaviorSummary.ts'
 import { savedSequenceBehaviors } from '../savedSequences.ts'
@@ -66,4 +66,66 @@ export function moveQuickOverlayStep(sequence: Behavior[], stepId: string, targe
   const [step] = next.splice(index, 1)
   next.splice(targetIndex > index ? targetIndex - 1 : targetIndex, 0, step)
   return next
+}
+
+export type QuickPromptDraft = {
+  title: string
+  content: string
+  method: 'paste' | 'typeText'
+  autoEnter: boolean
+}
+
+export type QuickPromptInspection =
+  { kind: 'empty' } | { kind: 'prompt'; prompt: QuickPromptDraft } | { kind: 'other'; summary: string }
+
+const isPromptEnterKey = (step: Behavior) => step.type === 'key' && (step.key === 'Enter' || step.key === 'Return')
+
+export function extractQuickPrompt(sequence: Behavior[], platform: Platform): QuickPromptInspection {
+  if (sequence.length === 0) return { kind: 'empty' }
+  if (sequence.every(step => step.enabled !== false)) {
+    const first = sequence[0]
+    if (first.type === 'paste' || first.type === 'typeText') {
+      if (sequence.length === 1) {
+        return {
+          kind: 'prompt',
+          prompt: { title: first.title ?? '', content: first.text, method: first.type, autoEnter: false },
+        }
+      }
+      if (
+        (sequence.length === 2 && isPromptEnterKey(sequence[1])) ||
+        (sequence.length === 3 && sequence[1].type === 'delay' && isPromptEnterKey(sequence[2]))
+      ) {
+        return {
+          kind: 'prompt',
+          prompt: { title: first.title ?? '', content: first.text, method: first.type, autoEnter: true },
+        }
+      }
+    }
+  }
+  return {
+    kind: 'other',
+    summary: sequence.map(step => behaviorSummary(step, platform)).join(' → '),
+  }
+}
+
+export function buildQuickPromptSequence(draft: QuickPromptDraft, existing?: Behavior[]): Behavior[] {
+  const title = normalizeBehaviorTitle(draft.title)
+  if (!title && !draft.content) return []
+  const firstId =
+    existing?.[0] && (existing[0].type === 'paste' || existing[0].type === 'typeText') ? existing[0].id : undefined
+  const delayId = existing?.[1]?.type === 'delay' ? existing[1].id : undefined
+  const enterCandidate =
+    existing?.[1]?.type === 'key' ? existing[1] : existing?.[2]?.type === 'key' ? existing[2] : undefined
+  const primary = createBehavior({
+    id: firstId,
+    type: draft.method,
+    text: draft.content,
+    title,
+  })
+  if (!draft.autoEnter) return [primary]
+  return [
+    primary,
+    createBehavior({ id: delayId, type: 'delay', ms: 30 }),
+    createBehavior({ id: enterCandidate?.id, type: 'key', key: 'Enter' }),
+  ]
 }
