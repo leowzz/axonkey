@@ -75,6 +75,7 @@ mod tests {
             id: "browser".into(),
             name: "浏览器".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({"xbox.a": {"click": [{"type": "key", "key": "A"}]}}),
             display: None,
         });

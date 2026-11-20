@@ -79,6 +79,7 @@ pub(crate) struct QuickProfileConfig {
     pub name: String,
     pub device_id: Option<String>,
     pub device_name: Option<String>,
+    pub prompt_mode: bool,
     pub behaviors: HashMap<String, TriggerBehaviors>,
     pub raw_behaviors: serde_json::Value,
 }
@@ -299,6 +300,8 @@ struct RawQuickProfile {
     #[serde(default)]
     device_name: Option<String>,
     #[serde(default)]
+    prompt_mode: bool,
+    #[serde(default)]
     behaviors: serde_json::Value,
 }
 
@@ -343,6 +346,7 @@ where
                 name: entry.name,
                 device_id: entry.device_id,
                 device_name: entry.device_name,
+                prompt_mode: entry.prompt_mode,
                 behaviors,
                 raw_behaviors,
             },
@@ -857,5 +861,41 @@ mod settings_tests {
             super::cursor_delta(super::WheelDirection::Right, 501),
             (500, 0)
         );
+    }
+
+    #[test]
+    fn quick_profiles_parse_prompt_mode_and_titled_text_behaviors() {
+        let off: NativeSettings = serde_json::from_str(
+            r#"{
+                "quickProfiles": {
+                    "q1": {
+                        "id": "q1",
+                        "name": "Prompt",
+                        "behaviors": {
+                            "up": { "click": [{ "type": "paste", "text": "hello", "title": "打招呼" }] }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(!off.quick_profiles["q1"].prompt_mode);
+        let on: NativeSettings = serde_json::from_str(
+            r#"{
+                "quickProfiles": {
+                    "q1": {
+                        "id": "q1",
+                        "name": "Prompt",
+                        "promptMode": true,
+                        "behaviors": {
+                            "up": { "click": [{ "type": "paste", "text": "hello", "title": "打招呼" }] }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(on.quick_profiles["q1"].prompt_mode);
+        assert!(off.remote_settings_changed(&on));
     }
 }

@@ -49,6 +49,7 @@ export type InstanceProfile = {
   behaviors: Record<string, TriggerBehaviors>
   display?: ProfileDisplayConfig
   quick?: boolean
+  promptMode?: boolean
 }
 export type DeviceInstance = {
   id: string

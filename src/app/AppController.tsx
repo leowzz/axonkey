@@ -339,6 +339,7 @@ function AppController({
         name: profile.name,
         deviceId: profile.deviceId,
         deviceName: profile.deviceId === 'mouse' ? '系统鼠标' : (device?.name ?? profile.deviceId),
+        promptMode: Boolean(profile.quick && profile.promptMode),
         behaviors: scoped,
       }
     })
@@ -771,11 +772,24 @@ function AppController({
       behaviors,
       selectedDeviceId,
       current.quick,
+      Boolean(current.quick && current.promptMode),
     )
     activateNewProfile(next)
     setAutoSaveState('saving')
     setToast(`已复制为“${next.name}”`)
     window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const toggleQuickMappingPromptMode = (promptMode: boolean) => {
+    const nextProfiles = profiles.map(profile => {
+      if (profile.id !== activeProfileId || !profile.quick) return profile
+      if (promptMode) return { ...profile, promptMode: true }
+      const { promptMode: _removed, ...rest } = profile
+      return rest
+    })
+    profileStateRef.current = { ...profileStateRef.current, profiles: nextProfiles }
+    setProfiles(nextProfiles)
+    setAutoSaveState('saving')
   }
 
   const renameMappingProfile = (name: string) => {
@@ -2662,6 +2676,7 @@ function AppController({
       profileName: target.name,
       triggerInput,
       behaviors: scoped,
+      promptMode: Boolean(target.quick && target.promptMode),
     }).catch(() => {
       setToast('无法打开快捷交互窗预览')
       window.setTimeout(() => setToast(''), 2000)
@@ -2676,6 +2691,7 @@ function AppController({
         id: item.id,
         name: item.name,
         quick: item.quick,
+        promptMode: item.promptMode,
         configuredCount: countDeviceConfiguredInputs(item.behaviors, selectedDeviceId, item.quick),
       })),
     onCreateQuickProfile: name => createQuickMappingProfileInline(name),
@@ -2855,11 +2871,13 @@ function AppController({
                 deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
                 profileId={activeMappingProfile.id}
                 profileName={activeMappingProfile.name}
+                promptMode={Boolean(activeMappingProfile.promptMode)}
                 triggerInput={findDeviceQuickTrigger(activeMappingProfile.id) ?? undefined}
                 inputs={isMouse ? mouseInputs : editableButtons}
                 behaviors={behaviors}
                 platform={platform}
                 onChange={updateWorkflow}
+                onTogglePromptMode={toggleQuickMappingPromptMode}
                 onRename={renameMappingProfile}
                 onDuplicate={duplicateMappingProfile}
                 onDelete={deleteMappingProfile}

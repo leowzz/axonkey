@@ -633,6 +633,7 @@ export type QuickOverlayProfileOption = {
   id: string
   name: string
   quick?: boolean
+  promptMode?: boolean
   configuredCount: number
 }
 
@@ -783,7 +784,7 @@ function QuickOverlayEditorFields({
                     <optgroup label="快捷交互配置">
                       {quickCandidates.map(item => (
                         <option key={item.id} value={item.id}>
-                          {item.name}（已配 {item.configuredCount} 键）
+                          {item.name}（{item.promptMode ? 'Prompt · ' : ''}已配 {item.configuredCount} 键）
                         </option>
                       ))}
                     </optgroup>
@@ -1495,30 +1496,49 @@ export function BehaviorEditDialog({
               )}
             </div>
           ) : behavior.type === 'paste' || behavior.type === 'typeText' ? (
-            <div className="behavior-dialog-field">
-              <div className="behavior-launch-label">
-                <label htmlFor={`${titleId}-behavior-paste-text`}>文本内容</label>
-                <SettingsHelp id={`${titleId}-behavior-text-help`} label="文本输入方式">
-                  {behavior.type === 'typeText'
-                    ? '通过系统模拟输入文字，不读取或修改剪贴板；目标应用须支持系统文字输入。'
-                    : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
-                </SettingsHelp>
+            <>
+              <div className="behavior-dialog-field">
+                <label htmlFor={`${titleId}-behavior-paste-title`}>显示标题</label>
+                <input
+                  id={`${titleId}-behavior-paste-title`}
+                  className="behavior-launch-input"
+                  value={behavior.title ?? ''}
+                  maxLength={40}
+                  placeholder="可选，用于在快捷交互窗展示"
+                  onChange={event =>
+                    onUpdate(current => {
+                      if (current.type !== 'paste' && current.type !== 'typeText') return current
+                      const title = event.target.value
+                      return title ? { ...current, title } : { ...current, title: undefined }
+                    })
+                  }
+                />
               </div>
-              <textarea
-                id={`${titleId}-behavior-paste-text`}
-                className="behavior-paste-input"
-                autoFocus={draft}
-                value={behavior.text}
-                placeholder="输入要发送的文本"
-                onChange={event =>
-                  onUpdate(current =>
-                    current.type === 'paste' || current.type === 'typeText'
-                      ? { ...current, text: event.target.value }
-                      : current,
-                  )
-                }
-              />
-            </div>
+              <div className="behavior-dialog-field">
+                <div className="behavior-launch-label">
+                  <label htmlFor={`${titleId}-behavior-paste-text`}>文本内容</label>
+                  <SettingsHelp id={`${titleId}-behavior-text-help`} label="文本输入方式">
+                    {behavior.type === 'typeText'
+                      ? '通过系统模拟输入文字，不读取或修改剪贴板；目标应用须支持系统文字输入。'
+                      : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
+                  </SettingsHelp>
+                </div>
+                <textarea
+                  id={`${titleId}-behavior-paste-text`}
+                  className="behavior-paste-input"
+                  autoFocus={draft}
+                  value={behavior.text}
+                  placeholder="输入要发送的文本"
+                  onChange={event =>
+                    onUpdate(current =>
+                      current.type === 'paste' || current.type === 'typeText'
+                        ? { ...current, text: event.target.value }
+                        : current,
+                    )
+                  }
+                />
+              </div>
+            </>
           ) : behavior.type === 'delay' ? (
             <div className="behavior-dialog-field">
               <label htmlFor={`${titleId}-behavior-delay-ms`}>等待时间</label>

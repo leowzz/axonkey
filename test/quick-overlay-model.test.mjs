@@ -381,3 +381,155 @@ test('CLI supports quick profile creation, blocks activating quick profiles, and
   assert.equal(createdMouse.profile.quick, true)
   assert.equal(mouseState.globalProfileId, 'm1')
 })
+
+test('paste and typeText titles normalize and round-trip across storage, sequence transfers, CLI, backup, and cloud restore', () => {
+  const pasteTitled = normalizeBehavior({
+    id: 'p-title',
+    type: 'paste',
+    text: '请总结这段变更的核心风险',
+    title: '  代码风险\n审查  ',
+  })
+  assert.deepEqual(pasteTitled, {
+    id: 'p-title',
+    enabled: true,
+    type: 'paste',
+    text: '请总结这段变更的核心风险',
+    title: '代码风险审查',
+  })
+  assert.equal(behaviorSummary(pasteTitled, 'macos'), '粘贴：代码风险审查')
+  assert.equal(normalizeBehavior({ type: 'paste', text: 'abc', title: 123 }), null)
+  assert.deepEqual(normalizeBehavior({ id: 'p-empty', type: 'typeText', text: 'hello', title: '   ' }), {
+    id: 'p-empty',
+    enabled: true,
+    type: 'typeText',
+    text: 'hello',
+  })
+
+  const typedTitled = createBehavior({ id: 't-title', type: 'typeText', text: 'git diff --stat', title: '变更概览' })
+  assert.equal(behaviorSummary(typedTitled, 'windows'), '输入：变更概览')
+  const seqText = serializeSequence([pasteTitled, typedTitled])
+  assert.match(seqText, /^axonkey\/2\n/)
+  const parsedSeq = parseSequenceImport(seqText)
+  assert.equal(parsedSeq.length, 2)
+  assert.equal(parsedSeq[0].title, '代码风险审查')
+  assert.equal(parsedSeq[1].title, '变更概览')
+
+  const cliNorm = normalizeCliBehavior({ type: 'paste', text: '翻译成英文', title: '英译' }, 'macos')
+  assert.deepEqual(cliNorm, { type: 'paste', text: '翻译成英文', title: '英译', enabled: true })
+  assert.deepEqual(behaviorToCliBehavior(pasteTitled, 'macos'), {
+    enabled: true,
+    type: 'paste',
+    text: '请总结这段变更的核心风险',
+    title: '代码风险审查',
+  })
+
+  const data = sampleData()
+  const quickBehaviors = createEmptyBehaviorMap()
+  quickBehaviors.up.click = [pasteTitled]
+  data.profiles.push({
+    id: 'rc003:prompt-only',
+    name: '纯 Prompt 面板',
+    deviceId: 'rc003',
+    quick: true,
+    promptMode: true,
+    behaviors: quickBehaviors,
+  })
+  const backup = createDataBackup(data, '1.9.16')
+  const parsedBackup = parseDataBackup(JSON.stringify(backup))
+  const restoredQuick = parsedBackup.profiles.find(p => p.id === 'rc003:prompt-only')
+  assert.equal(restoredQuick.promptMode, true)
+  assert.equal(restoredQuick.behaviors.up.click[0].title, '代码风险审查')
+
+  // Regular profile ignores stray promptMode flags
+  const parsedProfiles = parseStoredDeviceProfiles(
+    {
+      version: 2,
+      activeProfileIds: { rc003: 'r1', cmiotA15: 'a1', mouse: 'm1' },
+      profiles: [
+        { id: 'r1', name: '默认', deviceId: 'rc003', promptMode: true, behaviors: createEmptyBehaviorMap() },
+        { id: 'rq', name: 'Prompt', deviceId: 'rc003', quick: true, promptMode: true, behaviors: quickBehaviors },
+        { id: 'a1', name: '默认', deviceId: 'cmiotA15', behaviors: createEmptyBehaviorMap() },
+        { id: 'm1', name: '鼠标', deviceId: 'mouse', behaviors: createEmptyBehaviorMap() },
+      ],
+    },
+    createEmptyBehaviorMap(),
+  )
+  assert.equal(parsedProfiles.profiles.find(p => p.id === 'r1').promptMode, undefined)
+  assert.equal(parsedProfiles.profiles.find(p => p.id === 'rq').promptMode, true)
+})
+
+test('cloud snapshot, restore, and CLI preserve promptMode on quick profiles', async () => {
+  const base = {
+    id: 'dev-prompt',
+    kind: 'rc003',
+    name: '遥控器',
+    binding: null,
+    enabled: true,
+    activeProfileId: 'main',
+    profiles: [{ id: 'main', name: '默认配置', behaviors: {} }],
+  }
+  const { instance, profileId } = addQuickInstanceProfile(base, 'Prompt 集')
+  instance.profiles.find(p => p.id === profileId).promptMode = true
+  instance.profiles.find(p => p.id === profileId).behaviors = {
+    up: {
+      click: [createBehavior({ id: 'p1', type: 'paste', text: '总结要点', title: '总结' })],
+      doubleClick: [],
+      longPress: [],
+    },
+  }
+  const { instance: duplicated, profileId: dupId } = addQuickInstanceProfile(instance, 'Prompt 副本', profileId)
+  assert.equal(duplicated.profiles.find(p => p.id === dupId).promptMode, true)
+
+  const snapshot = createCloudSnapshot(createDataBackup(sampleData(), '1.9.16'), [instance])
+  const doc = snapshot.documents.find(d => d.key === 'dev-prompt')
+  assert.equal(doc.config.profiles.find(p => p.id === profileId).promptMode, true)
+
+  const prevStorage = globalThis.localStorage
+  globalThis.localStorage = { getItem: () => null }
+  try {
+    const restored = prepareCloudRestore(
+      {
+        models: [{ id: 'm-rc003', code: 'rc003' }],
+        documents: [{ id: 'doc-p', model_id: 'm-rc003', instance_key: 'dev-prompt', revision: 1, config: doc.config }],
+        settings: null,
+      },
+      createDataBackup(sampleData(), '1.9.16'),
+      [],
+      { devices: [{ documentId: 'doc-p', profileIds: ['main', profileId], targetId: 'new:dev-restored' }], settings: false, savedBehaviors: false },
+    )
+    const restoredQuick = restored.instances[0].profiles.find(p => p.name === 'Prompt 集')
+    assert.equal(restoredQuick.promptMode, true)
+    assert.equal(restoredQuick.behaviors.up.click[0].title, '总结')
+  } finally {
+    globalThis.localStorage = prevStorage
+  }
+
+  let snap = { store: { version: 1, revision: 1, instances: [base] }, discovered: [], runtime: {}, error: null, scanError: null, scanning: false }
+  const update = async (id, change) => {
+    snap = {
+      ...snap,
+      store: {
+        ...snap.store,
+        revision: snap.store.revision + 1,
+        instances: snap.store.instances.map(item => (item.id === id ? change(item) : item)),
+      },
+    }
+    return snap
+  }
+  const created = await processInstanceCliRequest(
+    'profile.create',
+    { device: 'rc003', name: 'CLI Prompt', quick: true, promptMode: true },
+    { platform: 'macos', snapshot: snap, update },
+  )
+  assert.equal(created.profile.quick, true)
+  assert.equal(created.profile.promptMode, true)
+  await assert.rejects(
+    () =>
+      processInstanceCliRequest(
+        'profile.create',
+        { device: 'rc003', name: 'Invalid', promptMode: true },
+        { platform: 'macos', snapshot: snap, update },
+      ),
+    /纯 Prompt 模式/,
+  )
+})

@@ -16,7 +16,7 @@ mod windows_escape;
 const LABEL: &str = "quick-overlay";
 const EVENT: &str = "axonkey-quick-overlay";
 const WIDTH: f64 = 880.0;
-const HEIGHT: f64 = 620.0;
+const HEIGHT: f64 = 660.0;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -40,6 +40,8 @@ pub struct QuickOverlaySession {
     pub behaviors: serde_json::Value,
     pub pressed: Vec<String>,
     pub preview: bool,
+    #[serde(default)]
+    pub prompt_mode: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub descriptor_svg: Option<String>,
 }
@@ -181,6 +183,7 @@ pub(crate) fn open(
     trigger_input: String,
     behaviors: serde_json::Value,
     preview: bool,
+    prompt_mode: bool,
 ) -> u64 {
     let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
     let session = {
@@ -196,6 +199,7 @@ pub(crate) fn open(
             behaviors,
             pressed: Vec::new(),
             preview,
+            prompt_mode,
             descriptor_svg,
         })
     };
@@ -228,7 +232,7 @@ pub(crate) fn open(
             let _ = handle.emit_to(LABEL, EVENT, Some(payload));
             // Present immediately on the cursor's screen so macOS WebKit never throttles
             // a hidden/off-Space WebView before `reveal_quick_overlay` can fire.
-            present_window_on_cursor_monitor(&window);
+            present_window_on_cursor_monitor(&window, true);
         });
     }
     revision
@@ -324,7 +328,7 @@ fn hide_window_if_idle() {
     });
 }
 
-fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow) {
+fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder: bool) {
     #[cfg(target_os = "macos")]
     {
         if let Ok(ns_win) = window.ns_window() {
@@ -333,14 +337,18 @@ fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow) {
                     window_ptr: *mut std::ffi::c_void,
                     width: f64,
                     height: f64,
+                    force_reorder: bool,
                 ) -> u32;
             }
-            let status = unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT) };
+            let status =
+                unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT, force_reorder) };
             log::info!(
                 target: "axonkey::quick_overlay",
-                "macOS quick overlay shown: visible={} active_space={}",
+                "macOS quick overlay shown: visible={} active_space={} recovered={} accessory={}",
                 status & 1 != 0,
-                status & 2 != 0
+                status & 2 != 0,
+                status & 4 != 0,
+                status & 8 != 0,
             );
         }
     }
@@ -427,7 +435,7 @@ fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), 
     window
         .app_handle()
         .run_on_main_thread(move || {
-            present_window_on_cursor_monitor(&win);
+            present_window_on_cursor_monitor(&win, false);
         })
         .map_err(|e| e.to_string())
 }
@@ -482,6 +490,7 @@ pub async fn preview_quick_overlay(
     profile_name: String,
     trigger_input: String,
     behaviors: serde_json::Value,
+    prompt_mode: Option<bool>,
 ) -> Result<u64, String> {
     if window.label() != "main" {
         return Err("Preview must be opened from the main window".into());
@@ -495,6 +504,7 @@ pub async fn preview_quick_overlay(
         trigger_input,
         behaviors,
         true,
+        prompt_mode.unwrap_or(false),
     ))
 }
 
@@ -595,6 +605,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            prompt_mode: false,
             descriptor_svg: None,
         });
         let second = state.replace(QuickOverlaySession {
@@ -608,6 +619,7 @@ mod tests {
             behaviors: serde_json::json!({}),
             pressed: vec![],
             preview: false,
+            prompt_mode: true,
             descriptor_svg: None,
         });
         assert!(second.revision > first.revision);

@@ -18,6 +18,8 @@ import { behaviorSummary } from '../src/behaviorSummary.ts'
 import { createBehavior } from '../src/behaviorModel.ts'
 import { createSavedSequence } from '../src/savedSequences.ts'
 import {
+  buildQuickPromptSequence,
+  extractQuickPrompt,
   insertQuickOverlaySteps,
   moveQuickOverlayStep,
   quickOverlayAllowsToolboxStep,
@@ -154,4 +156,56 @@ test('quick configuration commits valid action defaults without requiring an edi
     assert.equal(needsEdit, false, `${platform}: ${type}`)
     assert.deepEqual(additions, [{ id: type, enabled: true, ...value }])
   }
+})
+
+test('extractQuickPrompt and buildQuickPromptSequence round-trip prompts while detecting non-prompt sequences', () => {
+  assert.deepEqual(extractQuickPrompt([], 'macos'), { kind: 'empty' })
+
+  const pasteOnly = [createBehavior({ id: 'p1', type: 'paste', text: '解释以下代码', title: '代码解释' })]
+  assert.deepEqual(extractQuickPrompt(pasteOnly, 'macos'), {
+    kind: 'prompt',
+    prompt: { title: '代码解释', content: '解释以下代码', method: 'paste', autoEnter: false },
+  })
+
+  const typeAndEnter = [
+    createBehavior({ id: 't1', type: 'typeText', text: 'npm test', title: '跑测试' }),
+    createBehavior({ id: 'd1', type: 'delay', ms: 30 }),
+    createBehavior({ id: 'e1', type: 'key', key: 'Enter' }),
+  ]
+  assert.deepEqual(extractQuickPrompt(typeAndEnter, 'macos'), {
+    kind: 'prompt',
+    prompt: { title: '跑测试', content: 'npm test', method: 'typeText', autoEnter: true },
+  })
+
+  const directEnter = [
+    createBehavior({ id: 'p2', type: 'paste', text: 'ok' }),
+    createBehavior({ id: 'e2', type: 'key', key: 'Return' }),
+  ]
+  assert.deepEqual(extractQuickPrompt(directEnter, 'macos'), {
+    kind: 'prompt',
+    prompt: { title: '', content: 'ok', method: 'paste', autoEnter: true },
+  })
+
+  const nonPrompt = [
+    createBehavior({ id: 's1', type: 'shortcut', keys: ['Ctrl', 'C'] }),
+    createBehavior({ id: 'p3', type: 'paste', text: 'summary' }),
+  ]
+  const inspectedOther = extractQuickPrompt(nonPrompt, 'windows')
+  assert.equal(inspectedOther.kind, 'other')
+  assert.match(inspectedOther.summary, /Ctrl \+ C/)
+
+  assert.deepEqual(
+    buildQuickPromptSequence({ title: '   ', content: '', method: 'paste', autoEnter: true }, pasteOnly),
+    [],
+  )
+
+  const built = buildQuickPromptSequence(
+    { title: '  新标题  ', content: '生成测试用例', method: 'typeText', autoEnter: true },
+    typeAndEnter,
+  )
+  assert.equal(built.length, 3)
+  assert.equal(built[0].id, 't1')
+  assert.equal(built[0].title, '新标题')
+  assert.equal(built[1].id, 'd1')
+  assert.equal(built[2].id, 'e1')
 })

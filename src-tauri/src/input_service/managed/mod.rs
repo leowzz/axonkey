@@ -132,6 +132,8 @@ pub struct Profile {
     pub name: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub quick: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub prompt_mode: bool,
     pub behaviors: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display: Option<ProfileDisplayConfig>,
@@ -1592,6 +1594,7 @@ fn instance_quick_profiles(instance: &Instance) -> HashMap<String, super::QuickP
                 name: profile.name.clone(),
                 device_id: Some(instance.kind.clone()),
                 device_name: Some(instance.name.clone()),
+                prompt_mode: profile.quick && profile.prompt_mode,
                 behaviors,
                 raw_behaviors,
             },
@@ -3021,6 +3024,7 @@ mod tests {
                 id: "default".into(),
                 name: "默认".into(),
                 quick: false,
+                prompt_mode: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             }],
@@ -4229,6 +4233,7 @@ mod tests {
             id: "game".into(),
             name: "游戏".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -4279,6 +4284,7 @@ mod tests {
                 id: "browser".into(),
                 name: "浏览器".into(),
                 quick: false,
+                prompt_mode: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             },
@@ -4286,6 +4292,7 @@ mod tests {
                 id: "editor".into(),
                 name: "编辑器".into(),
                 quick: false,
+                prompt_mode: false,
                 behaviors: serde_json::json!({}),
                 display: None,
             },
@@ -4707,6 +4714,7 @@ mod tests {
             id: "term".into(),
             name: "悬浮终端".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -4867,6 +4875,7 @@ mod tests {
             id: "code".into(),
             name: "编程配置".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({}),
             display: Some(ProfileDisplayConfig {
                 mode: ProfileDisplayMode::Custom,
@@ -4925,6 +4934,7 @@ mod tests {
             id: "alt".into(),
             name: "备用".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({}),
             display: None,
         });
@@ -5453,6 +5463,7 @@ mod tests {
             id: "quick-ai".into(),
             name: "AI 提示词".into(),
             quick: true,
+            prompt_mode: false,
             behaviors: serde_json::json!({
                 "kivo.k18Lite.k02": { "click": [{ "type": "paste", "text": "帮我检查这段代码的边界条件" }] }
             }),
@@ -5462,6 +5473,7 @@ mod tests {
             id: "work".into(),
             name: "日常办公".into(),
             quick: false,
+            prompt_mode: false,
             behaviors: serde_json::json!({}),
             display: None,
         });

@@ -145,11 +145,19 @@ export function behaviorSummary(
       return preset?.name ?? (behavior.keys.map(key => keyDisplayName(key, platform)).join(' + ') || '未录入')
     }
     case 'typeText':
-      return behavior.text ? `输入：${behavior.text.slice(0, 12)}` : '模拟输入文字'
+      return behavior.title
+        ? `输入：${behavior.title}`
+        : behavior.text
+          ? `输入：${behavior.text.slice(0, 12)}`
+          : '模拟输入文字'
     case 'openPath':
       return `打开：${behavior.path || '文件或文件夹'}`
     case 'paste':
-      return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
+      return behavior.title
+        ? `粘贴：${behavior.title}`
+        : behavior.text
+          ? `粘贴：${behavior.text.slice(0, 12)}`
+          : '粘贴文本'
     case 'delay':
       return `等待 ${behavior.ms} 毫秒`
     case 'openApp':

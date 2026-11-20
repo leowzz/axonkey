@@ -205,6 +205,7 @@ export type MappingProfile = {
   behaviors: BehaviorMap
   applicationIds?: string[]
   quick?: boolean
+  promptMode?: boolean
 }
 
 export type StoredProfiles = {

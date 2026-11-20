@@ -1,6 +1,7 @@
 import {
   normalizeApplicationPath,
   normalizeBehavior,
+  normalizeBehaviorTitle,
   normalizeFilePath,
   normalizeProfileReferenceId,
   normalizeWebsiteUrl,
@@ -48,8 +49,8 @@ export type CliBehavior =
   | (CliBehaviorBase & { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right' })
   | (CliBehaviorBase & { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward' })
   | (CliBehaviorBase & { type: 'cursorMove'; direction: 'up' | 'down' | 'left' | 'right'; distance: number })
-  | (CliBehaviorBase & { type: 'paste'; text: string })
-  | (CliBehaviorBase & { type: 'typeText'; text: string })
+  | (CliBehaviorBase & { type: 'paste'; text: string; title?: string })
+  | (CliBehaviorBase & { type: 'typeText'; text: string; title?: string })
   | (CliBehaviorBase & { type: 'delay'; ms: number })
   | (CliBehaviorBase & { type: 'openApp'; path: string })
   | (CliBehaviorBase & { type: 'openPath'; path: string })
@@ -313,9 +314,17 @@ export function normalizeCliBehavior(value: unknown, platform: CliPlatform): Cli
         : null
     }
     case 'paste':
-      return typeof value.text === 'string' ? { type: 'paste', text: value.text, enabled: isEnabled } : null
-    case 'typeText':
-      return typeof value.text === 'string' ? { type: 'typeText', text: value.text, enabled: isEnabled } : null
+    case 'typeText': {
+      if (typeof value.text !== 'string') return null
+      if (value.title !== undefined && typeof value.title !== 'string') return null
+      const title = normalizeBehaviorTitle(value.title)
+      return {
+        type: value.type as 'paste' | 'typeText',
+        text: value.text,
+        ...(title ? { title } : {}),
+        enabled: isEnabled,
+      }
+    }
     case 'delay': {
       const ms = typeof value.ms === 'number' ? Math.round(value.ms) : Number(value.ms)
       return Number.isInteger(ms) && ms >= 0 && ms <= 300_000 ? { type: 'delay', ms, enabled: isEnabled } : null
@@ -375,9 +384,9 @@ export function behaviorToCliBehavior(value: Behavior, platform: CliPlatform): C
     case 'cursorMove':
       return { ...base, type: 'cursorMove', direction: value.direction, distance: value.distance }
     case 'paste':
-      return { ...base, type: 'paste', text: value.text }
+      return { ...base, type: 'paste', text: value.text, ...(value.title ? { title: value.title } : {}) }
     case 'typeText':
-      return { ...base, type: 'typeText', text: value.text }
+      return { ...base, type: 'typeText', text: value.text, ...(value.title ? { title: value.title } : {}) }
     case 'delay':
       return { ...base, type: 'delay', ms: value.ms }
     case 'openApp':

@@ -33,20 +33,39 @@ function configuratorHarness() {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
       fileName: file,
     }).outputText
-    vm.runInNewContext(source, {
-      module, exports: module.exports, console, document, crypto: globalThis.crypto,
-      window: { localStorage: { getItem: () => null } },
-      require(name) {
-        if (name.endsWith('.css')) return {}
-        if (name.endsWith('.svg')) return 'asset.svg'
-        if (name === './QuickOverlay') return { QuickOverlayPresentation: () => null }
-        if (name === './WorkflowStepDialog') return { WorkflowStepDialog: () => null }
-        if (name === 'reicon-react') return reicon
-        if (!name.startsWith('.')) return require(name)
-        const path = resolve(dirname(file), name)
-        return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : existsSync(`${path}.ts`) ? `${path}.ts` : `${path}/index.ts`)
+    vm.runInNewContext(
+      source,
+      {
+        module,
+        exports: module.exports,
+        console,
+        document,
+        crypto: globalThis.crypto,
+        setTimeout,
+        clearTimeout,
+        window: { localStorage: { getItem: () => null } },
+        require(name) {
+          if (name.endsWith('.css')) return {}
+          if (name.endsWith('.svg')) return 'asset.svg'
+          if (name === 'react-dom') return { createPortal: node => node }
+          if (name === './QuickOverlay') return { QuickOverlayPresentation: () => null }
+          if (name === './WorkflowStepDialog') return { WorkflowStepDialog: () => null }
+          if (name === 'reicon-react') return reicon
+          if (!name.startsWith('.')) return require(name)
+          const path = resolve(dirname(file), name)
+          return load(
+            extname(path)
+              ? path
+              : existsSync(`${path}.tsx`)
+                ? `${path}.tsx`
+                : existsSync(`${path}.ts`)
+                  ? `${path}.ts`
+                  : `${path}/index.ts`,
+          )
+        },
       },
-    }, { filename: file })
+      { filename: file },
+    )
     return module.exports
   }
   const { QuickOverlayConfigurator } = load('src/components/QuickOverlayConfigurator.tsx')
@@ -57,9 +76,18 @@ function configuratorHarness() {
   const { mouseInputs } = load('src/components/MouseMapping.tsx')
   const changes = []
   const props = {
-    deviceKind: 'rc003', deviceName: '遥控器', profileId: 'quick', profileName: '快捷配置',
-    inputs: packageFor('rc003').inputs, behaviors: {}, platform: 'windows',
-    onChange: (...args) => changes.push(args), onRename() {}, onDuplicate() {}, onDelete() {}, onClose() {},
+    deviceKind: 'rc003',
+    deviceName: '遥控器',
+    profileId: 'quick',
+    profileName: '快捷配置',
+    inputs: packageFor('rc003').inputs,
+    behaviors: {},
+    platform: 'windows',
+    onChange: (...args) => changes.push(args),
+    onRename() {},
+    onDuplicate() {},
+    onDelete() {},
+    onClose() {},
     history: { canUndo: false, canRedo: false, onUndo() {}, onRedo() {} },
   }
   let view
@@ -72,14 +100,26 @@ function configuratorHarness() {
     })
   }
   return {
-    render, changes, document, WorkflowToolbox, SelectControl, devices, mouseInputs, packageFor,
-    get view() { return view },
-    close() { act(() => view.unmount()) },
+    render,
+    changes,
+    document,
+    WorkflowToolbox,
+    SelectControl,
+    devices,
+    mouseInputs,
+    packageFor,
+    get view() {
+      return view
+    },
+    close() {
+      act(() => view.unmount())
+    },
   }
 }
 
-const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
-const editorKeys = view => view.root.findAll(node => node.type === 'button' && node.props.className?.includes('quick-overlay-editor-key'))
+const text = node => (typeof node === 'string' ? node : (node?.children ?? []).map(text).join(''))
+const editorKeys = view =>
+  view.root.findAll(node => node.type === 'button' && node.props.className?.includes('quick-overlay-editor-key'))
 const enterStep = { componentType: 'task', type: 'enter', name: '回车', properties: {} }
 
 test('quick configurator marks and disables its trigger, selects an editable key, and rejects drops on the trigger', () => {
@@ -101,17 +141,29 @@ test('quick configurator marks and disables its trigger, selects an editable key
     assert.ok(selected)
     assert.notEqual(selected.props['data-quick-overlay-input'], trigger)
     act(() => triggerKey.props.onClick())
-    assert.equal(editorKeys(harness.view).find(key => key.props['aria-pressed']), selected)
+    assert.equal(
+      editorKeys(harness.view).find(key => key.props['aria-pressed']),
+      selected,
+    )
     act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
     assert.equal(harness.changes.length, 1)
     assert.equal(harness.changes[0][0], selected.props['data-quick-overlay-input'])
     assert.equal(harness.changes[0][1].click[0].type, 'key')
 
     harness.document.elementFromPoint = () => ({
-      closest: selector => selector === '[data-quick-overlay-input]' && triggerKey.props['data-quick-overlay-input']
-        ? { dataset: { quickOverlayInput: triggerKey.props['data-quick-overlay-input'] } } : null,
+      closest: selector =>
+        selector === '[data-quick-overlay-input]' && triggerKey.props['data-quick-overlay-input']
+          ? { dataset: { quickOverlayInput: triggerKey.props['data-quick-overlay-input'] } }
+          : null,
     })
-    const event = { button: 0, isPrimary: true, pointerId: 1, clientX: 0, clientY: 0, currentTarget: { setPointerCapture() {} } }
+    const event = {
+      button: 0,
+      isPrimary: true,
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+      currentTarget: { setPointerCapture() {} },
+    }
     act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onStepPointerDown(event, enterStep))
     const section = harness.view.root.findByProps({ 'aria-label': '快捷交互窗配置' })
     act(() => section.props.onPointerMove({ ...event, clientX: 20 }))
@@ -121,38 +173,60 @@ test('quick configurator marks and disables its trigger, selects an editable key
     const nextTrigger = selected.props['data-quick-overlay-input']
     harness.render({ triggerInput: nextTrigger })
     assert.equal(editorKeys(harness.view).find(key => key.props.className.includes('is-trigger')).props.disabled, true)
-    assert.notEqual(editorKeys(harness.view).find(key => key.props['aria-pressed']).props['data-quick-overlay-input'], nextTrigger)
+    assert.notEqual(
+      editorKeys(harness.view).find(key => key.props['aria-pressed']).props['data-quick-overlay-input'],
+      nextTrigger,
+    )
     harness.render({ triggerInput: undefined })
-    assert.equal(editorKeys(harness.view).some(key => key.props.className.includes('is-trigger')), false)
-    assert.equal(editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === trigger).props.disabled, false)
-  } finally { harness.close() }
+    assert.equal(
+      editorKeys(harness.view).some(key => key.props.className.includes('is-trigger')),
+      false,
+    )
+    assert.equal(
+      editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === trigger).props.disabled,
+      false,
+    )
+  } finally {
+    harness.close()
+  }
 })
 
 test('quick configurator reserves only the triggering mouse scope and handles a profile with no editable keys', () => {
   const harness = configuratorHarness()
   harness.render({
-    deviceKind: 'mouse', inputs: harness.mouseInputs,
+    deviceKind: 'mouse',
+    inputs: harness.mouseInputs,
     triggerInput: 'mouse.top.buttonMiddle',
   })
   try {
     assert.equal(editorKeys(harness.view).filter(key => key.props.className.includes('is-trigger')).length, 1)
     const scope = harness.view.root.findByType(harness.SelectControl)
     act(() => scope.props.onChange({ target: { value: 'left' } }))
-    const middle = editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'mouse.left.buttonMiddle')
+    const middle = editorKeys(harness.view).find(
+      key => key.props['data-quick-overlay-input'] === 'mouse.left.buttonMiddle',
+    )
     assert.ok(middle)
     assert.equal(middle.props.disabled, false)
-    assert.equal(editorKeys(harness.view).some(key => key.props.className.includes('is-trigger')), false)
+    assert.equal(
+      editorKeys(harness.view).some(key => key.props.className.includes('is-trigger')),
+      false,
+    )
     act(() => middle.props.onClick())
     act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
     assert.equal(harness.changes[0][0], 'mouse.left.buttonMiddle')
 
     const input = { id: 'power', label: '电源键', icon: 'power' }
     harness.render({ deviceKind: 'rc003', inputs: [input], triggerInput: input.id })
-    assert.equal(editorKeys(harness.view).some(key => key.props['aria-pressed']), false)
+    assert.equal(
+      editorKeys(harness.view).some(key => key.props['aria-pressed']),
+      false,
+    )
     assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-track' }).length, 0)
     act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
     assert.equal(harness.changes.length, 1, 'a reserved sole key cannot receive toolbox actions')
-  } finally { harness.close() }
+  } finally {
+    harness.close()
+  }
 })
 
 test('quick configurator keeps default actions after click or drag insertion and switching keys', () => {
@@ -164,38 +238,67 @@ test('quick configurator keeps default actions after click or drag insertion and
     ['cursorMove', { type: 'cursorMove', direction: 'up', distance: 50 }],
   ]
   const harness = configuratorHarness()
-  const inputs = [{ id: 'power', label: '电源键', icon: 'power' }, { id: 'menu', label: '菜单键', icon: 'menu' }]
+  const inputs = [
+    { id: 'power', label: '电源键', icon: 'power' },
+    { id: 'menu', label: '菜单键', icon: 'menu' },
+  ]
   harness.render({ inputs })
   try {
-    for (const mode of ['click', 'drag']) for (const [type, value] of defaults) {
-      harness.render({ behaviors: {} })
-      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'power').props.onClick())
-      const toolbox = harness.view.root.findByType(harness.WorkflowToolbox)
-      const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === type)
-      const count = harness.changes.length
-      if (mode === 'click') act(() => toolbox.props.onAddStep(action))
-      else {
-        harness.document.elementFromPoint = () => ({
-          closest: selector => selector === '[data-quick-overlay-input]' ? { dataset: { quickOverlayInput: 'power' } } : null,
-        })
-        const event = { button: 0, isPrimary: true, pointerId: 1, clientX: 0, clientY: 0, currentTarget: { setPointerCapture() {} } }
-        act(() => toolbox.props.onStepPointerDown(event, action))
-        const section = harness.view.root.findByProps({ 'aria-label': '快捷交互窗配置' })
-        act(() => section.props.onPointerMove({ ...event, clientX: 20 }))
-        act(() => section.props.onPointerUp({ ...event, clientX: 20, type: 'pointerup' }))
+    for (const mode of ['click', 'drag'])
+      for (const [type, value] of defaults) {
+        harness.render({ behaviors: {} })
+        act(() =>
+          editorKeys(harness.view)
+            .find(key => key.props['data-quick-overlay-input'] === 'power')
+            .props.onClick(),
+        )
+        const toolbox = harness.view.root.findByType(harness.WorkflowToolbox)
+        const action = toolbox.props.palettes
+          .flatMap(palette => palette.groups)
+          .flatMap(group => group.steps)
+          .find(step => step.type === type)
+        const count = harness.changes.length
+        if (mode === 'click') act(() => toolbox.props.onAddStep(action))
+        else {
+          harness.document.elementFromPoint = () => ({
+            closest: selector =>
+              selector === '[data-quick-overlay-input]' ? { dataset: { quickOverlayInput: 'power' } } : null,
+          })
+          const event = {
+            button: 0,
+            isPrimary: true,
+            pointerId: 1,
+            clientX: 0,
+            clientY: 0,
+            currentTarget: { setPointerCapture() {} },
+          }
+          act(() => toolbox.props.onStepPointerDown(event, action))
+          const section = harness.view.root.findByProps({ 'aria-label': '快捷交互窗配置' })
+          act(() => section.props.onPointerMove({ ...event, clientX: 20 }))
+          act(() => section.props.onPointerUp({ ...event, clientX: 20, type: 'pointerup' }))
+        }
+        assert.equal(harness.changes.length, count + 1, `${mode}: ${type} saves without editing`)
+        const [id, saved] = harness.changes.at(-1)
+        assert.equal(id, 'power')
+        assert.deepEqual(JSON.parse(JSON.stringify(saved.click)), [{ id: saved.click[0]?.id, enabled: true, ...value }])
+        harness.render({ behaviors: { [id]: saved } })
+        act(() =>
+          editorKeys(harness.view)
+            .find(key => key.props['data-quick-overlay-input'] === 'menu')
+            .props.onClick(),
+        )
+        assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 0)
+        act(() =>
+          editorKeys(harness.view)
+            .find(key => key.props['data-quick-overlay-input'] === 'power')
+            .props.onClick(),
+        )
+        assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 1)
+        assert.equal(harness.changes.length, count + 1)
       }
-      assert.equal(harness.changes.length, count + 1, `${mode}: ${type} saves without editing`)
-      const [id, saved] = harness.changes.at(-1)
-      assert.equal(id, 'power')
-      assert.deepEqual(JSON.parse(JSON.stringify(saved.click)), [{ id: saved.click[0]?.id, enabled: true, ...value }])
-      harness.render({ behaviors: { [id]: saved } })
-      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'menu').props.onClick())
-      assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 0)
-      act(() => editorKeys(harness.view).find(key => key.props['data-quick-overlay-input'] === 'power').props.onClick())
-      assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-step' }).length, 1)
-      assert.equal(harness.changes.length, count + 1)
-    }
-  } finally { harness.close() }
+  } finally {
+    harness.close()
+  }
 })
 
 test('Escape dismisses live and simulated quick overlays and removes its listener after closing', () => {
@@ -206,7 +309,8 @@ test('Escape dismisses live and simulated quick overlays and removes its listene
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText
   vm.runInNewContext(source, {
-    module, exports: module.exports,
+    module,
+    exports: module.exports,
     window: {
       addEventListener: (type, listener) => listeners.set(type, listener),
       removeEventListener: (type, listener) => {
@@ -221,25 +325,60 @@ test('Escape dismisses live and simulated quick overlays and removes its listene
     },
   })
   const { QuickOverlayPresentation } = module.exports
-  const view = buildQuickOverlayView({
-    revision: 1, sourceId: 'dev', deviceKind: 'rc003', deviceName: '遥控器',
-    profileId: 'quick', profileName: '快捷配置', triggerInput: 'menu', behaviors: {}, pressed: [], preview: false,
-  }, 'windows')
+  const view = buildQuickOverlayView(
+    {
+      revision: 1,
+      sourceId: 'dev',
+      deviceKind: 'rc003',
+      deviceName: '遥控器',
+      profileId: 'quick',
+      profileName: '快捷配置',
+      triggerInput: 'menu',
+      behaviors: {},
+      pressed: [],
+      preview: false,
+    },
+    'windows',
+  )
   let dismissals = 0
   let prevented = 0
   for (const preview of [false, true]) {
     let renderer
-    act(() => { renderer = Renderer.create(React.createElement(QuickOverlayPresentation, {
-      view, preview, onDismiss: () => { dismissals++ },
-    })) })
+    act(() => {
+      renderer = Renderer.create(
+        React.createElement(QuickOverlayPresentation, {
+          view,
+          preview,
+          onDismiss: () => {
+            dismissals++
+          },
+        }),
+      )
+    })
     try {
       const before = dismissals
-      act(() => listeners.get('keydown')({ key: 'Enter', preventDefault() { prevented++ } }))
+      act(() =>
+        listeners.get('keydown')({
+          key: 'Enter',
+          preventDefault() {
+            prevented++
+          },
+        }),
+      )
       assert.equal(dismissals, before)
-      act(() => listeners.get('keydown')({ key: 'Escape', preventDefault() { prevented++ } }))
+      act(() =>
+        listeners.get('keydown')({
+          key: 'Escape',
+          preventDefault() {
+            prevented++
+          },
+        }),
+      )
       assert.equal(dismissals, before + 1)
       assert.equal(renderer.root.findByProps({ className: 'quick-overlay-close' }).props['aria-keyshortcuts'], 'Escape')
-    } finally { act(() => renderer.unmount()) }
+    } finally {
+      act(() => renderer.unmount())
+    }
     assert.equal(listeners.size, 0)
   }
   assert.equal(prevented, 2)
@@ -548,19 +687,19 @@ test('geometry compiler transforms bundled remotes, bridge remotes, dual-view si
 
   // 5. Xbox controller -> geometry compiler detects controller variant with shoulders, center, D-pad & ABXY diamond
   const xboxSession = {
-      revision: 13,
-      sourceId: 'xb-1',
-      deviceKind: 'xboxBluetooth',
-      deviceName: 'Xbox 手柄',
-      profileId: 'xb-q',
-      profileName: '审片控制',
-      triggerInput: 'xbox.menu',
-      pressed: [],
-      preview: false,
-      behaviors: {
-        'xbox.a': { click: [{ id: '1', enabled: true, type: 'key', key: 'Space' }] },
-        'xbox.lt': { click: [{ id: '2', enabled: true, type: 'key', key: 'Left' }] },
-      },
+    revision: 13,
+    sourceId: 'xb-1',
+    deviceKind: 'xboxBluetooth',
+    deviceName: 'Xbox 手柄',
+    profileId: 'xb-q',
+    profileName: '审片控制',
+    triggerInput: 'xbox.menu',
+    pressed: [],
+    preview: false,
+    behaviors: {
+      'xbox.a': { click: [{ id: '1', enabled: true, type: 'key', key: 'Space' }] },
+      'xbox.lt': { click: [{ id: '2', enabled: true, type: 'key', key: 'Left' }] },
+    },
   }
   const xboxView = buildQuickOverlayView(xboxSession, 'macos')
   assert.equal(xboxView.surface.variant, 'controller')
@@ -578,9 +717,15 @@ test('geometry compiler transforms bundled remotes, bridge remotes, dual-view si
 
 test('G17 geometry retains the numpad spans and keeps all six touch controls in a separate ordered rail', () => {
   const session = {
-    revision: 1, sourceId: 'g17', deviceKind: 'g17Touch', deviceName: 'G17 Touch',
-    profileId: 'quick-g17', profileName: '数字快捷键', triggerInput: 'g17.touch.num',
-    pressed: ['g17.touch.t2'], preview: false,
+    revision: 1,
+    sourceId: 'g17',
+    deviceKind: 'g17Touch',
+    deviceName: 'G17 Touch',
+    profileId: 'quick-g17',
+    profileName: '数字快捷键',
+    triggerInput: 'g17.touch.num',
+    pressed: ['g17.touch.t2'],
+    preview: false,
     behaviors: { 'g17.touch.t2': { click: [{ id: 't2', type: 'key', key: 'Enter', enabled: true }] } },
   }
   const assertLayout = (surface, prefix, withRail = true) => {
@@ -590,20 +735,41 @@ test('G17 geometry retains the numpad spans and keeps all six touch controls in 
     assert.equal(surface.cells.length, 17)
     assert.equal(surface.oledSpan, undefined)
     const expected = [
-      ['num', 1, 1, 1, 1], ['div', 1, 2, 1, 1], ['mul', 1, 3, 1, 1], ['sub', 1, 4, 1, 1],
-      ['k7', 2, 1, 1, 1], ['k8', 2, 2, 1, 1], ['k9', 2, 3, 1, 1], ['add', 2, 4, 2, 1],
-      ['k4', 3, 1, 1, 1], ['k5', 3, 2, 1, 1], ['k6', 3, 3, 1, 1],
-      ['k1', 4, 1, 1, 1], ['k2', 4, 2, 1, 1], ['k3', 4, 3, 1, 1], ['enter', 4, 4, 2, 1],
-      ['k0', 5, 1, 1, 2], ['dot', 5, 3, 1, 1],
+      ['num', 1, 1, 1, 1],
+      ['div', 1, 2, 1, 1],
+      ['mul', 1, 3, 1, 1],
+      ['sub', 1, 4, 1, 1],
+      ['k7', 2, 1, 1, 1],
+      ['k8', 2, 2, 1, 1],
+      ['k9', 2, 3, 1, 1],
+      ['add', 2, 4, 2, 1],
+      ['k4', 3, 1, 1, 1],
+      ['k5', 3, 2, 1, 1],
+      ['k6', 3, 3, 1, 1],
+      ['k1', 4, 1, 1, 1],
+      ['k2', 4, 2, 1, 1],
+      ['k3', 4, 3, 1, 1],
+      ['enter', 4, 4, 2, 1],
+      ['k0', 5, 1, 1, 2],
+      ['dot', 5, 3, 1, 1],
     ]
-    assert.deepEqual(surface.cells.map(cell => [
-      cell.inputId.slice(prefix.length), cell.row, cell.col, cell.rowSpan ?? 1, cell.colSpan ?? 1,
-    ]), expected)
+    assert.deepEqual(
+      surface.cells.map(cell => [
+        cell.inputId.slice(prefix.length),
+        cell.row,
+        cell.col,
+        cell.rowSpan ?? 1,
+        cell.colSpan ?? 1,
+      ]),
+      expected,
+    )
     assert.equal(new Set(surface.cells.map(cell => cell.inputId)).size, 17)
     if (withRail) {
       assert.equal(surface.sideRail.side, 'right')
-      assert.deepEqual(surface.sideRail.slots.map(slot => slot.inputId),
-        ['swipeUp', 't1', 't2', 't3', 't4', 'swipeDown'].map(id => prefix + id))
+      assert.deepEqual(
+        surface.sideRail.slots.map(slot => slot.inputId),
+        ['swipeUp', 't1', 't2', 't3', 't4', 'swipeDown'].map(id => prefix + id),
+      )
     } else assert.equal(surface.sideRail, undefined)
   }
   const view = buildQuickOverlayView(session, 'windows')
@@ -625,9 +791,14 @@ test('G17 geometry retains the numpad spans and keeps all six touch controls in 
 
 test('G17 configurator renders spanning keys and independently selectable touch controls', () => {
   const harness = configuratorHarness()
-  harness.render({ deviceKind: 'g17Touch', inputs: harness.packageFor('g17Touch').inputs, triggerInput: 'g17.touch.num' })
+  harness.render({
+    deviceKind: 'g17Touch',
+    inputs: harness.packageFor('g17Touch').inputs,
+    triggerInput: 'g17.touch.num',
+  })
   try {
-    const key = id => editorKeys(harness.view).find(node => node.props['data-quick-overlay-input'] === `g17.touch.${id}`)
+    const key = id =>
+      editorKeys(harness.view).find(node => node.props['data-quick-overlay-input'] === `g17.touch.${id}`)
     assert.equal(editorKeys(harness.view).length, 23)
     assert.equal(key('add').props.style.gridRow, '2 / span 2')
     assert.equal(key('enter').props.style.gridRow, '4 / span 2')
@@ -638,7 +809,9 @@ test('G17 configurator renders spanning keys and independently selectable touch 
     assert.equal(key('t4').props['aria-pressed'], true)
     act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
     assert.equal(harness.changes[0][0], 'g17.touch.t4')
-  } finally { harness.close() }
+  } finally {
+    harness.close()
+  }
 })
 
 test('cloud-delivered descriptorSvg on session dynamically compiles brand-new unregistered SVG models into ceramic surfaces', () => {
@@ -772,4 +945,246 @@ test('cloud-delivered descriptorSvg on session dynamically compiles brand-new un
   assert.equal(gridView.surface.oledSpan, undefined)
 
   assets.deregister()
+})
+
+test('quick configurator supports Pure Prompt Mode editing, non-destructive notices, and standard step quick actions', () => {
+  const harness = configuratorHarness()
+  const inputs = [
+    { id: 'up', label: '上方向', icon: 'up' },
+    { id: 'down', label: '下方向', icon: 'down' },
+    { id: 'menu', label: '菜单', icon: 'menu' },
+  ]
+  const shortcutSeq = {
+    click: [{ id: 's1', enabled: true, type: 'shortcut', keys: ['Ctrl', 'C'] }],
+    doubleClick: [],
+    longPress: [],
+  }
+  const toggledModes = []
+  harness.render({
+    inputs,
+    triggerInput: 'menu',
+    promptMode: false,
+    behaviors: { down: shortcutSeq },
+    onTogglePromptMode: next => {
+      toggledModes.push(next)
+      harness.render({ promptMode: next })
+    },
+  })
+
+  try {
+    // Standard Mode: single-click edit step, quick-delete step, and track clear button
+    const upKey = () => editorKeys(harness.view).find(k => k.props['data-quick-overlay-input'] === 'up')
+    act(() => upKey().props.onClick())
+    act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
+    const savedClick = harness.changes.at(-1)[1].click
+    assert.equal(savedClick.length, 1)
+    harness.render({ behaviors: { up: { click: savedClick, doubleClick: [], longPress: [] }, down: shortcutSeq } })
+
+    const stepBtn = harness.view.root.findByProps({ className: 'quick-overlay-step' })
+    act(() => stepBtn.props.onClick())
+    // Opening WorkflowStepDialog (stubbed as null) runs without throwing; quick-remove deletes the step cleanly.
+    const removeBtn = harness.view.root.findByProps({ className: 'quick-overlay-step-remove' })
+    act(() => removeBtn.props.onClick())
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.changes.at(-1)[1].click)), [])
+
+    act(() =>
+      editorKeys(harness.view)
+        .find(k => k.props['data-quick-overlay-input'] === 'down')
+        .props.onClick(),
+    )
+    const clearBtn = harness.view.root.findByProps({ className: 'quick-overlay-track-clear' })
+    act(() => clearBtn.props.onClick())
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.changes.at(-1))), [
+      'down',
+      { click: [], doubleClick: [], longPress: [] },
+    ])
+
+    // Standard Mode edits on currently selected key immediately sync into Pure Prompt Mode when toggled on
+    act(() => upKey().props.onClick())
+    const initialPasteUp = {
+      click: [{ id: 'p0', enabled: true, type: 'paste', title: '快速回复', text: '收到，马上处理' }],
+      doubleClick: [],
+      longPress: [],
+    }
+    harness.render({ behaviors: { up: initialPasteUp, down: shortcutSeq } })
+    act(() => harness.view.root.findByType(harness.WorkflowToolbox).props.onAddStep(enterStep))
+    const standardUpSeq = {
+      click: JSON.parse(JSON.stringify(harness.changes.at(-1)[1].click)),
+      doubleClick: [],
+      longPress: [],
+    }
+    assert.equal(standardUpSeq.click.length, 2)
+    harness.render({ behaviors: { up: standardUpSeq, down: shortcutSeq } })
+
+    const modeSwitch = harness.view.root.findByProps({ role: 'switch' })
+    assert.equal(modeSwitch.props['aria-checked'], false)
+    act(() => modeSwitch.props.onClick())
+    assert.deepEqual(toggledModes, [true])
+    assert.equal(harness.view.root.findByProps({ role: 'switch' }).props['aria-checked'], true)
+    assert.equal(harness.view.root.findAllByProps({ className: 'quick-overlay-track' }).length, 0)
+    const promptEditor = harness.view.root.findByProps({ 'aria-label': 'Prompt 编辑器' })
+    assert.ok(promptEditor)
+    assert.equal(promptEditor.find(node => node.type === 'input' && node.props.type === 'text').props.value, '快速回复')
+    assert.equal(promptEditor.find(node => node.type === 'textarea').props.value, '收到，马上处理')
+    assert.equal(promptEditor.find(node => node.type === 'input' && node.props.type === 'checkbox').props.checked, true)
+
+    // Non-prompt sequence key displays warning notice and does not overwrite when toggling autoEnter alone
+    act(() =>
+      editorKeys(harness.view)
+        .find(k => k.props['data-quick-overlay-input'] === 'down')
+        .props.onClick(),
+    )
+    harness.render({ behaviors: { down: shortcutSeq } })
+    const notice = promptEditor.findByProps({ className: 'quick-overlay-prompt-notice' })
+    assert.match(text(notice), /已配置其他行为/)
+    const beforeToggleCount = harness.changes.length
+    const autoEnterCheckbox = promptEditor.find(node => node.type === 'input' && node.props.type === 'checkbox')
+    act(() => autoEnterCheckbox.props.onChange({ target: { checked: true } }))
+    assert.equal(harness.changes.length, beforeToggleCount, 'toggling option without content preserves other behaviors')
+
+    // Switching to 'up' key and authoring titled prompt updates keycap live and commits on blur
+    act(() => upKey().props.onClick())
+    const titleInput = promptEditor.find(node => node.type === 'input' && node.props.type === 'text')
+    const contentArea = promptEditor.find(node => node.type === 'textarea')
+    const typeMethodBtn = promptEditor.findAll(node => node.type === 'button' && text(node) === '模拟输入')[0]
+
+    act(() => titleInput.props.onChange({ target: { value: '总结提交' } }))
+    act(() => contentArea.props.onChange({ target: { value: '请总结本次提交的重点改动' } }))
+    // Keycap previews live draft immediately before debounce/blur
+    assert.match(text(upKey()), /总结提交/)
+    act(() => contentArea.props.onBlur())
+    const committedUp = harness.changes.at(-1)
+    assert.equal(committedUp[0], 'up')
+    assert.equal(committedUp[1].click[0].type, 'paste')
+    assert.equal(committedUp[1].click[0].title, '总结提交')
+    assert.equal(committedUp[1].click[0].text, '请总结本次提交的重点改动')
+
+    harness.render({ behaviors: { up: committedUp[1], down: shortcutSeq } })
+    act(() => typeMethodBtn.props.onClick())
+    act(() =>
+      promptEditor
+        .find(node => node.type === 'input' && node.props.type === 'checkbox')
+        .props.onChange({ target: { checked: true } }),
+    )
+    const finalUp = harness.changes.at(-1)[1].click
+    assert.deepEqual(JSON.parse(JSON.stringify(finalUp.map(step => step.type))), ['typeText', 'delay', 'key'])
+    assert.equal(finalUp[0].title, '总结提交')
+
+    // Clearing prompt slot resets sequence to empty while preserving chosen method
+    harness.render({ behaviors: { up: { click: finalUp, doubleClick: [], longPress: [] }, down: shortcutSeq } })
+    act(() => promptEditor.findByProps({ className: 'quick-overlay-track-clear' }).props.onClick())
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.changes.at(-1))), [
+      'up',
+      { click: [], doubleClick: [], longPress: [] },
+    ])
+    harness.render({ behaviors: { down: shortcutSeq } })
+    assert.equal(
+      promptEditor.findAll(node => node.type === 'button' && text(node) === '模拟输入')[0].props['aria-pressed'],
+      true,
+    )
+  } finally {
+    harness.close()
+  }
+})
+
+test('QuickOverlayPresentation renders Pure Prompt Mode pill, titled keycaps, compact tags, and detail preview', () => {
+  const require = createRequire(import.meta.url)
+  const modules = new Map()
+  const listeners = new Map()
+  function load(file) {
+    file = resolve(file)
+    if (modules.has(file)) return modules.get(file).exports
+    const module = { exports: {} }
+    modules.set(file, module)
+    const source = ts.transpileModule(readFileSync(file, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+      fileName: file,
+    }).outputText
+    vm.runInNewContext(
+      source,
+      {
+        module,
+        exports: module.exports,
+        console,
+        window: {
+          addEventListener: (type, fn) => listeners.set(type, fn),
+          removeEventListener: (type, fn) => {
+            if (listeners.get(type) === fn) listeners.delete(type)
+          },
+        },
+        require(name) {
+          if (name.endsWith('.css')) return {}
+          if (name.startsWith('../devices/') && name.endsWith('/railOverview')) return { railKeyGlyphText: () => null }
+          if (name === './InputIcon') return { iconFor: () => null }
+          if (name === './quickOverlayModel') return { buildQuickOverlayView, summarizeQuickTrigger }
+          if (name.startsWith('../') || name.startsWith('@tauri-apps/')) return {}
+          if (!name.startsWith('.')) return require(name)
+          const path = resolve(dirname(file), name)
+          return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
+        },
+      },
+      { filename: file },
+    )
+    return module.exports
+  }
+  const { QuickOverlayPresentation } = load('src/components/QuickOverlay.tsx')
+
+  const view = buildQuickOverlayView(
+    {
+      revision: 1,
+      sourceId: 'rc-1',
+      deviceKind: 'rc003',
+      deviceName: '书房遥控器',
+      profileId: 'q-prompt',
+      profileName: '代码评审提示词',
+      triggerInput: 'menu',
+      pressed: [],
+      preview: false,
+      promptMode: true,
+      behaviors: {
+        up: { click: [{ id: 'p1', enabled: true, type: 'paste', title: '找 Bug', text: '找出潜在竞态与空指针' }] },
+        down: {
+          click: [
+            { id: 'p2', enabled: true, type: 'paste', title: '直接发送', text: '生成回归测试' },
+            { id: 'd2', enabled: true, type: 'delay', ms: 30 },
+            { id: 'e2', enabled: true, type: 'key', key: 'Enter' },
+          ],
+        },
+      },
+    },
+    'macos',
+  )
+
+  let renderer
+  act(() => {
+    renderer = Renderer.create(
+      React.createElement(QuickOverlayPresentation, { view, preview: false, onDismiss() {}, onTrigger() {} }),
+    )
+  })
+  try {
+    const shell = renderer.root.findByProps({ role: 'dialog' })
+    assert.match(shell.props.className, /is-prompt-mode/)
+    const pill = renderer.root.findByProps({ className: 'quick-overlay-mode-pill is-prompt' })
+    assert.equal(text(pill), '纯 Prompt')
+
+    const upButton = renderer.root.findAll(
+      node => node.type === 'button' && node.props.className?.includes('kind-prompt') && text(node).includes('找 Bug'),
+    )[0]
+    assert.ok(upButton)
+    assert.ok(!text(upButton).includes('粘贴'), 'Pure Prompt Mode suppresses repetitive 粘贴 tag')
+    assert.match(text(upButton), /找出潜在竞态与空指针/)
+
+    const downButton = renderer.root.findAll(
+      node =>
+        node.type === 'button' && node.props.className?.includes('kind-prompt') && text(node).includes('直接发送'),
+    )[0]
+    assert.ok(downButton)
+    assert.match(text(downButton), /↵ 发送/)
+
+    const detailBar = renderer.root.findByProps({ className: 'quick-surface-detail-bar' })
+    assert.match(text(detailBar), /找 Bug/)
+    assert.match(text(detailBar), /找出潜在竞态与空指针/)
+  } finally {
+    act(() => renderer.unmount())
+  }
 })

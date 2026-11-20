@@ -36,8 +36,12 @@ function formatScopedMetaLabel(entry: QuickOverlayScopedEntry): string {
   return `${scopePrefix}${primary?.badge || primary?.triggerLabel || '动作'}`
 }
 
-function slotDetailCandidate(slot: QuickOverlayKeySlot): {
-  title: string
+function slotDetailCandidate(
+  slot: QuickOverlayKeySlot,
+  promptMode = false,
+): {
+  keyLabel: string
+  title?: string
   badge: string
   body: string
   steps?: string
@@ -45,29 +49,34 @@ function slotDetailCandidate(slot: QuickOverlayKeySlot): {
   if (slot.status !== 'configured') return null
   if (slot.scopedEntries && slot.scopedEntries.length > 1) {
     return {
-      title: slot.label,
+      keyLabel: slot.label,
       badge: `${slot.scopedEntries.length} 个作用域`,
       body: slot.scopedEntries
         .map(entry => {
           const scope = entry.contextLabel ?? '全局'
           if (entry.isExitTrigger) return `${scope}：再按退出`
-          return `${scope}：${entry.triggers.map(t => t.text).join(' / ')}`
+          return `${scope}：${entry.triggers.map(t => (t.title ? `${t.title}（${t.text}）` : t.text)).join(' / ')}`
         })
         .join('  ·  '),
     }
   }
   if (slot.triggers.length > 1) {
     return {
-      title: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
+      keyLabel: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
       badge: `${slot.triggers.length} 组触发`,
-      body: slot.triggers.map(t => `${t.triggerLabel}：${t.text}`).join('  |  '),
+      body: slot.triggers.map(t => `${t.triggerLabel}：${t.title ? `${t.title}（${t.text}）` : t.text}`).join('  |  '),
     }
   }
   const single = slot.triggers[0]
   if (!single) return null
-  if (single.kind === 'prompt' || single.stepsSummary || single.text.length > 16) {
+  if (
+    (single.kind === 'prompt' && (promptMode || Boolean(single.title) || single.text.length > 16)) ||
+    single.stepsSummary ||
+    single.text.length > 16
+  ) {
     return {
-      title: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
+      keyLabel: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
+      ...(single.title ? { title: single.title } : {}),
       badge: single.badge || single.triggerLabel,
       body: single.text,
       steps: single.stepsSummary,
@@ -245,21 +254,28 @@ export function QuickOverlayPresentation({
     let firstDetail: QuickOverlayKeySlot | null = null
     for (const slot of allSlots) {
       map.set(slot.slotId, slot)
-      if (!firstDetail && slotDetailCandidate(slot)) firstDetail = slot
+      if (!firstDetail && slotDetailCandidate(slot, view.promptMode)) firstDetail = slot
     }
     return { defaultDetailSlot: firstDetail, slotLookup: map }
   }, [view])
 
   const hoveredSlot = hoveredSlotId ? slotLookup.get(hoveredSlotId) : undefined
   const activeDetail =
-    (hoveredSlot && slotDetailCandidate(hoveredSlot)) ||
-    (defaultDetailSlot && slotDetailCandidate(defaultDetailSlot)) ||
+    (hoveredSlot && slotDetailCandidate(hoveredSlot, view.promptMode)) ||
+    (defaultDetailSlot && slotDetailCandidate(defaultDetailSlot, view.promptMode)) ||
     null
 
   const renderSingleTriggerBody = (single: QuickOverlayTriggerPreview, contextLabel?: string) => (
     <div className="ceramic-key-single">
       {contextLabel && <span className="ceramic-key-scope-line">{contextLabel}</span>}
-      <strong className={`ceramic-key-label is-${single.kind}`}>{single.text}</strong>
+      {single.title ? (
+        <>
+          <strong className={`ceramic-key-label is-titled is-${single.kind}`}>{single.title}</strong>
+          {single.text && single.text !== '（空文本）' && <span className="ceramic-key-excerpt">{single.text}</span>}
+        </>
+      ) : (
+        <strong className={`ceramic-key-label is-${single.kind}`}>{single.text}</strong>
+      )}
       {single.stepsSummary && <span className="ceramic-key-steps">{single.stepsSummary}</span>}
     </div>
   )
@@ -359,17 +375,24 @@ export function QuickOverlayPresentation({
     }
 
     const single = slot.triggers.length === 1 ? slot.triggers[0] : null
-    const topTag = single?.badge || (single?.showTriggerTag ? single.triggerLabel : undefined)
+    const topTag =
+      view.promptMode && single?.kind === 'prompt'
+        ? single.autoEnter
+          ? '↵ 发送'
+          : single.inputMethod === 'typeText'
+            ? '输入'
+            : undefined
+        : single?.badge || (single?.showTriggerTag ? single.triggerLabel : undefined)
     const fullTitle = slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label
 
     return (
       <button
         key={slot.slotId}
         type="button"
-        title={single?.kind === 'prompt' ? single.text : undefined}
+        title={single?.kind === 'prompt' ? (single.title ? `${single.title}\n${single.text}` : single.text) : undefined}
         className={`ceramic-key is-configured${slotKindClass(slot.primaryKind)}${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}${extraClass ? ` ${extraClass}` : ''}`}
         style={inlineStyle}
-        aria-label={`${fullTitle}：${slot.triggers.map(t => `${t.triggerLabel} ${t.text}`).join('；')}`}
+        aria-label={`${fullTitle}：${slot.triggers.map(t => `${t.triggerLabel} ${t.title ? `${t.title} ${t.text}` : t.text}`).join('；')}`}
         aria-disabled={!onTrigger ? true : undefined}
         onMouseEnter={() => setHoveredSlotId(slot.slotId)}
         onMouseLeave={() => setHoveredSlotId('')}
@@ -412,18 +435,22 @@ export function QuickOverlayPresentation({
       }}
     >
       <aside
-        className={`quick-overlay-shell ${shellVariantClass}`}
+        className={`quick-overlay-shell ${shellVariantClass}${view.promptMode ? ' is-prompt-mode' : ''}`}
         role="dialog"
         aria-label={`快捷交互窗 · ${view.profileName}`}
       >
         <header className="quick-overlay-header">
           <div className="quick-overlay-identity">
-            <span className={`quick-overlay-mode-pill${preview ? ' is-preview' : ''}`}>
+            <span className={`quick-overlay-mode-pill${preview ? ' is-preview' : view.promptMode ? ' is-prompt' : ''}`}>
               <Sparkles size={12} aria-hidden="true" />
-              <span>{preview ? '预览' : '快捷交互'}</span>
+              <span>{preview ? '预览' : view.promptMode ? '纯 Prompt' : '快捷交互'}</span>
             </span>
             <strong className="quick-overlay-profile-name">{view.profileName}</strong>
+            <span className="quick-overlay-meta-sep" aria-hidden="true">
+              ·
+            </span>
             <span className="quick-overlay-device-name">{view.deviceName}</span>
+            {view.items.length > 0 && <span className="quick-overlay-count-chip">{view.items.length} 键</span>}
           </div>
           <div className="quick-overlay-actions">
             {view.triggerLabel ? (
@@ -449,7 +476,7 @@ export function QuickOverlayPresentation({
 
         {view.items.length === 0 ? (
           <div className="quick-overlay-empty">
-            <p>此快捷配置暂未添加按键功能</p>
+            <p>{view.promptMode ? '此 Prompt 面板暂未添加按键内容' : '此快捷配置暂未添加按键功能'}</p>
             <span>在主窗口选择「{view.profileName}」即可为按键配置提示词或快捷行为</span>
           </div>
         ) : (
@@ -460,12 +487,13 @@ export function QuickOverlayPresentation({
 
         {activeDetail && (
           <div className="quick-surface-detail-bar" aria-live="polite">
-            <span className="quick-detail-title">
-              <strong>{activeDetail.title}</strong>
-              <span className="quick-detail-badge">{activeDetail.badge}</span>
-            </span>
+            <div className="quick-detail-head">
+              <span className="quick-detail-key-pill">{activeDetail.keyLabel}</span>
+              {activeDetail.title && <strong className="quick-detail-title">{activeDetail.title}</strong>}
+              <span className={`quick-detail-badge${view.promptMode ? ' is-prompt' : ''}`}>{activeDetail.badge}</span>
+              {activeDetail.steps && <span className="quick-detail-steps">{activeDetail.steps}</span>}
+            </div>
             <p className="quick-detail-body">{activeDetail.body}</p>
-            {activeDetail.steps && <span className="quick-detail-steps">{activeDetail.steps}</span>}
           </div>
         )}
       </aside>

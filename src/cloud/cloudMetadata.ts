@@ -23,12 +23,14 @@ type ProfileContent = {
   id: string
   name: string
   behaviors: unknown
+  promptMode?: boolean
   display?: { mode: 'auto' | 'custom'; line1: string; line2: string }
 }
 export function profileContent(profile: ProfileContent): string {
   return fingerprint({
     name: profile.name,
     behaviors: profile.behaviors,
+    ...(profile.promptMode ? { promptMode: true } : {}),
     ...(profile.display === undefined ? {} : { display: profile.display }),
   })
 }

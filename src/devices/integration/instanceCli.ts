@@ -187,10 +187,22 @@ export async function processInstanceCliRequest(
     const name = stringParam(params.name, 'name')
     if (!name) throw new InstanceCliError('invalid_arguments', '新建配置需要 --name')
     const quick = booleanParam(params.quick, 'quick')
+    const promptMode = booleanParam(params.promptMode, 'promptMode')
+    if (promptMode && !quick)
+      throw new InstanceCliError('invalid_arguments', '纯 Prompt 模式仅适用于快捷交互配置（--quick）')
     const create = (current: DeviceInstance) => {
       if (current.profiles.some(profile => profile.name === name))
         throw new InstanceCliError('invalid_target', '配置名称已存在：' + name)
-      if (quick) return addQuickInstanceProfile(current, name).instance
+      if (quick) {
+        const created = addQuickInstanceProfile(current, name)
+        if (!promptMode) return created.instance
+        return {
+          ...created.instance,
+          profiles: created.instance.profiles.map(item =>
+            item.id === created.profileId ? { ...item, promptMode: true } : item,
+          ),
+        }
+      }
       const next = addInstanceProfile(current, false)
       next.profiles[next.profiles.length - 1].name = name
       return next
@@ -355,6 +367,7 @@ function profileIdentity(instance: DeviceInstance, profile: InstanceProfile) {
     name: profile.name,
     active: profile.id === instance.activeProfileId,
     ...(profile.quick ? { quick: true } : {}),
+    ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
   }
 }
 

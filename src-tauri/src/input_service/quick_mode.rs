@@ -122,6 +122,7 @@ impl QuickMode {
             trigger_input.to_owned(),
             profile.raw_behaviors.clone(),
             false,
+            profile.prompt_mode,
         );
         if let Some(previous) = self.session.take() {
             self.swallow_until_release.extend(previous.pressed);

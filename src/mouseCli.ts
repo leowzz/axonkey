@@ -29,6 +29,7 @@ export async function processMouseCliRequest(
     name: item.name,
     active: item.id === state.globalProfileId,
     ...(item.quick ? { quick: true } : {}),
+    ...(item.quick && item.promptMode ? { promptMode: true } : {}),
   })
   const target = { device: 'mouse', profile: identity(profile) }
   let result: Record<string, unknown>
@@ -49,6 +50,9 @@ export async function processMouseCliRequest(
     if (!name || name.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
     if (mouse.some(item => item.name === name)) throw new InstanceCliError('invalid_target', '配置名称已存在')
     const quick = booleanParam(params.quick, 'quick')
+    const promptMode = booleanParam(params.promptMode, 'promptMode')
+    if (promptMode && !quick)
+      throw new InstanceCliError('invalid_arguments', '纯 Prompt 模式仅适用于快捷交互配置（--quick）')
     const behaviors = createEmptyBehaviorMap()
     if (!quick) {
       for (const input of devices.find(device => device.id === 'mouse')!.inputIds)
@@ -63,6 +67,7 @@ export async function processMouseCliRequest(
       deviceId: 'mouse' as const,
       behaviors,
       ...(quick ? { quick: true } : {}),
+      ...(quick && promptMode ? { promptMode: true } : {}),
     }
     next.profiles = [...profiles, created]
     if (!quick) next.globalProfileId = created.id

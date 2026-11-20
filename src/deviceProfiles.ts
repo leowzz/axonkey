@@ -122,6 +122,7 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
           ? { applicationIds: raw.applicationIds.filter((id): id is string => typeof id === 'string').slice(0, 100) }
           : {}),
         ...(raw.quick === true ? { quick: true } : {}),
+        ...(raw.quick === true && raw.promptMode === true ? { promptMode: true } : {}),
       },
     ]
   })
