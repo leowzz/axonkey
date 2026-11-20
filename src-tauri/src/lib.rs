@@ -12,6 +12,7 @@ mod input_service;
 mod legacy_cleanup;
 mod legacy_driver;
 mod library_usage;
+mod mobile_host;
 mod onboarding;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
@@ -2279,6 +2280,14 @@ pub fn run() {
             app.manage(app_storage::AppConfigStore::open(
                 app_data_dir.join("app-config.json"),
             ));
+            match mobile_host::MobileHostHandle::start(app_data_dir.clone()) {
+                Ok(handle) => {
+                    app.manage(handle);
+                }
+                Err(error) => {
+                    log::warn!(target: "axonkey::mobile", "Failed to start Axonkey Mobile WSS host: {error}");
+                }
+            }
 
             let default_panic_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |panic| {
@@ -2394,6 +2403,12 @@ pub fn run() {
             quick_overlay::dismiss_quick_overlay,
             quick_overlay::preview_quick_overlay,
             quick_overlay::trigger_quick_overlay_input,
+            mobile_host::mobile_host_status,
+            mobile_host::mobile_host_start_pairing,
+            mobile_host::mobile_host_list_peers,
+            mobile_host::mobile_host_revoke_peer,
+            mobile_host::mobile_host_get_deck,
+            mobile_host::mobile_host_update_deck,
             ping,
             app_storage::load_app_config,
             app_storage::update_app_config,

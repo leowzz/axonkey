@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 pub(crate) mod launch;
 pub mod managed;
+pub mod mobile;
 pub mod mouse;
+pub mod ownership;
 mod profile_switch;
 pub(crate) mod quick_mode;
 pub(crate) mod text_output;
@@ -488,9 +490,9 @@ impl TriggerBehaviors {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub(super) enum NativeBehavior {
+pub(crate) enum NativeBehavior {
     Wheel {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -637,9 +639,9 @@ pub(super) fn repeatable_click(triggers: &TriggerBehaviors) -> Option<Repeatable
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum WheelDirection {
+pub(crate) enum WheelDirection {
     Up,
     Down,
     Left,
@@ -675,9 +677,9 @@ pub(crate) fn execute_quick_overlay_behavior(behavior: &NativeBehavior) {
     windows::execute_mouse_behavior(behavior, 10);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum MouseButton {
+pub(crate) enum MouseButton {
     Left,
     Right,
     Middle,

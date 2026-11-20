@@ -36,12 +36,19 @@ sha2 = "0.10"
 rusqlite = { version = "0.41", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 hidapi = { version = "2.6.7", default-features = false, features = ["macos-shared-device", "windows-native", "linux-static-hidraw"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+tokio-tungstenite = "0.26"
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13"
+base64 = "0.22"
+rand = "0.8"
+futures-util = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-collections = "0.2"
 windows-future = "0.2.1"
 prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread", "net"] }
 winreg = "0.55"
 rubato = { version = "0.16.2", default-features = false }
 windows = { version = "0.61.3", features = [

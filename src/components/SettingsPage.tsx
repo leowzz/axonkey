@@ -9,9 +9,11 @@ import {
   Power,
   RotateCcw,
   ShieldCheck,
+  Smartphone,
 } from 'lucide-react'
 import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
+import { MobilePairingPanel } from './MobilePairingPanel'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, MappingEditorStyle, Platform } from '../appTypes'
@@ -19,7 +21,7 @@ import { SelectControl } from './SelectControl'
 import type { DriverActionKind, DriverState } from '../systemState'
 import './SettingsPanelLayout.css'
 
-export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
+export type SettingsSection = 'startup' | 'permissions' | 'mobile' | 'remote' | 'backup' | 'cloud' | 'about'
 
 type SettingsPageProps = {
   mappingStyle: MappingEditorStyle
@@ -126,6 +128,7 @@ export function SettingsPage({
   const sections = [
     { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
     { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
+    { id: 'mobile' as const, label: '手机遥控', icon: <Smartphone size={16} /> },
     { id: 'remote' as const, label: '页面布局', icon: <LayoutDashboard size={16} /> },
     { id: 'backup' as const, label: '数据备份', icon: <DatabaseBackup size={16} /> },
     { id: 'cloud' as const, label: '账号与同步', icon: <Cloud size={16} /> },
@@ -627,6 +630,17 @@ export function SettingsPage({
                 </div>
               )}
             </div>
+          </section>
+          <section
+            id="settings-panel-mobile"
+            className="settings-section"
+            hidden={currentSection !== 'mobile'}
+            aria-labelledby="settings-nav-mobile"
+          >
+            <div className="settings-section-head">
+              <h2>手机遥控（Axonkey Mobile）</h2>
+            </div>
+            <MobilePairingPanel nativeRuntime={nativeRuntime} />
           </section>
         </div>
       </div>

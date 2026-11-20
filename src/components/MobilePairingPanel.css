@@ -1,0 +1,136 @@
+.mobile-pairing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mobile-pairing-status-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.2));
+  background: var(--surface-subtle, rgba(128, 128, 128, 0.06));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-pairing-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobile-pairing-status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.mobile-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #71717a;
+}
+
+.mobile-status-dot.ready {
+  background: #3b82f6;
+}
+
+.mobile-status-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.mobile-pairing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+.mobile-pairing-error {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.mobile-pairing-qr-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-pairing-qr-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-pairing-qr-box {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 14px;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #18181b;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.mobile-pairing-qr-caption {
+  font-size: 11px;
+  color: #52525b;
+}
+
+.mobile-pairing-peers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-pairing-peers-title {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.mobile-pairing-empty {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.mobile-pairing-peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-pairing-peer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.18));
+}
+
+.mobile-pairing-peer-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.mobile-revoke-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

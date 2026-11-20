@@ -2408,6 +2408,153 @@ fn send_mouse_move(dx: i32, dy: i32) {
     }
 }
 
+/// Pure relative pointer motion for Axonkey Mobile trackpad.
+/// Uses `MOUSEEVENTF_MOVE` without `ABSOLUTE` or `VIRTUALDESK` and never calls `GetCursorPos`.
+pub(super) fn inject_relative_motion(dx: i32, dy: i32) -> Result<(), String> {
+    #[cfg(test)]
+    {
+        MOUSE_MOVES.with(|events| events.borrow_mut().push((dx, dy)));
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        const MOUSEEVENTF_MOVE: u32 = 0x0001;
+        let input = Input {
+            kind: 0,
+            value: InputValue {
+                mouse: MouseInput {
+                    dx,
+                    dy,
+                    mouse_data: 0,
+                    flags: MOUSEEVENTF_MOVE,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Relative pointer injection failed (dx={dx}, dy={dy}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_mouse_button_edge(
+    button: super::MouseButton,
+    down: bool,
+) -> Result<(), String> {
+    let (down_flag, up_flag, mouse_data) = match button {
+        super::MouseButton::Left => (0x0002, 0x0004, 0),
+        super::MouseButton::Right => (0x0008, 0x0010, 0),
+        super::MouseButton::Middle => (0x0020, 0x0040, 0),
+        super::MouseButton::Back => (0x0080, 0x0100, 1),
+        super::MouseButton::Forward => (0x0080, 0x0100, 2),
+    };
+    let flags = if down { down_flag } else { up_flag };
+    let input = Input {
+        kind: 0,
+        value: InputValue {
+            mouse: MouseInput {
+                dx: 0,
+                dy: 0,
+                mouse_data,
+                flags,
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    #[cfg(test)]
+    {
+        MOUSE_BUTTON_EVENTS.with(|events| {
+            let mouse = unsafe { input.value.mouse };
+            events.borrow_mut().push((mouse.flags, mouse.mouse_data));
+        });
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Mouse button injection failed (button={button:?}, down={down}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_wheel_delta(delta: i32, horizontal: bool) -> Result<(), String> {
+    let input = wheel_input(delta, horizontal);
+    #[cfg(test)]
+    {
+        WHEEL_EVENTS.with(|events| {
+            events
+                .borrow_mut()
+                .push(unsafe { input.value.mouse.mouse_data } as i32)
+        });
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Wheel injection failed (delta={delta}, horizontal={horizontal}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_virtual_key_edge(key: &str, down: bool) -> Result<(), String> {
+    let behavior = super::NativeBehavior::Key {
+        enabled: true,
+        key: key.to_owned(),
+    };
+    let Some(keys) = behavior_chord(&behavior) else {
+        return Err(format!("Unsupported virtual key: {key}"));
+    };
+    let mut inputs = Vec::with_capacity(keys.len());
+    for vk in keys {
+        let mut input = virtual_key_input(vk);
+        if !down {
+            unsafe {
+                input.value.keyboard.flags |= 0x0002; // KEYEVENTF_KEYUP
+            }
+        }
+        inputs.push(input);
+    }
+    #[cfg(test)]
+    {
+        let _ = inputs;
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<Input>() as i32,
+            )
+        };
+        if sent as usize != inputs.len() {
+            return Err(format!(
+                "Keyboard edge injection failed (key={key}, down={down}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub(super) fn send_absolute_mouse_move(abs_x: u16, abs_y: u16) {
     const MOUSEEVENTF_MOVE: u32 = 0x0001;
     const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
