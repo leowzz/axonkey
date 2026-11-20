@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="168" height="694" viewBox="0 0 168 694" data-ak-schema="axonkey.device/1" data-ak-device="rmf-tx800c" data-ak-revision="2" role="img" aria-labelledby="device-title device-description">
+  <title id="device-title">RMF-TX800C 正面</title>
+  <desc id="device-description">十五个蓝牙普通按键可映射；麦克风键专用于 ATVV 点按语音，电源键走红外，二者均只保留外观。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="rmf-tx800c" vendor="Sony" model="RMF-TX800C" revision="2" display-name="Sony RMF-TX800C">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="0x02054C" pid="0x0DF7" service="00001812-0000-1000-8000-00805F9B34FB" windows-prefix="BTHLEDEVICE" information-required="true" manufacturer-contains="Sony_Corporation|Sony Corporation" />
+      </ak:identity>
+      <ak:reports>
+        <!-- Captured bytes define these layouts; HID Usage Page remains unverified. -->
+        <ak:report id="captured-buttons" direction="input" report-id="0x04" length="5" encoding="bit-field" prefix="0x04" state-group="captured-buttons" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="rmf-tx800c.power" label="电源" short="电源" icon="power" kind="button" order="0" original="false" binding="pending"/>
+        <ak:input id="rmf-tx800c.tv" label="电视" short="电视" icon="tv" kind="button" target="#key-tv" order="1" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0089"/><ak:hid-capture version="1" press="04 89 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.settings" label="设置" short="设置" icon="settings" kind="button" target="#key-settings" order="2" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x03C3"/><ak:hid-capture version="1" press="04 C3 03 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.input" label="输入源" short="输入源" icon="center" kind="button" target="#key-input" order="3" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0533"/><ak:hid-capture version="1" press="04 33 05 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.number" label="数字键（123）" short="123" icon="number" kind="button" target="#key-number" order="4" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x051F"/><ak:hid-capture version="1" press="04 1F 05 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.up" label="方向上" short="上" icon="up" kind="button" target="#key-up" order="5" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0042"/><ak:hid-capture version="1" press="04 42 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.left" label="方向左" short="左" icon="left" kind="button" target="#key-left" order="6" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0044"/><ak:hid-capture version="1" press="04 44 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.confirm" label="确认" short="确认" icon="center" kind="button" target="#key-confirm" order="7" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0041"/><ak:hid-capture version="1" press="04 41 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.right" label="方向右" short="右" icon="right" kind="button" target="#key-right" order="8" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0045"/><ak:hid-capture version="1" press="04 45 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.down" label="方向下" short="下" icon="down" kind="button" target="#key-down" order="9" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0043"/><ak:hid-capture version="1" press="04 43 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.back" label="返回" short="返回" icon="back" kind="button" target="#key-back" order="10" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0224"/><ak:hid-capture version="1" press="04 24 02 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.home" label="主页" short="主页" icon="home" kind="button" target="#key-home" order="11" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0223"/><ak:hid-capture version="1" press="04 23 02 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.mute" label="静音" short="静音" icon="mute" kind="button" target="#key-mute" order="12" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00E2"/><ak:hid-capture version="1" press="04 E2 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.voice" label="麦克风键" short="麦克风" icon="mic" kind="button" order="13" original="false" binding="pending"/>
+        <ak:input id="rmf-tx800c.menu" label="菜单" short="菜单" icon="menu" kind="button" target="#key-menu" order="14" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x038B"/><ak:hid-capture version="1" press="04 8B 03 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.volumeUp" label="音量加" short="音量加" icon="volumeUp" kind="button" target="#key-volume-up" order="15" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00E9"/><ak:hid-capture version="1" press="04 E9 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+        <ak:input id="rmf-tx800c.volumeDown" label="音量减" short="音量减" icon="volumeDown" kind="button" target="#key-volume-down" order="16" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00EA"/><ak:hid-capture version="1" press="04 EA 00 00 00" press-length="5" release="04 00 00 00 00" release-length="5"/></ak:input>
+      </ak:inputs>
+      <ak:capabilities>
+        <ak:voice id="voice" trigger-key="rmf-tx800c.voice"
+                  transport="gatt"
+                  service="AB5E0001-5A21-4F05-BC7D-AF01F617B664"
+                  transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
+                  audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
+                  control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
+                  engine="tcl-rc902v-atvv" trigger-modes="click"
+                  sample-rate="16000" required="false" />
+      </ak:capabilities>
+    </ak:device>
+  </metadata>
+
+  <g id="front-view" data-ak-view="front" aria-label="正面" fill="#333338">
+    <rect x="10" y="9" width="148" height="676" rx="33" fill="#414146" stroke="#303034" stroke-width="1.5"/>
+
+    <g id="key-power" aria-hidden="true">
+      <circle cx="127" cy="38" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 124 32.8 A 5.7 5.7 0 1 0 130 32.8 M 127 30.5 V 37" fill="none" stroke="#76b5a8" stroke-width="1.3" stroke-linecap="round"/>
+    </g>
+    <g id="key-tv" data-ak-key="rmf-tx800c.tv" data-ak-role="input" role="button" tabindex="0" aria-label="电视">
+      <circle cx="39" cy="84" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <text x="39" y="88" text-anchor="middle" fill="#f2f2f3" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="11" font-weight="600">电视</text>
+    </g>
+    <circle id="status-indicator" cx="83.5" cy="84" r="15" fill="#2c2c31" stroke="#242429" stroke-width="1"/>
+    <g id="key-settings" data-ak-key="rmf-tx800c.settings" data-ak-role="input" role="button" tabindex="0" aria-label="设置">
+      <circle cx="127" cy="84" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path transform="translate(127 84)" d="M -1.5 -7 H 1.5 L 2 -5.3 L 3.9 -4.2 L 5.7 -4.6 L 7 -2.3 L 5.7 -1 V 1 L 7 2.3 L 5.7 4.6 L 3.9 4.2 L 2 5.3 L 1.5 7 H -1.5 L -2 5.3 L -3.9 4.2 L -5.7 4.6 L -7 2.3 L -5.7 1 V -1 L -7 -2.3 L -5.7 -4.6 L -3.9 -4.2 L -2 -5.3 Z M -2.5 0 a 2.5 2.5 0 1 0 5 0 a 2.5 2.5 0 1 0 -5 0 Z" fill="#f2f2f3" fill-rule="evenodd"/>
+    </g>
+
+    <ellipse cx="83.5" cy="114.25" rx="3.8" ry="1.85" fill="#17171b"/>
+    <g id="key-input" data-ak-key="rmf-tx800c.input" data-ak-role="input" role="button" tabindex="0" aria-label="输入源">
+      <circle cx="39" cy="127.5" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 35 125 V 124.6 Q 35 122.2 37.6 122.2 H 46 Q 48.7 122.2 48.7 124.9 V 130.1 Q 48.7 132.8 46 132.8 H 37.6 Q 35 132.8 35 130.4 V 130 M 29.8 127.5 H 42 M 39.4 125 L 42 127.5 L 39.4 130" fill="none" stroke="#f2f2f3" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-number" data-ak-key="rmf-tx800c.number" data-ak-role="input" role="button" tabindex="0" aria-label="数字键（123）">
+      <circle cx="127" cy="127.5" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <text x="127" y="132" text-anchor="middle" fill="#f2f2f3" font-family="Arial, sans-serif" font-size="12" font-weight="600">123</text>
+    </g>
+
+    <circle cx="83.5" cy="187" r="47.5" fill="#434348" stroke="#202024" stroke-width="1.25"/>
+    <g id="key-up" data-ak-key="rmf-tx800c.up" data-ak-role="input" role="button" tabindex="0" aria-label="方向上">
+      <path d="M 83.5 150 L 88.5 156.5 H 78.5 Z" fill="#626267"/>
+    </g>
+    <g id="key-left" data-ak-key="rmf-tx800c.left" data-ak-role="input" role="button" tabindex="0" aria-label="方向左">
+      <path d="M 46.5 187 L 53 182 V 192 Z" fill="#626267"/>
+    </g>
+    <g id="key-confirm" data-ak-key="rmf-tx800c.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认">
+      <circle cx="83.5" cy="187" r="20.5" stroke="#19191c" stroke-width="1.4"/>
+      <circle cx="83.5" cy="187" r="1.8" fill="#f2f2f3"/>
+      <path d="M 83.5 180.5 V 183 M 83.5 191 V 193.5 M 77 187 H 79.5 M 87.5 187 H 90" stroke="#f2f2f3" stroke-width="1.1" stroke-linecap="round"/>
+    </g>
+    <g id="key-right" data-ak-key="rmf-tx800c.right" data-ak-role="input" role="button" tabindex="0" aria-label="方向右">
+      <path d="M 120.5 187 L 114 192 V 182 Z" fill="#626267"/>
+    </g>
+    <g id="key-down" data-ak-key="rmf-tx800c.down" data-ak-role="input" role="button" tabindex="0" aria-label="方向下">
+      <path d="M 83.5 224 L 78.5 217.5 H 88.5 Z" fill="#626267"/>
+    </g>
+
+    <g id="key-back" data-ak-key="rmf-tx800c.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回">
+      <circle cx="39" cy="246.5" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 35.5 243.4 H 41.1 A 4.3 4.3 0 0 1 41.1 252 H 36" fill="none" stroke="#f2f2f3" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M 32.5 243.4 L 37 240.5 V 246.3 Z" fill="#f2f2f3"/>
+    </g>
+    <g id="key-home" data-ak-key="rmf-tx800c.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页">
+      <circle cx="127" cy="246.5" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 127 240.1 L 133.8 246.4 L 132.4 247.8 L 131.8 247.2 V 252 H 128.3 V 248.3 H 125.7 V 252 H 122.2 V 247.2 L 121.6 247.8 L 120.2 246.4 Z" fill="#f2f2f3"/>
+    </g>
+    <g id="key-mute" data-ak-key="rmf-tx800c.mute" data-ak-role="input" role="button" tabindex="0" aria-label="静音">
+      <circle cx="39" cy="289" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 33.4 287 H 35.7 L 39.6 284 V 294 L 35.7 291 H 33.4 Z M 42 287.3 L 45.4 290.7 M 45.4 287.3 L 42 290.7 M 34.8 294.1 L 45.5 283.4" fill="none" stroke="#f2f2f3" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-voice" aria-hidden="true">
+      <circle cx="83.5" cy="289" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <rect x="81.15" y="281.4" width="4.7" height="9.8" rx="2.35" fill="#f2f2f3"/>
+      <path d="M 78.4 288.8 V 289.4 A 5.1 5.1 0 0 0 88.6 289.4 V 288.8 M 83.5 294.5 V 296.5" fill="none" stroke="#f2f2f3" stroke-width="1.35" stroke-linecap="round"/>
+    </g>
+    <g id="key-menu" data-ak-key="rmf-tx800c.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单">
+      <circle cx="127" cy="289" r="15" stroke="#1b1b1e" stroke-width="1"/>
+      <path d="M 121 285.2 H 133 M 121 289 H 133 M 121 292.8 H 133" stroke="#f2f2f3" stroke-width="1.4" stroke-linecap="round"/>
+    </g>
+
+    <rect x="69" y="317.5" width="29" height="71" rx="14.5" stroke="#1b1b1e" stroke-width="1"/>
+    <g id="key-volume-up" data-ak-key="rmf-tx800c.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 76 338 H 91 M 83.5 330.5 V 345.5" fill="none" stroke="#f2f2f3" stroke-width="1.3" stroke-linecap="round"/>
+    </g>
+    <path d="M 76.5 359.5 L 90.5 352.5 V 359.5 Z" fill="none" stroke="#f2f2f3" stroke-width="1.2" stroke-linejoin="round"/>
+    <g id="key-volume-down" data-ak-key="rmf-tx800c.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 76 377 H 91" stroke="#f2f2f3" stroke-width="1.3" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="rmf-tx800c.tv" data-ak-anchor="39 84" d="M 24 84 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.settings" data-ak-anchor="127 84" d="M 112 84 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.input" data-ak-anchor="39 127.5" d="M 24 127.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.number" data-ak-anchor="127 127.5" d="M 112 127.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.up" data-ak-anchor="83.5 153.5" d="M 49.912427894 153.412427894 A 47.5 47.5 0 0 1 117.087572106 153.412427894 L 97.995689014 172.504310986 A 20.5 20.5 0 0 0 69.004310986 172.504310986 Z"/>
+    <path data-ak-region="rmf-tx800c.left" data-ak-anchor="50 187" d="M 49.912427894 220.587572106 A 47.5 47.5 0 0 1 49.912427894 153.412427894 L 69.004310986 172.504310986 A 20.5 20.5 0 0 0 69.004310986 201.495689014 Z"/>
+    <path data-ak-region="rmf-tx800c.confirm" data-ak-anchor="83.5 187" d="M 69.004310986 172.504310986 A 20.5 20.5 0 0 1 97.995689014 172.504310986 A 20.5 20.5 0 0 1 97.995689014 201.495689014 A 20.5 20.5 0 0 1 69.004310986 201.495689014 A 20.5 20.5 0 0 1 69.004310986 172.504310986 Z"/>
+    <path data-ak-region="rmf-tx800c.right" data-ak-anchor="117 187" d="M 117.087572106 153.412427894 A 47.5 47.5 0 0 1 117.087572106 220.587572106 L 97.995689014 201.495689014 A 20.5 20.5 0 0 0 97.995689014 172.504310986 Z"/>
+    <path data-ak-region="rmf-tx800c.down" data-ak-anchor="83.5 220.5" d="M 117.087572106 220.587572106 A 47.5 47.5 0 0 1 49.912427894 220.587572106 L 69.004310986 201.495689014 A 20.5 20.5 0 0 0 97.995689014 201.495689014 Z"/>
+    <path data-ak-region="rmf-tx800c.back" data-ak-anchor="39 246.5" d="M 24 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.home" data-ak-anchor="127 246.5" d="M 112 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.mute" data-ak-anchor="39 289" d="M 24 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.menu" data-ak-anchor="127 289" d="M 112 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.volumeUp" data-ak-anchor="83.5 338" d="M 69 353 V 332 A 14.5 14.5 0 0 1 98 332 V 353 Z"/>
+    <path data-ak-region="rmf-tx800c.volumeDown" data-ak-anchor="83.5 377" d="M 69 353 H 98 V 374 A 14.5 14.5 0 0 1 69 374 Z"/>
+  </g>
+</svg>

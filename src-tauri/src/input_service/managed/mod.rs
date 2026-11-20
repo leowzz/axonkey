@@ -566,9 +566,14 @@ fn normalize_instance(instance: &mut Instance) {
     let modes = crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
         .and_then(|descriptor| descriptor.voices.first())
         .and_then(|voice| voice.attributes.get("trigger-modes"));
-    if modes.is_some_and(|modes| !modes.split_whitespace().any(|mode| mode == "click")) {
-        instance.cmiot_a15_recording_mode =
-            crate::devices::cmiot_a15::recording::RecordingMode::Hold;
+    if let Some(modes) = modes {
+        use crate::devices::cmiot_a15::recording::RecordingMode;
+        let supports = |mode| modes.split_whitespace().any(|supported| supported == mode);
+        instance.cmiot_a15_recording_mode = match (supports("hold"), supports("click")) {
+            (_, false) => RecordingMode::Hold,
+            (false, true) => RecordingMode::Click,
+            (true, true) => instance.cmiot_a15_recording_mode,
+        };
     }
 }
 fn save(path: &std::path::Path, store: &Store) -> Result<(), String> {
@@ -3875,13 +3880,14 @@ mod tests {
     }
 
     #[test]
-    fn loaded_recording_modes_fix_hold_only_remotes_and_preserve_a15_choices() {
+    fn loaded_recording_modes_enforce_single_mode_and_preserve_a15_choices() {
         use crate::devices::cmiot_a15::recording::RecordingMode;
         let remotes = [
             ("xmBt29", RecordingMode::Click),
             ("rc313", RecordingMode::Click),
             ("obeRcuR5", RecordingMode::Click),
             ("tclRc802a", RecordingMode::Click),
+            ("rmfTx800c", RecordingMode::Hold),
             ("cmiotA15", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Hold),
         ]
@@ -3909,6 +3915,7 @@ mod tests {
                 RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
+                RecordingMode::Click,
                 RecordingMode::Click,
                 RecordingMode::Hold
             ]

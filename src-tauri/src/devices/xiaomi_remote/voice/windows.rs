@@ -46,6 +46,7 @@ enum GattRemoteKind {
     Rc003,
     TclRc902n,
     TclRc902v,
+    SonyRmfTx800c,
 }
 
 impl GattRemoteKind {
@@ -53,6 +54,7 @@ impl GattRemoteKind {
         match kind {
             "tclRc902n" => Self::TclRc902n,
             "tclRc902v" => Self::TclRc902v,
+            "rmfTx800c" => Self::SonyRmfTx800c,
             _ => Self::Rc003,
         }
     }
@@ -65,8 +67,11 @@ impl GattRemoteKind {
         }
     }
 
-    fn is_tcl_rc902(self) -> bool {
-        matches!(self, Self::TclRc902n | Self::TclRc902v)
+    fn uses_atvv_session(self) -> bool {
+        matches!(
+            self,
+            Self::TclRc902n | Self::TclRc902v | Self::SonyRmfTx800c
+        )
     }
 
     fn descriptor_kind(self) -> &'static str {
@@ -74,6 +79,7 @@ impl GattRemoteKind {
             Self::Rc003 => "rc003",
             Self::TclRc902n => "tclRc902n",
             Self::TclRc902v => "tclRc902v",
+            Self::SonyRmfTx800c => "rmfTx800c",
         }
     }
 
@@ -82,6 +88,7 @@ impl GattRemoteKind {
             Self::Rc003 => "RC003",
             Self::TclRc902n => "TCL RC902N",
             Self::TclRc902v => "TCL RC902V",
+            Self::SonyRmfTx800c => "Sony RMF-TX800C",
         }
     }
 }
@@ -141,7 +148,11 @@ impl Shared {
             status: Mutex::new(AudioServiceStatus::default()),
             protocol: Mutex::new(protocol),
             decoder: Mutex::new(AtvvDecoder::default()),
-            rc902v_session: Mutex::new(Rc902vAtvvSession::default()),
+            rc902v_session: Mutex::new(if remote_kind == GattRemoteKind::SonyRmfTx800c {
+                Rc902vAtvvSession::on_request_click()
+            } else {
+                Rc902vAtvvSession::default()
+            }),
             rc902v_command_tx: Mutex::new(None),
             rc902v_resample_prev: Mutex::new(None),
             source: windows_vmic::source(),
@@ -405,7 +416,7 @@ impl AudioService {
     }
 
     pub(crate) fn set_recording_mode(&self, mode: RecordingMode) {
-        if !self.shared.remote_kind.is_tcl_rc902() {
+        if !self.shared.remote_kind.uses_atvv_session() {
             return;
         }
         let action = self
@@ -418,7 +429,9 @@ impl AudioService {
     }
 
     pub(crate) fn handle_voice_key_edge(&self, pressed: bool) {
-        if !self.shared.remote_kind.is_tcl_rc902() || !self.shared.enabled.load(Ordering::Acquire) {
+        if !self.shared.remote_kind.uses_atvv_session()
+            || !self.shared.enabled.load(Ordering::Acquire)
+        {
             return;
         }
         let action = self
@@ -607,7 +620,7 @@ impl VoiceConnection {
         let (command_tx, commands) = mpsc::channel();
         let rc902_tx = shared
             .remote_kind
-            .is_tcl_rc902()
+            .uses_atvv_session()
             .then(|| command_tx.clone());
         let mut connection = Self {
             device,
@@ -619,7 +632,7 @@ impl VoiceConnection {
             control_token: None,
             commands,
         };
-        if shared.remote_kind.is_tcl_rc902() {
+        if shared.remote_kind.uses_atvv_session() {
             let audio_tx = command_tx.clone();
             connection.audio_token = Some(watch_packets(
                 &connection.audio,
@@ -654,7 +667,7 @@ impl VoiceConnection {
 
         enable_notifications(&connection.audio, "audio", &request)?;
         enable_notifications(&connection.control, "control", &request)?;
-        if shared.remote_kind.is_tcl_rc902() {
+        if shared.remote_kind.uses_atvv_session() {
             let label = shared.remote_kind.label();
             let action = shared
                 .rc902v_session
@@ -704,7 +717,7 @@ impl VoiceConnection {
                     "{label} voice channel disconnected; wake the remote to reconnect"
                 ));
             }
-            if shared.remote_kind.is_tcl_rc902() {
+            if shared.remote_kind.uses_atvv_session() {
                 let polled = shared
                     .rc902v_session
                     .lock()
@@ -724,7 +737,7 @@ impl VoiceConnection {
             }
             match self.commands.recv_timeout(CONNECTION_POLL) {
                 Ok(command) => {
-                    if shared.remote_kind.is_tcl_rc902() {
+                    if shared.remote_kind.uses_atvv_session() {
                         log::info!(
                             target: "axonkey::audio",
                             "{label} ATVV TX len={} hex={}",
@@ -748,7 +761,7 @@ impl VoiceConnection {
         if let Ok(mut slot) = shared.rc902v_command_tx.lock() {
             *slot = None;
         }
-        let close_commands = if shared.remote_kind.is_tcl_rc902() {
+        let close_commands = if shared.remote_kind.uses_atvv_session() {
             let (commands, events) = shared
                 .rc902v_session
                 .lock()
@@ -818,7 +831,7 @@ fn find_remote(
     request: &BluetoothRequest<'_>,
 ) -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     let label = remote_kind.label();
-    if remote_kind.is_tcl_rc902() {
+    if remote_kind.uses_atvv_session() {
         let valid_target = target_bluetooth_address
             .is_some_and(|addr| addr.chars().filter(|ch| ch.is_ascii_hexdigit()).count() == 12);
         if !valid_target {
@@ -841,7 +854,7 @@ fn find_remote(
             continue;
         };
         let id_text = id.to_string();
-        let approved = if remote_kind.is_tcl_rc902() {
+        let approved = if remote_kind.uses_atvv_session() {
             approved_rc902_service_id(
                 remote_kind.descriptor_kind(),
                 &id_text,
@@ -1353,7 +1366,7 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 mod tests {
     use super::{
         approved_remote_service_id, handle_rc902v_audio_packet, handle_rc902v_control_packet, mpsc,
-        AudioService, GattRemoteKind, Instant, Ordering, Shared,
+        AudioService, GattRemoteKind, Instant, Ordering, RecordingMode, Shared,
     };
     use crate::windows_vmic::{DriverSnapshot, DriverStatus};
 
@@ -1526,6 +1539,32 @@ mod tests {
             r"\\?\BTHLEDevice#{0000180f-0000-1000-8000-00805f9b34fb}_Dev_C05D39C2CF83#device",
             None
         ));
+    }
+
+    #[test]
+    fn sony_bridge_keeps_click_recording_on_the_on_request_gatt_channel() {
+        let shared = Shared::new(GattRemoteKind::from_kind("rmfTx800c"), None);
+        shared.update_status(|status| status.bluetooth_connected = true);
+        let (tx, rx) = mpsc::channel();
+        let now = Instant::now();
+        let init = {
+            let mut session = shared.rc902v_session.lock().unwrap();
+            session.set_recording_mode(RecordingMode::Hold, now);
+            session.begin_negotiation(now)
+        };
+        assert_eq!(init.tx_commands, [vec![0x0a, 0x01, 0, 0, 0x03, 0]]);
+        handle_rc902v_control_packet(&shared, &[0x0b, 0x01, 0, 0x02, 0, 0, 0xa0, 0, 0], &tx);
+        handle_rc902v_control_packet(&shared, &[0x08], &tx);
+        assert_eq!(rx.try_recv().unwrap(), vec![0x0c, 0]);
+        handle_rc902v_control_packet(&shared, &[0x04, 0, 0x02, 0], &tx);
+        handle_rc902v_audio_packet(&shared, &[0; 160], &tx);
+        assert!(shared.status.lock().unwrap().forwarding);
+        assert_eq!(shared.source.queued_samples(), 320);
+
+        handle_rc902v_control_packet(&shared, &[0x08], &tx);
+        assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0]);
+        assert!(!shared.status.lock().unwrap().forwarding);
+        assert_eq!(shared.source.queued_samples(), 0);
     }
 
     #[test]

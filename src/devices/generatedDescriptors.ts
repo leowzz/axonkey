@@ -2649,6 +2649,280 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "rmf-tx800c": {
+    "id": "rmf-tx800c",
+    "ariaLabel": "Sony RMF-TX800C",
+    "artworkUrl": "/device-descriptors/rmf-tx800c.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1356
+        ],
+        "productIds": [
+          3575
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": true,
+        "modelContains": "",
+        "manufacturerContains": "Sony_Corporation|Sony Corporation"
+      }
+    ],
+    "voice": {
+      "engine": "tcl-rc902v-atvv",
+      "transport": "gatt",
+      "triggerModes": [
+        "click"
+      ]
+    },
+    "viewBox": {
+      "width": 168,
+      "height": 694
+    },
+    "inputs": [
+      {
+        "id": "rmf-tx800c.tv",
+        "stableId": "rmf-tx800c.tv",
+        "label": "电视",
+        "short": "电视",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 24 84 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 39,
+          "y": 84
+        }
+      },
+      {
+        "id": "rmf-tx800c.settings",
+        "stableId": "rmf-tx800c.settings",
+        "label": "设置",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 112 84 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 127,
+          "y": 84
+        }
+      },
+      {
+        "id": "rmf-tx800c.input",
+        "stableId": "rmf-tx800c.input",
+        "label": "输入源",
+        "short": "输入源",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 24 127.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 39,
+          "y": 127.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.number",
+        "stableId": "rmf-tx800c.number",
+        "label": "数字键（123）",
+        "short": "123",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 112 127.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 127,
+          "y": 127.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.up",
+        "stableId": "rmf-tx800c.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 49.912427894 153.412427894 A 47.5 47.5 0 0 1 117.087572106 153.412427894 L 97.995689014 172.504310986 A 20.5 20.5 0 0 0 69.004310986 172.504310986 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 153.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.left",
+        "stableId": "rmf-tx800c.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 49.912427894 220.587572106 A 47.5 47.5 0 0 1 49.912427894 153.412427894 L 69.004310986 172.504310986 A 20.5 20.5 0 0 0 69.004310986 201.495689014 Z",
+        "anchor": {
+          "x": 50,
+          "y": 187
+        }
+      },
+      {
+        "id": "rmf-tx800c.confirm",
+        "stableId": "rmf-tx800c.confirm",
+        "label": "确认",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 69.004310986 172.504310986 A 20.5 20.5 0 0 1 97.995689014 172.504310986 A 20.5 20.5 0 0 1 97.995689014 201.495689014 A 20.5 20.5 0 0 1 69.004310986 201.495689014 A 20.5 20.5 0 0 1 69.004310986 172.504310986 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 187
+        }
+      },
+      {
+        "id": "rmf-tx800c.right",
+        "stableId": "rmf-tx800c.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 117.087572106 153.412427894 A 47.5 47.5 0 0 1 117.087572106 220.587572106 L 97.995689014 201.495689014 A 20.5 20.5 0 0 0 97.995689014 172.504310986 Z",
+        "anchor": {
+          "x": 117,
+          "y": 187
+        }
+      },
+      {
+        "id": "rmf-tx800c.down",
+        "stableId": "rmf-tx800c.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 117.087572106 220.587572106 A 47.5 47.5 0 0 1 49.912427894 220.587572106 L 69.004310986 201.495689014 A 20.5 20.5 0 0 0 97.995689014 201.495689014 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 220.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.back",
+        "stableId": "rmf-tx800c.back",
+        "label": "返回",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 24 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 39,
+          "y": 246.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.home",
+        "stableId": "rmf-tx800c.home",
+        "label": "主页",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 112 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 127,
+          "y": 246.5
+        }
+      },
+      {
+        "id": "rmf-tx800c.mute",
+        "stableId": "rmf-tx800c.mute",
+        "label": "静音",
+        "short": "静音",
+        "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 24 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 39,
+          "y": 289
+        }
+      },
+      {
+        "id": "rmf-tx800c.menu",
+        "stableId": "rmf-tx800c.menu",
+        "label": "菜单",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 112 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 127,
+          "y": 289
+        }
+      },
+      {
+        "id": "rmf-tx800c.volumeUp",
+        "stableId": "rmf-tx800c.volumeUp",
+        "label": "音量加",
+        "short": "音量加",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 69 353 V 332 A 14.5 14.5 0 0 1 98 332 V 353 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 338
+        }
+      },
+      {
+        "id": "rmf-tx800c.volumeDown",
+        "stableId": "rmf-tx800c.volumeDown",
+        "label": "音量减",
+        "short": "音量减",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 69 353 H 98 V 374 A 14.5 14.5 0 0 1 69 374 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 377
+        }
+      }
+    ]
+  },
   "tcl-rc802a": {
     "id": "tcl-rc802a",
     "ariaLabel": "TCL RC802A",

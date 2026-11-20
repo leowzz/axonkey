@@ -1,4 +1,4 @@
-//! Google Voice over BLE (ATVV) PTT protocol, IMA ADPCM decoder, and PCM/WAV sink for TCL RC902N/RC902V.
+//! Google Voice over BLE (ATVV), IMA ADPCM decoder, and PCM/WAV sink for TCL and Sony remotes.
 use crate::devices::cmiot_a15::recording::RecordingMode;
 use std::time::{Duration, Instant};
 
@@ -131,7 +131,7 @@ impl std::fmt::Display for AtvvError {
             ),
             Self::UnsupportedModel { version, raw_model } => write!(
                 f,
-                "TCL RC902 requires ATVV HTT mode (0x03): version=0x{:04x} model=0x{raw_model:02x}",
+                "Unsupported ATVV interaction model: version=0x{:04x} model=0x{raw_model:02x}",
                 version.wire_code()
             ),
             Self::NoSupportedCodec(mask) => {
@@ -392,6 +392,7 @@ pub(crate) enum SessionState {
     Subscribed,
     Negotiating,
     Ready,
+    Opening,
     Streaming,
     Stopping,
     Error,
@@ -426,6 +427,7 @@ pub(crate) struct SessionStats {
 
 pub(crate) struct AtvvSession {
     state: SessionState,
+    interaction_model: InteractionModel,
     recording_mode: RecordingMode,
     capabilities: Option<Capabilities>,
     active_codec: AdpcmCodec,
@@ -451,6 +453,7 @@ impl Default for AtvvSession {
     fn default() -> Self {
         Self {
             state: SessionState::Disconnected,
+            interaction_model: InteractionModel::Htt,
             recording_mode: RecordingMode::Hold,
             capabilities: None,
             active_codec: AdpcmCodec::Adpcm16k,
@@ -475,10 +478,10 @@ impl Default for AtvvSession {
 }
 
 impl AtvvSession {
-    #[cfg(test)]
-    pub(crate) fn with_recording_mode(recording_mode: RecordingMode) -> Self {
+    pub(crate) fn on_request_click() -> Self {
         Self {
-            recording_mode,
+            interaction_model: InteractionModel::OnRequest,
+            recording_mode: RecordingMode::Click,
             ..Self::default()
         }
     }
@@ -502,7 +505,11 @@ impl AtvvSession {
         _mode: RecordingMode,
         _now: Instant,
     ) -> SessionAction {
-        self.recording_mode = RecordingMode::Hold;
+        self.recording_mode = if self.interaction_model == InteractionModel::OnRequest {
+            RecordingMode::Click
+        } else {
+            RecordingMode::Hold
+        };
         SessionAction::default()
     }
 
@@ -526,7 +533,11 @@ impl AtvvSession {
         self.state = SessionState::Negotiating;
         self.negotiating_since = Some(now);
         SessionAction {
-            tx_commands: vec![AtvvV10::get_caps().to_vec()],
+            tx_commands: vec![if self.interaction_model == InteractionModel::OnRequest {
+                AtvvV10::get_caps_with_models(0x00).to_vec()
+            } else {
+                AtvvV10::get_caps().to_vec()
+            }],
             events: Vec::new(),
         }
     }
@@ -672,8 +683,20 @@ impl AtvvSession {
     }
 
     pub(crate) fn abort_active_stream(&mut self) -> Option<SessionAction> {
-        let current = self.active_stream_id?;
-        self.close_stream(current)
+        if let Some(current) = self.active_stream_id {
+            return self.close_stream(current);
+        }
+        if self.mic_open_pending {
+            self.mic_open_pending = false;
+            self.closing_stream_id = Some(0);
+            self.clear_stream_timers();
+            self.state = SessionState::Stopping;
+            return Some(SessionAction {
+                tx_commands: vec![AtvvV10::mic_close(0).to_vec()],
+                events: Vec::new(),
+            });
+        }
+        None
     }
 
     pub(crate) fn poll_timers(&mut self, now: Instant) -> SessionAction {
@@ -687,6 +710,21 @@ impl AtvvSession {
             self.state = SessionState::Error;
             out.events.push(SessionEvent::Error(
                 "TCL RC902 ATVV capability negotiation timed out waiting for CAPS_RESP".into(),
+            ));
+            return out;
+        }
+
+        if self.state == SessionState::Opening
+            && self.stream_started_at.is_some_and(|started| {
+                now.saturating_duration_since(started) >= STREAM_STALL_TIMEOUT
+            })
+        {
+            if let Some(mut closed) = self.abort_active_stream() {
+                out.tx_commands.append(&mut closed.tx_commands);
+            }
+            self.state = SessionState::Ready;
+            out.events.push(SessionEvent::Error(
+                "ATVV MIC_OPEN timed out waiting for AUDIO_START".into(),
             ));
             return out;
         }
@@ -796,7 +834,7 @@ impl AtvvSession {
         };
         self.active_codec = preferred_codec;
         self.capabilities = Some(caps.clone());
-        if caps.version != ProtocolVersion::V10 || caps.model != InteractionModel::Htt {
+        if caps.version != ProtocolVersion::V10 || caps.model != self.interaction_model {
             let error = AtvvError::UnsupportedModel {
                 version: caps.version,
                 raw_model: caps.raw_model,
@@ -809,62 +847,39 @@ impl AtvvSession {
     }
 
     fn on_start_search(&mut self, now: Instant, out: &mut SessionAction) {
-        let Some(caps) = self.capabilities.as_ref() else {
-            return;
-        };
-        if caps.model != InteractionModel::OnRequest {
-            log::debug!(
-                target: "axonkey::audio",
-                "RC902V ignored START_SEARCH (0x08) under negotiated model=0x{:02x}",
-                caps.raw_model
-            );
-            return;
-        }
-        if self.recording_mode == RecordingMode::Click {
-            if self
-                .suppress_start_until
-                .take()
-                .is_some_and(|until| now <= until)
-            {
-                return;
-            }
-            if self.active_stream_id.is_some() {
-                if let Some(mut closed) = self.abort_active_stream() {
-                    out.tx_commands.append(&mut closed.tx_commands);
-                    out.events.append(&mut closed.events);
-                }
-                if !self.voice_key_down {
-                    self.suppress_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
-                }
-                return;
-            }
-        } else if !self.voice_key_down
-            && self
-                .released_before_start_until
-                .take()
-                .is_some_and(|until| now <= until)
+        if !self
+            .capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.model == InteractionModel::OnRequest)
         {
             return;
         }
-
-        if self.mic_open_pending || self.active_stream_id.is_some() {
+        if self
+            .suppress_start_until
+            .take()
+            .is_some_and(|until| now <= until)
+        {
             return;
         }
-        let command = match caps.version {
-            ProtocolVersion::V10 => AtvvV10::mic_open(MicOpenMode::Capture).to_vec(),
-            ProtocolVersion::V04 => AtvvV04::mic_open(self.active_codec).to_vec(),
-        };
-        self.mic_open_pending = true;
-        if self.recording_mode == RecordingMode::Click {
-            let press_seen = self
-                .opening_press_seen_until
-                .take()
-                .is_some_and(|until| now <= until);
-            if !press_seen && !self.voice_key_down {
-                self.awaiting_opening_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
+        if self.active_stream_id.is_some() || self.mic_open_pending {
+            let was_pending = self.mic_open_pending;
+            if let Some(mut closed) = self.abort_active_stream() {
+                out.tx_commands.append(&mut closed.tx_commands);
+                out.events.append(&mut closed.events);
             }
+            if was_pending {
+                self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+            return;
         }
-        out.tx_commands.push(command);
+        self.mic_open_pending = true;
+        self.closing_stream_id = None;
+        self.stream_started_at = Some(now);
+        self.last_audio_at = None;
+        self.state = SessionState::Opening;
+        // Sony's captured On-request stream uses MIC_OPEN mode 0x00.
+        out.tx_commands
+            .push(AtvvV10::mic_open(MicOpenMode::Playback).to_vec());
     }
 
     fn on_audio_start(
@@ -881,10 +896,11 @@ impl AtvvSession {
         let version = caps.version;
         let was_mic_open_pending = std::mem::replace(&mut self.mic_open_pending, false);
 
-        if reason != InteractionModel::Htt as u8 {
+        if reason != self.interaction_model as u8 {
             out.tx_commands.push(encode_mic_close(version, stream_id));
             out.events.push(SessionEvent::Error(format!(
-                "TCL RC902 rejected non-HTT AUDIO_START reason=0x{reason:02x} stream_id={stream_id}"
+                "ATVV rejected AUDIO_START reason=0x{reason:02x} stream_id={stream_id} for model=0x{:02x}",
+                self.interaction_model as u8
             )));
             return;
         }
@@ -1535,6 +1551,96 @@ mod tests {
         let ptt = session.handle_control(&[0x04, 0x01, 0x02, 0x07], now);
         assert_eq!(ptt.tx_commands, vec![vec![0x0d, 0x07]]);
         assert_eq!(session.state(), SessionState::Ready);
+    }
+
+    #[test]
+    fn sony_gatt_only_press_toggles_the_observed_atvv_v10_stream() {
+        let t0 = Instant::now();
+        let mut session = AtvvSession::on_request_click();
+        let caps = [
+            0x0b, 0x01, 0x00, 0x02, 0, 0, 0xa0, 0, 0, b'2', b'2', b'0', b'1', b'0', b'1', b'0',
+            b'2', b'2', 0, 0,
+        ];
+        let mut search = [0; 20];
+        search[0] = 0x08;
+        let mut audio_start = [0; 20];
+        audio_start[0] = 0x04;
+        audio_start[2] = 0x02;
+
+        assert_eq!(
+            session.begin_negotiation(t0).tx_commands,
+            [vec![0x0a, 0x01, 0, 0, 0x03, 0]]
+        );
+        session.handle_control(&caps, t0);
+        assert_eq!(
+            session.handle_control(&search, t0).tx_commands,
+            [vec![0x0c, 0]]
+        );
+        assert_eq!(
+            session.handle_control(&audio_start, t0).events,
+            [SessionEvent::SessionStarted {
+                stream_id: 0,
+                sample_rate: 16_000,
+            }]
+        );
+        let audio = session.handle_audio(&[0; 160], t0);
+        assert!(matches!(
+            &audio.events[..],
+            [SessionEvent::PcmChunk { sample_rate: 16_000, samples }] if samples.len() == 320
+        ));
+        assert_eq!(
+            session
+                .handle_control(&search, t0 + Duration::from_secs(1))
+                .tx_commands,
+            [vec![0x0d, 0]]
+        );
+    }
+
+    #[test]
+    fn sony_on_request_and_tcl_htt_policies_reject_each_others_capabilities() {
+        let now = Instant::now();
+        for (mut session, mode, rejected_model) in [
+            (AtvvSession::default(), RecordingMode::Hold, 0x00),
+            (AtvvSession::on_request_click(), RecordingMode::Click, 0x03),
+        ] {
+            session.set_recording_mode(RecordingMode::Hold, now);
+            assert_eq!(session.recording_mode, mode);
+            session.set_recording_mode(RecordingMode::Click, now);
+            assert_eq!(session.recording_mode, mode);
+            session.begin_negotiation(now);
+            let mut caps = synthetic_v10_htt_caps_resp();
+            caps[4] = rejected_model;
+            let rejected = session.handle_control(&caps, now);
+            assert_eq!(session.state(), SessionState::Error);
+            assert!(rejected.tx_commands.is_empty());
+            assert!(session.handle_control(&[0x08], now).tx_commands.is_empty());
+        }
+    }
+
+    #[test]
+    fn sony_on_request_open_can_be_cancelled_and_times_out() {
+        let now = Instant::now();
+        let mut session = AtvvSession::on_request_click();
+        session.begin_negotiation(now);
+        let mut caps = synthetic_v10_htt_caps_resp();
+        caps[4] = 0;
+        session.handle_control(&caps, now);
+        session.handle_control(&[0x08], now);
+        assert_eq!(session.state(), SessionState::Opening);
+        let cancelled = session.handle_control(&[0x08], now + Duration::from_millis(100));
+        assert_eq!(cancelled.tx_commands, [vec![0x0d, 0]]);
+        let late_start =
+            session.handle_control(&[0x04, 0, 0x02, 0], now + Duration::from_millis(150));
+        assert_eq!(late_start.tx_commands, [vec![0x0d, 0]]);
+        assert!(late_start.events.is_empty());
+        session.handle_control(&[0, 0], now + Duration::from_millis(200));
+
+        let later = now + Duration::from_secs(1);
+        session.handle_control(&[0x08], later);
+        let timed_out = session.poll_timers(later + STREAM_STALL_TIMEOUT);
+        assert_eq!(timed_out.tx_commands, [vec![0x0d, 0]]);
+        assert_eq!(session.state(), SessionState::Ready);
+        assert!(matches!(&timed_out.events[..], [SessionEvent::Error(_)]));
     }
 
     #[test]
