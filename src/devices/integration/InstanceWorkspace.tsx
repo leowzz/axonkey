@@ -506,6 +506,16 @@ export function InstanceWorkspace({
   }
   const renameProfile = (name: string) =>
     update(item => ({ ...item, profiles: item.profiles.map(p => (p.id === profile.id ? { ...p, name } : p)) }))
+  const toggleQuickPromptMode = (promptMode: boolean) =>
+    update(item => ({
+      ...item,
+      profiles: item.profiles.map(p => {
+        if (p.id !== profile.id || !p.quick) return p
+        if (promptMode) return { ...p, promptMode: true }
+        const { promptMode: _removed, ...rest } = p
+        return rest
+      }),
+    }))
   const deleteProfile = () => {
     if (editingQuickProfileId === profile.id) setEditingQuickProfileId(null)
     update(item => deleteInstanceProfile(item, profile.id))
@@ -529,6 +539,7 @@ export function InstanceWorkspace({
         profileName: target.name,
         triggerInput,
         behaviors: behaviorsForPreview,
+        promptMode: Boolean(target.quick && target.promptMode),
       }).catch(() => {
         onToast?.('无法打开快捷交互窗预览')
       })
@@ -554,6 +565,7 @@ export function InstanceWorkspace({
         id: item.id,
         name: item.name,
         quick: item.quick,
+        promptMode: item.promptMode,
         configuredCount: countConfiguredInputs(
           item.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(item.id)?.behaviors ?? {}),
           item.quick,
@@ -665,11 +677,13 @@ export function InstanceWorkspace({
         deviceName={instance.name}
         profileId={profile.id}
         profileName={profile.name}
+        promptMode={Boolean(profile.promptMode)}
         triggerInput={findQuickTriggerBinding(instance, sanitizedProfiles, profile.id) ?? undefined}
         inputs={pkg.inputs}
         behaviors={activeBehaviors}
         platform={platform}
         onChange={changeSequence}
+        onTogglePromptMode={toggleQuickPromptMode}
         onRename={renameProfile}
         onDuplicate={() => {
           void createQuickProfile(undefined, profile.id)

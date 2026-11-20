@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ChevronRight, Copy, Eye, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Copy, Eye, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { StepDefinition } from 'sequential-workflow-designer'
 import { behaviorTypeLabels } from '../appConfig'
 import { appStorage } from '../appStorage'
@@ -17,15 +17,19 @@ import { BehaviorHistoryActions } from './BehaviorHistoryActions'
 import { QuickOverlayPresentation } from './QuickOverlay'
 import { QuickOverlaySurface, conciseSlotShort, renderKeyGlyph, slotKindClass } from './QuickOverlaySurface'
 import {
+  buildQuickPromptSequence,
+  extractQuickPrompt,
   insertQuickOverlaySteps,
   moveQuickOverlayStep,
   quickOverlayAllowsToolboxStep,
   quickOverlayClickBehaviors,
   quickOverlayToolboxInsertion,
+  type QuickPromptDraft,
 } from './quickOverlayConfiguration'
-import { buildQuickOverlayView } from './quickOverlayModel'
+import { buildQuickOverlayView, summarizeQuickTrigger } from './quickOverlayModel'
 import type { QuickOverlayKeySlot } from './quickOverlayModel'
 import { SelectControl } from './SelectControl'
+import { SettingsHelp } from './SettingsHelp'
 import { behaviorToWorkflowStep } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
@@ -39,17 +43,25 @@ type DropTarget = { inputId: string } | { index: number }
 type Drag = { source: DragSource; pointerId: number; x: number; y: number; active: boolean }
 
 const emptySequence: TriggerBehaviors = { click: [], doubleClick: [], longPress: [] }
+const emptyPromptDraft = (method: 'paste' | 'typeText' = 'paste'): QuickPromptDraft => ({
+  title: '',
+  content: '',
+  method,
+  autoEnter: false,
+})
 
 export function QuickOverlayConfigurator<Id extends string>({
   deviceKind,
   deviceName,
   profileId,
   profileName,
+  promptMode,
   triggerInput,
   inputs,
   behaviors,
   platform,
   onChange,
+  onTogglePromptMode,
   onRename,
   onDuplicate,
   onDelete,
@@ -60,11 +72,13 @@ export function QuickOverlayConfigurator<Id extends string>({
   deviceName: string
   profileId: string
   profileName: string
+  promptMode?: boolean
   triggerInput?: string
   inputs: readonly MappingInput<Id>[]
   behaviors: Record<string, TriggerBehaviors>
   platform: Platform
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
+  onTogglePromptMode?: (enabled: boolean) => void
   onRename: (name: string) => void
   onDuplicate: () => void
   onDelete: () => void
@@ -79,6 +93,11 @@ export function QuickOverlayConfigurator<Id extends string>({
   )
   const [selectedId, setSelectedId] = useState<Id>()
   const [name, setName] = useState(profileName)
+  const [localPromptMode, setLocalPromptMode] = useState(Boolean(promptMode))
+  useEffect(() => {
+    if (promptMode !== undefined) setLocalPromptMode(promptMode)
+  }, [promptMode])
+  const isPromptMode = promptMode ?? localPromptMode
   const [category, setCategory] = useState('all')
   const [edit, setEdit] = useState<{ input: MappingInput<Id>; step: WorkflowStepEdit } | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number; anchor: HTMLButtonElement } | null>(null)
@@ -90,6 +109,7 @@ export function QuickOverlayConfigurator<Id extends string>({
   const suppressClick = useRef(false)
   const [dragging, setDragging] = useState(false)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+  const fieldId = useId()
   const iconUrls = useMemo(() => createWorkflowActionIconUrls(platform), [platform])
   const [saved] = useState(() => {
     try {
@@ -123,6 +143,121 @@ export function QuickOverlayConfigurator<Id extends string>({
     [platform, saved.items],
   )
   const clickBehaviors = useMemo(() => quickOverlayClickBehaviors(behaviors), [behaviors])
+  const editableInputs = useMemo(() => {
+    const baseView = buildQuickOverlayView(
+      {
+        revision: 0,
+        sourceId: '',
+        deviceKind,
+        deviceName,
+        profileId,
+        profileName,
+        triggerInput: triggerInput ?? '',
+        pressed: [],
+        preview: true,
+        promptMode: isPromptMode,
+        behaviors: clickBehaviors,
+      },
+      platform,
+      { includeUnconfiguredAxes: true },
+    )
+    return scopeInputs.filter(input => input.id !== baseView.triggerInputId)
+  }, [
+    clickBehaviors,
+    deviceKind,
+    deviceName,
+    isPromptMode,
+    platform,
+    profileId,
+    profileName,
+    scopeInputs,
+    triggerInput,
+  ])
+  const selected = editableInputs.find(input => input.id === selectedId) ?? editableInputs[0]
+  const sequence = selected ? (behaviors[selected.id]?.click ?? emptySequence.click) : emptySequence.click
+  const promptInspection = useMemo(() => extractQuickPrompt(sequence, platform), [platform, sequence])
+
+  const [promptDraft, setPromptDraft] = useState<QuickPromptDraft>(() =>
+    promptInspection.kind === 'prompt' ? promptInspection.prompt : emptyPromptDraft(),
+  )
+  const [promptDirty, setPromptDirty] = useState(false)
+  const dirtyPromptRef = useRef<{
+    input: MappingInput<Id>
+    draft: QuickPromptDraft
+    baseSequence: Behavior[]
+    blockedNonPrompt: boolean
+  } | null>(null)
+  const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const syncedInputRef = useRef<string>(selected?.id ?? '')
+  const wasPromptModeRef = useRef<boolean>(isPromptMode)
+  const lastCommittedRef = useRef<{ inputId: string; sig: string }>({
+    inputId: selected?.id ?? '',
+    sig: JSON.stringify(sequence),
+  })
+
+  const clearPromptTimer = useCallback(() => {
+    if (promptTimerRef.current !== null && typeof clearTimeout === 'function') {
+      clearTimeout(promptTimerRef.current)
+      promptTimerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => clearPromptTimer, [clearPromptTimer])
+
+  const commitPromptSequence = useCallback(
+    (input: MappingInput<Id>, draft: QuickPromptDraft, baseSequence: Behavior[]) => {
+      const nextClick = buildQuickPromptSequence(draft, baseSequence)
+      lastCommittedRef.current = { inputId: input.id, sig: JSON.stringify(nextClick) }
+      dirtyPromptRef.current = null
+      setPromptDirty(false)
+      onChange(input.id, { ...(behaviors[input.id] ?? emptySequence), click: nextClick })
+    },
+    [behaviors, onChange],
+  )
+
+  const flushPendingPrompt = useCallback(() => {
+    clearPromptTimer()
+    const pending = dirtyPromptRef.current
+    if (!pending) return
+    if (pending.blockedNonPrompt && !pending.draft.title.trim() && !pending.draft.content) {
+      dirtyPromptRef.current = null
+      setPromptDirty(false)
+      return
+    }
+    commitPromptSequence(pending.input, pending.draft, pending.baseSequence)
+  }, [clearPromptTimer, commitPromptSequence])
+
+  useEffect(() => {
+    const currentId = selected?.id ?? ''
+    const currentSig = JSON.stringify(sequence)
+    const keyChanged = syncedInputRef.current !== currentId
+    const modeEntered = !wasPromptModeRef.current && isPromptMode
+    wasPromptModeRef.current = isPromptMode
+    const externalChange = lastCommittedRef.current.inputId !== currentId || lastCommittedRef.current.sig !== currentSig
+    if (keyChanged || modeEntered || (externalChange && !dirtyPromptRef.current)) {
+      syncedInputRef.current = currentId
+      lastCommittedRef.current = { inputId: currentId, sig: currentSig }
+      dirtyPromptRef.current = null
+      setPromptDirty(false)
+      setPromptDraft(promptInspection.kind === 'prompt' ? promptInspection.prompt : emptyPromptDraft())
+    }
+  }, [isPromptMode, promptInspection, selected?.id, sequence])
+
+  const effectiveClickBehaviors = useMemo(() => {
+    if (!isPromptMode || !selected || !promptDirty) return clickBehaviors
+    if (promptInspection.kind === 'other' && !promptDraft.title.trim() && !promptDraft.content) return clickBehaviors
+    const nextClick = buildQuickPromptSequence(promptDraft, sequence)
+    if (nextClick.length === 0) {
+      const next = { ...clickBehaviors }
+      delete next[selected.id]
+      return next
+    }
+    return {
+      ...clickBehaviors,
+      [selected.id]: { click: nextClick, doubleClick: [], longPress: [] },
+    }
+  }, [clickBehaviors, isPromptMode, promptDirty, promptDraft, promptInspection.kind, selected, sequence])
+
   const session = useMemo(
     () => ({
       revision: 0,
@@ -134,9 +269,10 @@ export function QuickOverlayConfigurator<Id extends string>({
       triggerInput: triggerInput ?? '',
       pressed: [],
       preview: true,
-      behaviors: clickBehaviors,
+      promptMode: isPromptMode,
+      behaviors: effectiveClickBehaviors,
     }),
-    [clickBehaviors, deviceKind, deviceName, profileId, profileName, triggerInput],
+    [deviceKind, deviceName, effectiveClickBehaviors, isPromptMode, profileId, profileName, triggerInput],
   )
   const view = useMemo(
     () =>
@@ -146,19 +282,23 @@ export function QuickOverlayConfigurator<Id extends string>({
           behaviors: isMouse
             ? Object.fromEntries(
                 scopeInputs
-                  .filter(input => clickBehaviors[input.id])
-                  .map(input => [input.id, clickBehaviors[input.id]]),
+                  .filter(input => effectiveClickBehaviors[input.id])
+                  .map(input => [input.id, effectiveClickBehaviors[input.id]]),
               )
-            : clickBehaviors,
+            : effectiveClickBehaviors,
         },
         platform,
         { includeUnconfiguredAxes: true },
       ),
-    [clickBehaviors, isMouse, platform, scopeInputs, session],
+    [effectiveClickBehaviors, isMouse, platform, scopeInputs, session],
   )
-  const editableInputs = scopeInputs.filter(input => input.id !== view.triggerInputId)
-  const selected = editableInputs.find(input => input.id === selectedId) ?? editableInputs[0]
-  const sequence = selected ? (behaviors[selected.id]?.click ?? emptySequence.click) : emptySequence.click
+  const configuredCount = useMemo(
+    () =>
+      Object.entries(effectiveClickBehaviors).filter(
+        ([id, seq]) => id !== view.triggerInputId && seq.click.some(step => step.enabled),
+      ).length,
+    [effectiveClickBehaviors, view.triggerInputId],
+  )
   const previewView = preview ? buildQuickOverlayView(session, platform) : null
 
   useEffect(() => setName(profileName), [profileName])
@@ -183,10 +323,56 @@ export function QuickOverlayConfigurator<Id extends string>({
   const writeClick = (input: MappingInput<Id>, click: Behavior[]) =>
     onChange(input.id, { ...(behaviors[input.id] ?? emptySequence), click })
 
+  const updatePromptDraft = (next: QuickPromptDraft, immediate = false) => {
+    if (!selected) return
+    setPromptDraft(next)
+    const blockedNonPrompt = promptInspection.kind === 'other'
+    if (blockedNonPrompt && !next.title.trim() && !next.content) {
+      clearPromptTimer()
+      dirtyPromptRef.current = null
+      setPromptDirty(false)
+      return
+    }
+    clearPromptTimer()
+    if (immediate || typeof setTimeout !== 'function') {
+      commitPromptSequence(selected, next, sequence)
+      return
+    }
+    dirtyPromptRef.current = { input: selected, draft: next, baseSequence: sequence, blockedNonPrompt }
+    setPromptDirty(true)
+    promptTimerRef.current = setTimeout(() => {
+      const pending = dirtyPromptRef.current
+      if (!pending) return
+      commitPromptSequence(pending.input, pending.draft, pending.baseSequence)
+    }, 350)
+  }
+
+  const clearPromptSlot = () => {
+    if (!selected) return
+    clearPromptTimer()
+    dirtyPromptRef.current = null
+    setPromptDirty(false)
+    setPromptDraft(emptyPromptDraft(promptDraft.method))
+    lastCommittedRef.current = { inputId: selected.id, sig: '[]' }
+    writeClick(selected, [])
+  }
+
+  const selectKeyInput = (nextId: Id) => {
+    if (selected?.id !== nextId) flushPendingPrompt()
+    setSelectedId(nextId)
+  }
+
+  const handleTogglePromptMode = () => {
+    flushPendingPrompt()
+    const next = !isPromptMode
+    if (promptMode === undefined) setLocalPromptMode(next)
+    onTogglePromptMode?.(next)
+  }
+
   const addAction = (action: StepDefinition, input: MappingInput<Id>, index: number) => {
     const { additions, libraryItems, needsEdit } = quickOverlayToolboxInsertion(action, platform, crypto.randomUUID())
     if (!additions.length) return
-    setSelectedId(input.id)
+    selectKeyInput(input.id)
     const commit = (steps: Behavior[]) => {
       const current = behaviors[input.id]?.click ?? emptySequence.click
       if (writeClick(input, insertQuickOverlaySteps(current, index, steps)) !== false) {
@@ -294,24 +480,36 @@ export function QuickOverlayConfigurator<Id extends string>({
     const id = control ? mouseInputId(scope, control) : slot.inputId
     const input = scopeInputs.find(item => item.id === id)
     const isTrigger = id === view.triggerInputId
-    const steps = input && !isTrigger ? behaviors[input.id]?.click : undefined
-    const first = steps?.[0]
-    const summary = first ? behaviorSummary(first, platform) : undefined
+    const steps = input && !isTrigger ? effectiveClickBehaviors[input.id]?.click : undefined
+    const stepPreview = steps?.length ? summarizeQuickTrigger('click', steps, platform) : null
     const count = steps?.length ?? 0
     const isDrop = dropTarget && 'inputId' in dropTarget && dropTarget.inputId === id
     const short = conciseSlotShort(slot)
-    const label = isTrigger ? `${slot.label}：触发键，再按退出，不可配置` : (summary ?? slot.label)
+    const summaryText = stepPreview?.title ? `${stepPreview.title}：${stepPreview.text}` : stepPreview?.text
+    const label = isTrigger ? `${slot.label}：触发键，再按退出，不可配置` : (summaryText ?? slot.label)
+    const topTag = isTrigger ? (
+      <span className="ceramic-key-tag is-exit">触发键</span>
+    ) : isPromptMode && stepPreview?.kind === 'prompt' ? (
+      stepPreview.autoEnter ? (
+        <span className="ceramic-key-tag kind-prompt">↵ 发送</span>
+      ) : stepPreview.inputMethod === 'typeText' ? (
+        <span className="ceramic-key-tag kind-prompt">输入</span>
+      ) : null
+    ) : count > 0 ? (
+      <span className="ceramic-key-tag">{count}</span>
+    ) : null
+
     return (
       <button
         key={slot.slotId}
         type="button"
-        className={`ceramic-key quick-overlay-editor-key ${isTrigger ? 'is-trigger' : first ? 'is-configured' + slotKindClass(slot.primaryKind) : 'is-idle'} ${isDrop ? 'is-drop-target' : ''} ${extra}`}
+        className={`ceramic-key quick-overlay-editor-key ${isTrigger ? 'is-trigger' : stepPreview ? 'is-configured' + slotKindClass(stepPreview.kind) : 'is-idle'} ${isDrop ? 'is-drop-target' : ''} ${extra}`}
         style={style}
         aria-pressed={selected?.id === id}
-        aria-label={isTrigger ? label : count ? `${slot.label}，${count} 步，${summary}` : slot.label}
+        aria-label={isTrigger ? label : count ? `${slot.label}，${count} 步，${summaryText}` : slot.label}
         disabled={!input || isTrigger}
         data-quick-overlay-input={isTrigger ? undefined : input?.id}
-        onClick={() => input && !isTrigger && setSelectedId(input.id)}
+        onClick={() => input && !isTrigger && selectKeyInput(input.id)}
         title={label}
       >
         <span className="ceramic-key-top">
@@ -319,20 +517,26 @@ export function QuickOverlayConfigurator<Id extends string>({
             {renderKeyGlyph(slot)}
             <span>{short}</span>
           </span>
-          {isTrigger ? (
-            <span className="ceramic-key-tag is-exit">触发键</span>
-          ) : count > 0 ? (
-            <span className="ceramic-key-tag">{count}</span>
-          ) : null}
+          {topTag}
         </span>
         {isTrigger && <span className="ceramic-key-exit-text">再按退出</span>}
-        {summary && <strong className="ceramic-key-label">{summary}</strong>}
+        {stepPreview?.title ? (
+          <span className="ceramic-key-single">
+            <strong className="ceramic-key-label is-titled">{stepPreview.title}</strong>
+            {stepPreview.text && stepPreview.text !== '（空文本）' && (
+              <span className="ceramic-key-excerpt">{stepPreview.text}</span>
+            )}
+          </span>
+        ) : (
+          stepPreview?.text && <strong className="ceramic-key-label">{stepPreview.text}</strong>
+        )}
       </button>
     )
   }
 
   const dropIndex = dropTarget && 'index' in dropTarget ? dropTarget.index : undefined
   const menuBehavior = menu && sequence.find(behavior => behavior.id === menu.id)
+  const selectedMeta = selected && isMouse ? mouseInputParts(selected.id as InputId) : null
 
   return (
     <section
@@ -349,9 +553,22 @@ export function QuickOverlayConfigurator<Id extends string>({
         event.preventDefault()
         event.stopPropagation()
       }}
+      onKeyDown={event => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+          event.preventDefault()
+          flushPendingPrompt()
+        }
+      }}
     >
       <header className="quick-overlay-config-header">
-        <button className="reset-button" type="button" onClick={onClose}>
+        <button
+          className="reset-button"
+          type="button"
+          onClick={() => {
+            flushPendingPrompt()
+            onClose()
+          }}
+        >
           <ArrowLeft size={16} /> 返回
         </button>
         <input
@@ -365,7 +582,26 @@ export function QuickOverlayConfigurator<Id extends string>({
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.currentTarget.blur()
           }}
         />
-        <span className="quick-overlay-config-device">{deviceName}</span>
+        <span className="quick-overlay-config-device">
+          {deviceName} · 已配 {configuredCount} 键
+        </span>
+        <div className="quick-overlay-prompt-toggle">
+          <span id={`${fieldId}-prompt-mode-label`}>纯 Prompt</span>
+          <button
+            type="button"
+            role="switch"
+            className={`switch${isPromptMode ? ' on' : ''}`}
+            aria-labelledby={`${fieldId}-prompt-mode-label`}
+            aria-checked={isPromptMode}
+            onClick={handleTogglePromptMode}
+          >
+            <span />
+          </button>
+          <SettingsHelp id={`${fieldId}-prompt-mode-help`} label="纯 Prompt 模式">
+            开启后每个按键直接配置 Prompt
+            标题与内容，浮层中突出展示标题并可悬停查看全文；关闭后恢复自由编排行为序列，已有文本内容会保留。
+          </SettingsHelp>
+        </div>
         <div className="quick-overlay-config-actions">
           <BehaviorHistoryActions {...history} />
           <details className="quick-overlay-config-menu profile-manager profile-manager-compact">
@@ -373,7 +609,13 @@ export function QuickOverlayConfigurator<Id extends string>({
               <MoreHorizontal size={17} />
             </summary>
             <div className="profile-manager-popover profile-manager-actions">
-              <button type="button" onClick={onDuplicate}>
+              <button
+                type="button"
+                onClick={() => {
+                  flushPendingPrompt()
+                  onDuplicate()
+                }}
+              >
                 <Copy size={15} /> 复制配置
               </button>
               <button
@@ -388,19 +630,29 @@ export function QuickOverlayConfigurator<Id extends string>({
               </button>
             </div>
           </details>
-          <button className="reset-button" type="button" onClick={() => setPreview(true)}>
+          <button
+            className="reset-button"
+            type="button"
+            onClick={() => {
+              flushPendingPrompt()
+              setPreview(true)
+            }}
+          >
             <Eye size={16} /> 实时模拟
           </button>
         </div>
       </header>
-      <div className="quick-overlay-config-body">
+      <div className={`quick-overlay-config-body${isPromptMode ? ' is-prompt-mode' : ''}`}>
         <div className="quick-overlay-config-workspace">
           <div className="quick-overlay-config-stage">
             {isMouse && (
               <SelectControl
                 aria-label="鼠标触发位置"
                 value={scope}
-                onChange={event => setScope(event.target.value as MouseScopeId)}
+                onChange={event => {
+                  flushPendingPrompt()
+                  setScope(event.target.value as MouseScopeId)
+                }}
               >
                 {mouseScopes.map(option => (
                   <option key={option.id} value={option.id}>
@@ -411,11 +663,16 @@ export function QuickOverlayConfigurator<Id extends string>({
             )}
             <QuickOverlaySurface view={view} renderKeySlot={renderKey} />
           </div>
-          {selected && (
+          {!isPromptMode && selected && (
             <section className="quick-overlay-track" aria-label={`${selected.label}单击序列`}>
               <header>
                 <h2>{selected.label}</h2>
                 <span>单击 · {sequence.length} 步</span>
+                {sequence.length > 0 && (
+                  <button type="button" className="quick-overlay-track-clear" onClick={() => writeClick(selected, [])}>
+                    清空
+                  </button>
+                )}
               </header>
               <div className="quick-overlay-track-scroll" key={selected.id}>
                 <div className="quick-overlay-step-rail">
@@ -423,6 +680,14 @@ export function QuickOverlayConfigurator<Id extends string>({
                     const node = behaviorToWorkflowStep(behavior, step => behaviorSummary(step, platform))
                     const summary = behaviorSummary(behavior, platform)
                     const type = behaviorTypeLabels[behavior.type]
+                    const promptBehavior =
+                      (behavior.type === 'paste' || behavior.type === 'typeText') && behavior.title ? behavior : null
+                    const stepTitle = promptBehavior?.title ?? type
+                    const stepDetail = promptBehavior
+                      ? promptBehavior.text || type
+                      : summary !== type
+                        ? summary
+                        : undefined
                     return (
                       <div className="quick-overlay-step-segment" key={behavior.id}>
                         <span
@@ -432,43 +697,58 @@ export function QuickOverlayConfigurator<Id extends string>({
                         >
                           <ChevronRight size={14} />
                         </span>
-                        <button
-                          type="button"
-                          className={`quick-overlay-step${behavior.enabled ? '' : ' is-disabled'}`}
-                          data-quick-overlay-insert={index}
-                          aria-label={`编辑第 ${index + 1} 步：${summary}`}
-                          aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
-                          title={summary}
-                          onPointerDown={event => beginDrag(event, { stepId: behavior.id })}
-                          onClick={event => {
-                            if (event.detail === 0) editStep(selected, behavior)
-                          }}
-                          onDoubleClick={() => editStep(selected, behavior)}
-                          onContextMenu={event => {
-                            event.preventDefault()
-                            const anchor = event.currentTarget
-                            const rect = anchor.getBoundingClientRect()
-                            setMenu({
-                              id: behavior.id,
-                              x: Math.min(event.clientX || rect.left, window.innerWidth - 140),
-                              y: Math.min(event.clientY || rect.bottom, window.innerHeight - 112),
-                              anchor,
-                            })
-                          }}
-                          onKeyDown={event => {
-                            if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
-                            const target = event.key === 'ArrowLeft' ? index - 1 : index + 2
-                            if (target < 0 || target > sequence.length) return
-                            event.preventDefault()
-                            writeClick(selected, moveQuickOverlayStep(sequence, behavior.id, target))
-                          }}
-                        >
-                          {iconUrls[node.type] && <img alt="" src={iconUrls[node.type]} draggable={false} />}
-                          <span>
-                            <strong>{type}</strong>
-                            {summary !== type && <small>{summary}</small>}
-                          </span>
-                        </button>
+                        <div className="quick-overlay-step-card">
+                          <button
+                            type="button"
+                            className={`quick-overlay-step${behavior.enabled ? '' : ' is-disabled'}`}
+                            data-quick-overlay-insert={index}
+                            aria-label={`编辑第 ${index + 1} 步：${summary}`}
+                            aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+                            title={summary}
+                            onPointerDown={event => beginDrag(event, { stepId: behavior.id })}
+                            onClick={() => {
+                              if (!suppressClick.current) editStep(selected, behavior)
+                            }}
+                            onContextMenu={event => {
+                              event.preventDefault()
+                              const anchor = event.currentTarget
+                              const rect = anchor.getBoundingClientRect()
+                              setMenu({
+                                id: behavior.id,
+                                x: Math.min(event.clientX || rect.left, window.innerWidth - 140),
+                                y: Math.min(event.clientY || rect.bottom, window.innerHeight - 112),
+                                anchor,
+                              })
+                            }}
+                            onKeyDown={event => {
+                              if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+                              const target = event.key === 'ArrowLeft' ? index - 1 : index + 2
+                              if (target < 0 || target > sequence.length) return
+                              event.preventDefault()
+                              writeClick(selected, moveQuickOverlayStep(sequence, behavior.id, target))
+                            }}
+                          >
+                            {iconUrls[node.type] && <img alt="" src={iconUrls[node.type]} draggable={false} />}
+                            <span>
+                              <strong>{stepTitle}</strong>
+                              {stepDetail && <small>{stepDetail}</small>}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="quick-overlay-step-remove"
+                            aria-label={`删除第 ${index + 1} 步`}
+                            title="删除步骤"
+                            onClick={() =>
+                              writeClick(
+                                selected,
+                                sequence.filter(step => step.id !== behavior.id),
+                              )
+                            }
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        </div>
                       </div>
                     )
                   })}
@@ -492,30 +772,120 @@ export function QuickOverlayConfigurator<Id extends string>({
             </section>
           )}
         </div>
-        <aside className="quick-overlay-config-toolbox workflow-axonkey" ref={toolboxRef}>
-          <div className="sqd-toolbox workflow-toolbox">
-            <WorkflowToolbox
-              api={null}
-              platform={platform}
-              palettes={palettes}
-              iconUrls={iconUrls}
-              selectedCategory={category}
-              onCategoryChange={setCategory}
-              addLabel="追加到当前按键"
-              allowStep={quickOverlayAllowsToolboxStep}
-              savedError={saved.error}
-              getStepPreview={step =>
-                quickOverlayToolboxInsertion(step, platform, 'preview').additions.map(behavior =>
-                  behaviorSummary(behavior, platform),
-                )
-              }
-              onStepPointerDown={(event, action) => beginDrag(event, { action })}
-              onAddStep={step => {
-                if (selected) addAction(step, selected, sequence.length)
-              }}
-            />
-          </div>
-        </aside>
+        {isPromptMode ? (
+          <aside className="quick-overlay-prompt-editor" aria-label="Prompt 编辑器">
+            {!selected ? (
+              <div className="quick-overlay-prompt-empty">
+                <p>没有可配置的按键</p>
+                <span>当前所有按键均已被设为触发键或不可编辑</span>
+              </div>
+            ) : (
+              <>
+                <header className="quick-overlay-prompt-head">
+                  <div className="quick-overlay-prompt-key">
+                    {selectedMeta && selectedMeta.scope.id !== 'global' && (
+                      <span className="quick-overlay-prompt-scope">{selectedMeta.scope.label}</span>
+                    )}
+                    <strong>{selectedMeta ? selectedMeta.control.label : selected.label}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="quick-overlay-track-clear"
+                    disabled={sequence.length === 0 && !promptDirty && !promptDraft.title && !promptDraft.content}
+                    onClick={clearPromptSlot}
+                  >
+                    清空
+                  </button>
+                </header>
+                {promptInspection.kind === 'other' && !promptDirty && (
+                  <div className="quick-overlay-prompt-notice" role="note">
+                    <span>
+                      当前按键已配置其他行为（{promptInspection.summary}），输入 Prompt 内容后将替换该按键行为
+                    </span>
+                  </div>
+                )}
+                <div className="quick-overlay-prompt-field">
+                  <label htmlFor={`${fieldId}-prompt-title`}>标题</label>
+                  <input
+                    id={`${fieldId}-prompt-title`}
+                    className="behavior-launch-input"
+                    type="text"
+                    maxLength={40}
+                    value={promptDraft.title}
+                    placeholder="显示在交互窗键帽上的短标题"
+                    onChange={event => updatePromptDraft({ ...promptDraft, title: event.target.value })}
+                    onBlur={flushPendingPrompt}
+                  />
+                </div>
+                <div className="quick-overlay-prompt-field is-content">
+                  <div className="quick-overlay-prompt-label-row">
+                    <label htmlFor={`${fieldId}-prompt-content`}>Prompt 内容</label>
+                    <span className="quick-overlay-prompt-count">{promptDraft.content.length} 字</span>
+                  </div>
+                  <textarea
+                    id={`${fieldId}-prompt-content`}
+                    className="behavior-paste-input quick-overlay-prompt-textarea"
+                    value={promptDraft.content}
+                    placeholder="输入按下该键后自动发送的完整内容…"
+                    onChange={event => updatePromptDraft({ ...promptDraft, content: event.target.value })}
+                    onBlur={flushPendingPrompt}
+                  />
+                </div>
+                <div className="quick-overlay-prompt-options">
+                  <div className="quick-overlay-prompt-method" role="group" aria-label="发送方式">
+                    <button
+                      type="button"
+                      aria-pressed={promptDraft.method === 'paste'}
+                      onClick={() => updatePromptDraft({ ...promptDraft, method: 'paste' }, true)}
+                    >
+                      粘贴
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={promptDraft.method === 'typeText'}
+                      onClick={() => updatePromptDraft({ ...promptDraft, method: 'typeText' }, true)}
+                    >
+                      模拟输入
+                    </button>
+                  </div>
+                  <label className="quick-overlay-prompt-autoenter">
+                    <input
+                      type="checkbox"
+                      checked={promptDraft.autoEnter}
+                      onChange={event => updatePromptDraft({ ...promptDraft, autoEnter: event.target.checked }, true)}
+                    />
+                    <span>发送后自动回车</span>
+                  </label>
+                </div>
+              </>
+            )}
+          </aside>
+        ) : (
+          <aside className="quick-overlay-config-toolbox workflow-axonkey" ref={toolboxRef}>
+            <div className="sqd-toolbox workflow-toolbox">
+              <WorkflowToolbox
+                api={null}
+                platform={platform}
+                palettes={palettes}
+                iconUrls={iconUrls}
+                selectedCategory={category}
+                onCategoryChange={setCategory}
+                addLabel="追加到当前按键"
+                allowStep={quickOverlayAllowsToolboxStep}
+                savedError={saved.error}
+                getStepPreview={step =>
+                  quickOverlayToolboxInsertion(step, platform, 'preview').additions.map(behavior =>
+                    behaviorSummary(behavior, platform),
+                  )
+                }
+                onStepPointerDown={(event, action) => beginDrag(event, { action })}
+                onAddStep={step => {
+                  if (selected) addAction(step, selected, sequence.length)
+                }}
+              />
+            </div>
+          </aside>
+        )}
       </div>
 
       {menu &&
