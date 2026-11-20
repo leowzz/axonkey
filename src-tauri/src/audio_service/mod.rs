@@ -303,6 +303,17 @@ impl AudioServiceManager {
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = (instance_id, pressed);
     }
+
+    #[cfg(all(windows, not(test)))]
+    pub(crate) fn take_voice_taps(
+        &self,
+        instance_id: &str,
+        since: std::time::Instant,
+    ) -> std::collections::VecDeque<std::time::Instant> {
+        self.service(Some(instance_id))
+            .map(|service| service.take_voice_taps(since))
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for AudioServiceManager {
