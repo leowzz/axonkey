@@ -8,10 +8,12 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as reiconReact from 'reicon-react'
 import { parseDescriptorSvg } from '../scripts/generate-device-descriptors.mjs'
+import { createFileRequire } from './helpers/resolve-compiled-require.mjs'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
 function compile(path, imports = {}, globals = {}) {
+  const resolveFileRequire = createFileRequire(path, require)
   const source = ts.transpileModule(readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
   }).outputText
@@ -22,32 +24,11 @@ function compile(path, imports = {}, globals = {}) {
     setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
     document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
     ...globals,
-    require: name => imports[name] ?? (name === 'reicon-react' ? reiconReact : name.endsWith('.css') ? {} : require(name)),
+    require: name => (name in imports ? imports[name] : name === 'reicon-react' ? reiconReact : resolveFileRequire(name)),
   })
   return module.exports
 }
-const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
-  './xbox-controller.svg': { default: 'controller.svg' },
-  './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
-})
-const modelImports = {
-  '../../appStorage.ts': require('../src/appStorage.ts'),
-  '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
-  '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
-  '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
-  '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
-  '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
-  '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
-  '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
-  '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
-  '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
-  '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
-  '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
-  '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
-  '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
-  '../xbox-controller/index.ts': xboxDefinition,
-}
-const model = compile('src/devices/integration/model.ts', modelImports)
+const model = compile('src/devices/integration/model.ts')
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
 const behaviorLibraryContext = compile('src/cloud/BehaviorLibraryContext.tsx')
@@ -493,9 +474,8 @@ test('recording defaults and driver support follow changed SVG declarations for 
   const descriptor = parseDescriptorSvg(source
     .replace('trigger-modes="hold click"', 'trigger-modes="hold"')
     .replaceAll('windows-prefix="BTHLEDEVICE"', ''), '/test.svg')
-  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const definition = require('../src/devices/cmiot-a15-remote/definition.ts')
   const variant = compile('src/devices/integration/model.ts', {
-    ...modelImports,
     '../cmiot-a15-remote/definition.ts': { ...definition,
       cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
         remoteView: { ...definition.cmiotA15SupportPackage.remoteView, voice: descriptor.voice, identities: descriptor.identities },
@@ -510,9 +490,8 @@ test('mobile model recognizes any software marker declared in the SVG identity',
   const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
   const descriptor = parseDescriptorSvg(source.replaceAll('CMIOT3_B311', 'unused|CMIOT3_B311|alternate')
     .replace('software-contains="unused|CMIOT3_B311|alternate"', ''), '/test.svg')
-  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const definition = require('../src/devices/cmiot-a15-remote/definition.ts')
   const variant = compile('src/devices/integration/model.ts', {
-    ...modelImports,
     '../cmiot-a15-remote/definition.ts': { ...definition,
       cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
         remoteView: { ...definition.cmiotA15SupportPackage.remoteView, identities: descriptor.identities },

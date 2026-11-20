@@ -7,6 +7,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as reiconReact from 'reicon-react'
 import ts from 'typescript'
+import { createFileRequire } from './helpers/resolve-compiled-require.mjs'
 import { RelayClient } from '../src/cloud/relayClient.ts'
 import {
   activateCatalogDeviceDescriptors,
@@ -653,6 +654,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     },
   })
   function compile(path, imports = {}) {
+    const resolveFileRequire = createFileRequire(path, require)
     const source = ts.transpileModule(
       readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)),
       {
@@ -708,8 +710,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
         }
         if (name === 'react-dom') return { createPortal: node => node }
         if (name === 'reicon-react') return reiconReact
-        if (name.endsWith('.css')) return {}
-        return require(name)
+        return resolveFileRequire(name)
       },
     })
     return mod.exports
@@ -722,27 +723,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
   const descriptorSvgMod = compile('src/devices/shared/descriptorSvg.ts', {
     '../generatedDescriptors.ts': require('../src/devices/generatedDescriptors.ts'),
   })
-  const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
-    './xbox-controller.svg': { default: 'controller.svg' },
-    './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
-  })
-  const model = compile('src/devices/integration/model.ts', {
-    '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
-    '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
-    '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
-    '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
-    '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
-    '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
-    '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
-    '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
-    '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
-    '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
-    '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
-    '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
-    '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
-    '../xbox-controller/index.ts': xboxDefinition,
-    '../../appStorage.ts': require('../src/appStorage.ts'),
-  })
+  const model = compile('src/devices/integration/model.ts')
   const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
     '../devices/bundledModelCatalog.json': JSON.parse(readFileSync('src/devices/bundledModelCatalog.json', 'utf8')),
     '../devices/integration/model.ts': model,
@@ -1097,6 +1078,10 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
       view.root
         .findByProps({ className: 'managed-catalog-list-pane' })
         .findAll(node => node.type === 'button' && node.props.className === 'managed-package')
+    assert.deepEqual(
+      Array.from(h.model.bundledSupportPackages, pkg => pkg.kind),
+      bundledSupportPackages.map(pkg => pkg.kind),
+    )
     assert.deepEqual(
       packageCards().map(card => card.props['data-kind']).sort(),
       [...h.model.bundledSupportPackages.map(pkg => pkg.kind), 'customRemoteX'].sort(),

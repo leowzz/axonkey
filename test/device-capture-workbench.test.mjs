@@ -7,6 +7,7 @@ import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as reiconReact from 'reicon-react'
+import { createFileRequire } from './helpers/resolve-compiled-require.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -119,6 +120,7 @@ function createCaptureHarness({ invokeImpl, saveDialogImpl, native = true } = {}
   }
 
   function evalModule(path, extraImports = {}) {
+    const resolveFileRequire = createFileRequire(path, require)
     const code = transpileTsFile(path)
     const module = { exports: {} }
     vm.runInNewContext(code, {
@@ -132,8 +134,7 @@ function createCaptureHarness({ invokeImpl, saveDialogImpl, native = true } = {}
         if (name === '@tauri-apps/plugin-dialog') return { save: saveDialog }
         if (name === 'react-dom') return { createPortal: node => node }
         if (name === 'reicon-react') return reiconReact
-        if (name.endsWith('.css')) return {}
-        return require(name)
+        return resolveFileRequire(name)
       },
     })
     return module.exports
@@ -826,27 +827,7 @@ test('4-step integration workflow: SVG skill & preset prep -> diff & attach -> 3
 
 test('DeviceHub header button and IntegrationDialog link open DeviceCaptureWorkbench', async () => {
   const h = createCaptureHarness({ native: false })
-  const xboxDefinition = h.evalModule('src/devices/xbox-controller/definition.ts', {
-    './xbox-controller.svg': { default: 'controller.svg' },
-    './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
-  })
-  const model = h.evalModule('src/devices/integration/model.ts', {
-    '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
-    '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
-    '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
-    '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
-    '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
-    '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
-    '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
-    '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
-    '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
-    '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
-    '../oneplus-rc-001a-remote/definition.ts': require('../src/devices/oneplus-rc-001a-remote/definition.ts'),
-    '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
-    '../g17-touch/definition.ts': require('../src/devices/g17-touch/definition.ts'),
-    '../xbox-controller/index.ts': xboxDefinition,
-    '../../appStorage.ts': require('../src/appStorage.ts'),
-  })
+  const model = h.evalModule('src/devices/integration/model.ts')
   const controls = h.evalModule('src/devices/integration/IntegrationControls.tsx')
   const battery = h.evalModule('src/components/BatteryIndicator.tsx')
   const behaviorLibraryContext = h.evalModule('src/cloud/BehaviorLibraryContext.tsx')
