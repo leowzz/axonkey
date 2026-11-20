@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="168" height="694" viewBox="0 0 168 694" data-ak-schema="axonkey.device/1" data-ak-device="rmf-tx800c" data-ak-revision="2" data-ak-status="draft" role="img" aria-labelledby="device-title device-description">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="168" height="694" viewBox="0 0 168 694" data-ak-schema="axonkey.device/1" data-ak-device="rmf-tx800c" data-ak-revision="3" data-ak-status="draft" role="img" aria-labelledby="device-title device-description">
   <title id="device-title">RMF-TX800C 正面</title>
-  <desc id="device-description">依据设备实拍照片绘制，共十五个普通按键热区；电源键走红外，麦克风键专用于语音，均只保留外观。第一排中央为指示灯。</desc>
+  <desc id="device-description">依据设备实拍照片绘制，共十六个按键热区，含 ATVV 麦克风键。电源键走红外。第一排中央为指示灯。</desc>
   <metadata>
-    <ak:device schema="axonkey.device/1" id="rmf-tx800c" vendor="Sony" model="RMF-TX800C" revision="2" display-name="RMF-TX800C" status="draft">
+    <ak:device schema="axonkey.device/1" id="rmf-tx800c" vendor="Sony" model="RMF-TX800C" revision="3" display-name="RMF-TX800C" status="draft">
       <ak:inputs>
         <ak:input id="rmf-tx800c.tv" label="电视" short="电视" icon="tv" kind="button" order="1" target="#key-tv" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.settings" label="设置" short="设置" icon="settings" kind="button" order="2" target="#key-settings" original="false" binding="pending"/>
@@ -16,6 +16,7 @@
         <ak:input id="rmf-tx800c.back" label="返回" short="返回" icon="back" kind="button" order="10" target="#key-back" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.home" label="主页" short="主页" icon="home" kind="button" order="11" target="#key-home" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.mute" label="静音" short="静音" icon="mute" kind="button" order="12" target="#key-mute" original="false" binding="pending"/>
+        <ak:input id="rmf-tx800c.voice" label="麦克风" short="麦克风" icon="mic" kind="button" target="#key-voice" order="13" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.menu" label="菜单" short="菜单" icon="menu" kind="button" order="14" target="#key-menu" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.volumeUp" label="音量加" short="音量加" icon="volumeUp" kind="button" order="15" target="#key-volume-up" original="false" binding="pending"/>
         <ak:input id="rmf-tx800c.volumeDown" label="音量减" short="音量减" icon="volumeDown" kind="button" order="16" target="#key-volume-down" original="false" binding="pending"/>
@@ -82,7 +83,7 @@
       <circle cx="39" cy="289" r="15" stroke="#1b1b1e" stroke-width="1"/>
       <path d="M 33.4 287 H 35.7 L 39.6 284 V 294 L 35.7 291 H 33.4 Z M 42 287.3 L 45.4 290.7 M 45.4 287.3 L 42 290.7 M 34.8 294.1 L 45.5 283.4" fill="none" stroke="#f2f2f3" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
     </g>
-    <g id="key-voice" aria-hidden="true">
+    <g id="key-voice" data-ak-key="rmf-tx800c.voice" data-ak-role="input" role="button" tabindex="0" aria-label="麦克风">
       <circle cx="83.5" cy="289" r="15" stroke="#1b1b1e" stroke-width="1"/>
       <rect x="81.15" y="281.4" width="4.7" height="9.8" rx="2.35" fill="#f2f2f3"/>
       <path d="M 78.4 288.8 V 289.4 A 5.1 5.1 0 0 0 88.6 289.4 V 288.8 M 83.5 294.5 V 296.5" fill="none" stroke="#f2f2f3" stroke-width="1.35" stroke-linecap="round"/>
@@ -115,6 +116,7 @@
     <path data-ak-region="rmf-tx800c.back" data-ak-anchor="39 246.5" d="M 24 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
     <path data-ak-region="rmf-tx800c.home" data-ak-anchor="127 246.5" d="M 112 246.5 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
     <path data-ak-region="rmf-tx800c.mute" data-ak-anchor="39 289" d="M 24 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
+    <path data-ak-region="rmf-tx800c.voice" data-ak-anchor="83.5 289" d="M 68.5 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
     <path data-ak-region="rmf-tx800c.menu" data-ak-anchor="127 289" d="M 112 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z"/>
     <path data-ak-region="rmf-tx800c.volumeUp" data-ak-anchor="83.5 338" d="M 69 353 V 332 A 14.5 14.5 0 0 1 98 332 V 353 Z"/>
     <path data-ak-region="rmf-tx800c.volumeDown" data-ak-anchor="83.5 377" d="M 69 353 H 98 V 374 A 14.5 14.5 0 0 1 69 374 Z"/>

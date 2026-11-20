@@ -2874,6 +2874,22 @@ export const deviceDescriptors = {
         }
       },
       {
+        "id": "rmf-tx800c.voice",
+        "stableId": "rmf-tx800c.voice",
+        "label": "麦克风",
+        "short": "麦克风",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 68.5 289 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0 Z",
+        "anchor": {
+          "x": 83.5,
+          "y": 289
+        }
+      },
+      {
         "id": "rmf-tx800c.menu",
         "stableId": "rmf-tx800c.menu",
         "label": "菜单",
