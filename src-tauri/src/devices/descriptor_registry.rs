@@ -22,6 +22,7 @@ pub(crate) const KINDS: &[&str] = &[
     "xboxBluetooth",
     "kivoK18Lite",
     "g17Touch",
+    "axonkeyMobile",
 ];
 
 #[allow(dead_code)]
@@ -624,6 +625,7 @@ pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceD
         "xboxBluetooth" => xbox(),
         "kivoK18Lite" => crate::devices::kivo_k18_lite::descriptor(),
         "g17Touch" => g17_touch(),
+        "axonkeyMobile" => axonkey_mobile(),
         _ => None,
     }
 }
@@ -695,6 +697,14 @@ fn g17_touch() -> Option<&'static DeviceDescriptor> {
     static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
     load(
         include_str!("../../../public/device-descriptors/g17-touch.svg"),
+        &DESCRIPTOR,
+    )
+}
+
+fn axonkey_mobile() -> Option<&'static DeviceDescriptor> {
+    static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
+    load(
+        include_str!("../../../public/device-descriptors/axonkey-mobile.svg"),
         &DESCRIPTOR,
     )
 }

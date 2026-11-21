@@ -131,6 +131,10 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
 
     let mut authenticated_session: Option<String> = None;
     let idle_limit = Duration::from_millis(DEFAULT_IDLE_DISCONNECT_MS);
+    #[cfg(windows)]
+    let mut audio_source: Option<crate::windows_vmic::AudioSource> = None;
+    #[cfg(windows)]
+    let mut audio_active = false;
 
     loop {
         let next_frame = tokio::time::timeout(idle_limit, source.next()).await;
@@ -143,12 +147,24 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
             Message::Text(t) => t,
             Message::Close(_) => break,
             Message::Ping(_) | Message::Pong(_) => continue,
-            Message::Binary(_) => {
-                let _ = out_tx
-                    .try_send(ServerMessage::Error {
-                        code: "unsupported_binary".into(),
-                        message: "当前控制通道不支持二进制帧".into(),
-                    });
+            Message::Binary(bin) => {
+                #[cfg(windows)]
+                if authenticated_session.is_some()
+                    && audio_active
+                    && !bin.is_empty()
+                    && bin.len() <= 2560
+                    && bin.len() % 2 == 0
+                {
+                    if let Some(src) = &audio_source {
+                        let samples: Vec<i16> = bin
+                            .chunks_exact(2)
+                            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                            .collect();
+                        src.push_pcm(&samples);
+                    }
+                }
+                #[cfg(not(windows))]
+                let _ = bin;
                 continue;
             }
             _ => continue,
@@ -208,18 +224,59 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
                     break;
                 }
             },
-            Some(sid) => {
-                let reply = coordinator
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .handle_session_message(sid, parsed, now);
-                if let Some(msg) = reply {
-                    if out_tx.send(msg).await.is_err() {
-                        break;
+            Some(sid) => match parsed {
+                ClientMessage::AudioStart {
+                    session_id,
+                    sample_rate,
+                    channels,
+                } if session_id == *sid && sample_rate == 16_000 && channels == 1 => {
+                    #[cfg(windows)]
+                    {
+                        if audio_source.is_none() {
+                            audio_source = Some(crate::windows_vmic::source());
+                        }
+                        if let Some(src) = &audio_source {
+                            src.clear();
+                        }
+                        audio_active = true;
+                        log::info!(target: "axonkey::mobile", "Mobile voice stream started (16kHz mono PCM -> Quarbor Virtual Microphone)");
                     }
                 }
-            }
+                ClientMessage::AudioStop { session_id } if session_id == *sid => {
+                    #[cfg(windows)]
+                    {
+                        audio_active = false;
+                        if let Some(src) = &audio_source {
+                            src.clear();
+                        }
+                        log::info!(target: "axonkey::mobile", "Mobile voice stream stopped");
+                    }
+                }
+                other => {
+                    #[cfg(windows)]
+                    if matches!(other, ClientMessage::InputCancel { .. }) {
+                        audio_active = false;
+                        if let Some(src) = &audio_source {
+                            src.clear();
+                        }
+                    }
+                    let reply = coordinator
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .handle_session_message(sid, other, now);
+                    if let Some(msg) = reply {
+                        if out_tx.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            },
         }
+    }
+
+    #[cfg(windows)]
+    if let Some(src) = &audio_source {
+        src.clear();
     }
 
     if let Some(sid) = authenticated_session {

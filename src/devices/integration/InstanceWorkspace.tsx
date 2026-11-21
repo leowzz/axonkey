@@ -40,6 +40,7 @@ import { useMappingPanelWidths } from '../../components/mappingPanelLayout'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
 import { KivoScreenEditor } from '../kivo-k18-lite/KivoScreenEditor'
+import { MobileDeviceConnectionCard } from '../axonkey-mobile/MobileDeviceConnectionCard'
 import { DeviceBindingPicker } from './IntegrationControls'
 import {
   defaultRecordingMode,
@@ -999,6 +1000,7 @@ export function InstanceWorkspace({
               )}
             </div>
           )}
+          {instance.kind === 'axonkeyMobile' && <MobileDeviceConnectionCard native={native} />}
         </aside>
         <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
         <section className="mapping-main" aria-label="设备映射工作区">

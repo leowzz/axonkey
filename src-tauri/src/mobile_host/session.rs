@@ -172,6 +172,38 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         Ok((rev, snap))
     }
 
+    /// Syncs key mappings and active profile name from Axonkey's first-class `DeviceManager`
+    /// `axonkeyMobile` instance so edits in the standard MappingPage immediately reflect on phone.
+    pub fn sync_from_managed_instance(
+        &mut self,
+        profile_name: String,
+        behaviors: &std::collections::HashMap<String, crate::input_service::TriggerBehaviors>,
+    ) {
+        if self.context.profile_name != profile_name {
+            self.context.profile_name = profile_name;
+            self.context_revision += 1;
+            if let Some(session) = &self.active {
+                let _ = session.tx.try_send(ServerMessage::ContextChanged {
+                    context: self.context.clone(),
+                    context_revision: self.context_revision,
+                });
+            }
+        }
+        if let Ok(Some((rev, snap))) = self.deck.sync_from_managed_profile(behaviors) {
+            if let Some(session) = &mut self.active {
+                let next_epoch = self.next_epoch;
+                self.next_epoch += 1;
+                session.input_epoch = next_epoch;
+                let _ = self.input.revoke_session(&session.session_id);
+                let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
+                    deck_snapshot: snap,
+                    deck_revision: rev,
+                    input_epoch: next_epoch,
+                });
+            }
+        }
+    }
+
     pub fn active_session_info(&self) -> Option<ActiveSessionInfo> {
         self.active.as_ref().map(|s| ActiveSessionInfo {
             session_id: s.session_id.clone(),
@@ -611,12 +643,13 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                     Err(e) => Some(cmd_err(request_id, "injection_failed", &e)),
                 }
             }
-            ClientMessage::PairRequest { .. } | ClientMessage::ClientAuth { .. } => {
-                Some(ServerMessage::Error {
-                    code: "already_authenticated".into(),
-                    message: "会话已认证，无需重复握手".into(),
-                })
-            }
+            ClientMessage::PairRequest { .. }
+            | ClientMessage::ClientAuth { .. }
+            | ClientMessage::AudioStart { .. }
+            | ClientMessage::AudioStop { .. } => Some(ServerMessage::Error {
+                code: "already_authenticated".into(),
+                message: "会话已认证，无需重复握手".into(),
+            }),
         }
     }
 

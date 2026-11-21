@@ -193,6 +193,41 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         Ok(MobileDeckResponse { revision, snapshot })
     }
 
+    /// Syncs mappings & active profile name from the first-class `axonkeyMobile` managed device.
+    pub fn sync_from_device_snapshot(&self, snapshot: &crate::input_service::managed::Snapshot) {
+        let Some(instance) = snapshot
+            .store
+            .instances
+            .iter()
+            .find(|i| i.kind == "axonkeyMobile" && i.enabled)
+        else {
+            return;
+        };
+        let active_id = snapshot
+            .runtime
+            .get(&instance.id)
+            .and_then(|r| r.effective_profile_id.as_deref())
+            .unwrap_or(&instance.active_profile_id);
+        let Some(profile) = instance
+            .profiles
+            .iter()
+            .find(|p| p.id == active_id)
+            .or_else(|| instance.profiles.first())
+        else {
+            return;
+        };
+        let raw_map: std::collections::HashMap<String, serde_json::Value> = profile
+            .behaviors
+            .as_object()
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        let behaviors = crate::input_service::parse_tolerant_behavior_map(&raw_map);
+        self.coordinator
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sync_from_managed_instance(profile.name.clone(), &behaviors);
+    }
+
     pub fn update_deck(
         &self,
         base_revision: u64,

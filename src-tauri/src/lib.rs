@@ -2052,10 +2052,14 @@ fn put_device_instance(
     instance: DeviceInstance,
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> Result<DeviceSnapshot, String> {
     let mut snapshot = manager.put(revision, instance)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
     apply_gatt_recording_status(&mut snapshot, &audio_service);
+    if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+        mobile_host.sync_from_device_snapshot(&snapshot);
+    }
     Ok(snapshot)
 }
 

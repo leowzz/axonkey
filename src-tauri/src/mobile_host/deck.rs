@@ -150,6 +150,38 @@ impl DeckStore {
         Ok((self.revision, self.snapshot.clone()))
     }
 
+    /// Replaces bindings for keys present in the managed Axonkey `axonkeyMobile` device instance's
+    /// active profile, re-derives `action_summary`, and bumps revision if anything changed.
+    pub fn sync_from_managed_profile(
+        &mut self,
+        behaviors: &HashMap<String, crate::input_service::TriggerBehaviors>,
+    ) -> Result<Option<(u64, DeckSnapshot)>, String> {
+        let mut changed = false;
+        for (key, trig) in behaviors {
+            let next = TileActionBindings {
+                tap: trig.click.clone(),
+                double: trig.double_click.clone(),
+                long: trig.long_press.clone(),
+                hold_keys: Vec::new(),
+            };
+            let prev = self.bindings.get(key);
+            let same = prev.is_some_and(|p| {
+                p.tap == next.tap && p.double == next.double && p.long == next.long
+            });
+            if !same {
+                self.bindings.insert(key.clone(), next);
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(None);
+        }
+        self.revision += 1;
+        self.rehydrate_tile_metadata();
+        self.save()?;
+        Ok(Some((self.revision, self.snapshot.clone())))
+    }
+
     /// Optimistic-concurrency layout update from mobile or desktop UI.
     /// Mobile can customize layout, labels, colors, and controlled icon tokens,
     /// but cannot inject arbitrary NativeBehavior payloads here.

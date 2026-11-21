@@ -60,6 +60,7 @@ export type BuiltinDeviceKind =
   | 'oneplusRc001a'
   | 'kivoK18Lite'
   | 'g17Touch'
+  | 'axonkeyMobile'
 
 export type WorkspaceLayout = 'multi-lane' | 'single-lane'
 

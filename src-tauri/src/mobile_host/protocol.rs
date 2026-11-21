@@ -41,7 +41,7 @@ impl HostCapabilities {
         Self {
             relative_pointer: cfg!(windows),
             text_commit: cfg!(any(windows, target_os = "macos")),
-            audio_pcm16: false,
+            audio_pcm16: cfg!(windows),
             platform: platform.into(),
         }
     }
@@ -265,6 +265,14 @@ pub enum ClientMessage {
         input_epoch: u64,
         reason: String,
     },
+    #[serde(rename = "audio.start", rename_all = "camelCase")]
+    AudioStart {
+        session_id: String,
+        sample_rate: u32,
+        channels: u8,
+    },
+    #[serde(rename = "audio.stop", rename_all = "camelCase")]
+    AudioStop { session_id: String },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

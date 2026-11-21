@@ -1,6 +1,17 @@
 {
   "items": [
     {
+      "id": "01a1f020-5000-7000-8000-000000000001",
+      "code": "axonkeyMobile",
+      "name": "Axonkey Mobile",
+      "model": "Axonkey Mobile",
+      "brand_id": "01a1f020-5000-7000-8000-000000000000",
+      "brand_name": "Axonkey",
+      "description": "将智能手机作为 Axonkey 的**动态丝印遥控器、多点触控板与无线麦克风**接入，直接复用 Axonkey 桌面端全部映射工作流、多方案切换、应用自动切换与虚拟麦克风能力。\n\n- **零驱加密直连**：通过局域网 WSS（安装级私有 CA 扫码建信）与桌面端加密连接，Windows 无需安装 Quarbor 按键拦截驱动。\n- **动态丝印同步**：16 颗方形硬件键帽（含五向导航、返回、主页、音量及 4 颗快捷槽位）在桌面端完成映射后，快捷键与提示词摘要实时同步到手机屏幕显示。\n- **语音与文本融合**：手机底部输入栏支持一键切换**文本直推**与**实时语音麦克风**（16 kHz PCM 音频直通 `Quarbor Virtual Microphone`）。",
+      "tags": ["16 键 + 触控板", "Win / macOS", "局域网 WSS 免驱", "动态丝印", "语音麦克风", "快捷文本"],
+      "links": []
+    },
+    {
       "id": "01a1ac48-256e-75e7-8a37-5ae1ee6cea4b",
       "code": "cmiotA15",
       "name": "CMIOT-A15",

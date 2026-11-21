@@ -17,6 +17,7 @@ import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts
 import { oneplusRc001aSupportPackage } from '../oneplus-rc-001a-remote/definition.ts'
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 import { g17TouchSupportPackage } from '../g17-touch/definition.ts'
+import { axonkeyMobileSupportPackage } from '../axonkey-mobile/definition.ts'
 
 export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
 export const deviceScreenSelectionId = '__screen__'
@@ -133,6 +134,7 @@ export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.fr
   oneplusRc001aSupportPackage,
   kivoK18LiteSupportPackage,
   g17TouchSupportPackage,
+  axonkeyMobileSupportPackage,
   xboxSupportPackage,
 ])
 
