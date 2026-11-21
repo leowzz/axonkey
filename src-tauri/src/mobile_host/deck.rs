@@ -357,6 +357,15 @@ fn summarize_behaviors(behaviors: &[NativeBehavior]) -> Option<String> {
             format!("打开 {}", path.rsplit(['\\', '/']).next().unwrap_or(path))
         }
         NativeBehavior::OpenWebsite { url, .. } => format!("网页 {url}"),
+        NativeBehavior::CopyText { text, .. } => {
+            let preview: String = text.trim().chars().take(10).collect();
+            format!("复制「{preview}」")
+        }
+        NativeBehavior::RunCommand { command, .. } => {
+            let preview: String = command.trim().chars().take(12).collect();
+            format!("命令 {preview}")
+        }
+        NativeBehavior::HttpRequest { method, .. } => format!("HTTP {method}"),
         NativeBehavior::SwitchProfile { .. } => "切换配置".into(),
         NativeBehavior::QuickOverlay { .. } => "快捷交互窗".into(),
         NativeBehavior::Delay { ms, .. } => format!("延时 {ms}ms"),
