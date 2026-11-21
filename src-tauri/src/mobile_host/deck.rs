@@ -1,6 +1,6 @@
 use super::protocol::{
-    DeckLayoutPatch, DeckSnapshot, MobileDeckPage, MobileTile, TileAccent, TileGestureKind,
-    TileMode,
+    DeckLayoutPatch, DeckSnapshot, MobileDeckPage, MobileTile, PageLayout, TileAccent,
+    TileGestureKind, TileMode,
 };
 use crate::input_service::NativeBehavior;
 use serde::{Deserialize, Serialize};
@@ -59,20 +59,23 @@ impl DeckStore {
                 fs::read(&path).map_err(|e| format!("Failed to read mobile-deck.json: {e}"))?;
             let persisted: PersistedDeck = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Corrupt mobile-deck.json (refusing silent reset): {e}"))?;
-            return Ok(Self {
+            let mut store = Self {
                 path,
                 revision: persisted.revision.max(1),
                 snapshot: persisted.snapshot,
                 bindings: persisted.bindings,
-            });
+            };
+            store.rehydrate_tile_metadata();
+            return Ok(store);
         }
-        let (snapshot, bindings) = default_vibe_coding_deck();
-        let store = Self {
+        let (snapshot, bindings) = default_mobile_deck();
+        let mut store = Self {
             path,
             revision: 1,
             snapshot,
             bindings,
         };
+        store.rehydrate_tile_metadata();
         store.save()?;
         Ok(store)
     }
@@ -83,6 +86,10 @@ impl DeckStore {
 
     pub fn snapshot(&self) -> DeckSnapshot {
         self.snapshot.clone()
+    }
+
+    pub fn bindings(&self) -> HashMap<String, TileActionBindings> {
+        self.bindings.clone()
     }
 
     pub fn resolve_gesture(
@@ -110,6 +117,37 @@ impl DeckStore {
         } else {
             Some(binding.hold_keys.clone())
         }
+    }
+
+    /// PC-side authoritative mapping update: updates `tile_id -> NativeBehavior` bindings,
+    /// re-derives the dynamic silkscreen `action_summary`, persists atomically, and bumps revision.
+    pub fn set_tile_binding(
+        &mut self,
+        tile_id: String,
+        binding: TileActionBindings,
+    ) -> Result<(u64, DeckSnapshot), String> {
+        if tile_id.trim().is_empty() {
+            return Err("tileId 不能为空".into());
+        }
+        let prev_binding = self.bindings.insert(tile_id.clone(), binding);
+        let prev_rev = self.revision;
+        let prev_snap = self.snapshot.clone();
+        self.revision += 1;
+        self.rehydrate_tile_metadata();
+        if let Err(err) = self.save() {
+            match prev_binding {
+                Some(old) => {
+                    self.bindings.insert(tile_id, old);
+                }
+                None => {
+                    self.bindings.remove(&tile_id);
+                }
+            }
+            self.revision = prev_rev;
+            self.snapshot = prev_snap;
+            return Err(err);
+        }
+        Ok((self.revision, self.snapshot.clone()))
     }
 
     /// Optimistic-concurrency layout update from mobile or desktop UI.
@@ -186,11 +224,6 @@ impl DeckStore {
                         .map(|s| s.trim().chars().take(24).collect::<String>())
                         .filter(|s| !s.is_empty());
                     tile.col_span = tile.col_span.clamp(1, 2);
-                    // Preserve authoritative gesture-capability flags from desktop bindings.
-                    if let Some(b) = self.bindings.get(&tile.id) {
-                        tile.has_double_click = !b.double.is_empty();
-                        tile.has_long_press = !b.long.is_empty();
-                    }
                 }
                 sanitized_pages.push(page);
             }
@@ -209,12 +242,29 @@ impl DeckStore {
         let backup_rev = self.revision;
         let backup_snap = std::mem::replace(&mut self.snapshot, next);
         self.revision = next_revision;
+        self.rehydrate_tile_metadata();
         if let Err(io_err) = self.save() {
             self.snapshot = backup_snap;
             self.revision = backup_rev;
             return Err(DeckUpdateError::Io(io_err));
         }
         Ok((self.revision, self.snapshot.clone()))
+    }
+
+    fn rehydrate_tile_metadata(&mut self) {
+        for page in &mut self.snapshot.pages {
+            for tile in &mut page.tiles {
+                if let Some(b) = self.bindings.get(&tile.id) {
+                    tile.has_double_click = !b.double.is_empty();
+                    tile.has_long_press = !b.long.is_empty();
+                    tile.action_summary = summarize_binding(b);
+                } else {
+                    tile.has_double_click = false;
+                    tile.has_long_press = false;
+                    tile.action_summary = None;
+                }
+            }
+        }
     }
 
     fn save(&self) -> Result<(), String> {
@@ -235,6 +285,74 @@ impl DeckStore {
         fs::rename(&tmp, &self.path)
             .map_err(|e| format!("Failed to commit mobile-deck.json: {e}"))?;
         Ok(())
+    }
+}
+
+pub fn summarize_binding(binding: &TileActionBindings) -> Option<String> {
+    if !binding.hold_keys.is_empty() {
+        return Some(format!("按住 {}", binding.hold_keys.join("+")));
+    }
+    summarize_behaviors(&binding.tap)
+        .or_else(|| summarize_behaviors(&binding.double).map(|s| format!("2× {s}")))
+        .or_else(|| summarize_behaviors(&binding.long).map(|s| format!("长按 {s}")))
+}
+
+fn summarize_behaviors(behaviors: &[NativeBehavior]) -> Option<String> {
+    let first = behaviors.iter().find(|b| b.enabled())?;
+    let label = match first {
+        NativeBehavior::Key { key, .. } => pretty_key(key),
+        NativeBehavior::Shortcut { keys, .. } => keys
+            .iter()
+            .map(|k| pretty_key(k))
+            .collect::<Vec<_>>()
+            .join("+"),
+        NativeBehavior::Paste { text, .. } => {
+            let preview: String = text.trim().chars().take(10).collect();
+            if text.trim().chars().count() > 10 {
+                format!("粘贴「{preview}…」")
+            } else {
+                format!("粘贴「{preview}」")
+            }
+        }
+        NativeBehavior::TypeText { text, .. } => {
+            let preview: String = text.trim().chars().take(10).collect();
+            format!("输入「{preview}」")
+        }
+        NativeBehavior::Mouse { button, .. } => format!("鼠标 {:?}", button),
+        NativeBehavior::Wheel { direction, .. } => format!("滚轮 {:?}", direction),
+        NativeBehavior::CursorMove { direction, .. } => format!("移动 {:?}", direction),
+        NativeBehavior::OpenApp { path, .. } | NativeBehavior::OpenPath { path, .. } => {
+            format!("打开 {}", path.rsplit(['\\', '/']).next().unwrap_or(path))
+        }
+        NativeBehavior::OpenWebsite { url, .. } => format!("网页 {url}"),
+        NativeBehavior::SwitchProfile { .. } => "切换配置".into(),
+        NativeBehavior::QuickOverlay { .. } => "快捷交互窗".into(),
+        NativeBehavior::Delay { ms, .. } => format!("延时 {ms}ms"),
+        NativeBehavior::Disabled { .. } => return None,
+    };
+    if behaviors.iter().filter(|b| b.enabled()).count() > 1 {
+        Some(format!("{label} +"))
+    } else {
+        Some(label)
+    }
+}
+
+fn pretty_key(key: &str) -> String {
+    match key {
+        "Control" => "Ctrl".into(),
+        "Escape" => "Esc".into(),
+        "ArrowUp" => "↑".into(),
+        "ArrowDown" => "↓".into(),
+        "ArrowLeft" => "←".into(),
+        "ArrowRight" => "→".into(),
+        "AudioVolumeUp" => "音量+".into(),
+        "AudioVolumeDown" => "音量-".into(),
+        "AudioVolumeMute" => "静音".into(),
+        "MediaPlayPause" => "播放/暂停".into(),
+        "MediaTrackPrevious" => "上一曲".into(),
+        "MediaTrackNext" => "下一曲".into(),
+        "Backspace" => "退格".into(),
+        other => other.to_owned(),
     }
 }
 
@@ -267,16 +385,154 @@ fn paste(text: &str) -> NativeBehavior {
     }
 }
 
-fn default_vibe_coding_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) {
+fn tile(
+    id: &str,
+    label: &str,
+    icon: &str,
+    accent: TileAccent,
+    col_span: u8,
+) -> MobileTile {
+    MobileTile {
+        id: id.into(),
+        label: label.into(),
+        subtitle: None,
+        action_summary: None,
+        icon: icon.into(),
+        accent,
+        col_span,
+        mode: TileMode::Gesture,
+        has_double_click: false,
+        has_long_press: false,
+    }
+}
+
+fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) {
     let mut bindings = HashMap::new();
 
+    // Classic Remote default PC-side key bindings
+    bindings.insert(
+        "remote.esc".into(),
+        TileActionBindings {
+            tap: vec![key("Escape")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.menu".into(),
+        TileActionBindings {
+            tap: vec![shortcut(&["Control", "K"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.up".into(),
+        TileActionBindings {
+            tap: vec![key("ArrowUp")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.down".into(),
+        TileActionBindings {
+            tap: vec![key("ArrowDown")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.left".into(),
+        TileActionBindings {
+            tap: vec![key("ArrowLeft")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.right".into(),
+        TileActionBindings {
+            tap: vec![key("ArrowRight")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.ok".into(),
+        TileActionBindings {
+            tap: vec![key("Enter")],
+            double: vec![shortcut(&["Control", "Enter"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.back".into(),
+        TileActionBindings {
+            tap: vec![key("Backspace")],
+            long: vec![shortcut(&["Control", "Z"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.home".into(),
+        TileActionBindings {
+            tap: vec![shortcut(&["Control", "L"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.vol_up".into(),
+        TileActionBindings {
+            tap: vec![key("AudioVolumeUp")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.vol_down".into(),
+        TileActionBindings {
+            tap: vec![key("AudioVolumeDown")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.mute".into(),
+        TileActionBindings {
+            tap: vec![key("AudioVolumeMute")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.q1".into(),
+        TileActionBindings {
+            tap: vec![paste("继续执行，完成后汇报验证结果。"), key("Enter")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.q2".into(),
+        TileActionBindings {
+            tap: vec![shortcut(&["Control", "Enter"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.q3".into(),
+        TileActionBindings {
+            tap: vec![shortcut(&["Control", "Z"])],
+            double: vec![shortcut(&["Control", "Y"])],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.q4".into(),
+        TileActionBindings {
+            tap: vec![key("MediaPlayPause")],
+            ..Default::default()
+        },
+    );
+
+    // Vibe Coding Grid default PC-side bindings
     bindings.insert(
         "tile.continue".into(),
         TileActionBindings {
             tap: vec![paste("继续执行，完成后汇报验证结果。"), key("Enter")],
-            double: vec![],
             long: vec![paste("先停下来检查当前改动是否有边界问题，再继续。"), key("Enter")],
-            hold_keys: vec![],
+            ..Default::default()
         },
     );
     bindings.insert(
@@ -329,206 +585,54 @@ fn default_vibe_coding_deck() -> (DeckSnapshot, HashMap<String, TileActionBindin
             ..Default::default()
         },
     );
-    bindings.insert(
-        "tile.search".into(),
-        TileActionBindings {
-            tap: vec![shortcut(&["Control", "K"])],
-            ..Default::default()
-        },
-    );
-    bindings.insert(
-        "tile.save".into(),
-        TileActionBindings {
-            tap: vec![shortcut(&["Control", "S"])],
-            ..Default::default()
-        },
-    );
-    bindings.insert(
-        "tile.prev".into(),
-        TileActionBindings {
-            tap: vec![key("MediaTrackPrevious")],
-            ..Default::default()
-        },
-    );
-    bindings.insert(
-        "tile.play".into(),
-        TileActionBindings {
-            tap: vec![key("MediaPlayPause")],
-            ..Default::default()
-        },
-    );
-    bindings.insert(
-        "tile.next".into(),
-        TileActionBindings {
-            tap: vec![key("MediaTrackNext")],
-            ..Default::default()
-        },
-    );
 
     let snapshot = DeckSnapshot {
         version: 1,
-        active_page_id: "vibe-coding".into(),
-        trackpad_split: 0.35,
+        active_page_id: "classic-remote".into(),
+        trackpad_split: 0.0,
         pointer_sensitivity: 1.4,
         scroll_sensitivity: 1.0,
         double_click_window_ms: 300,
         long_press_window_ms: 600,
         pages: vec![
             MobileDeckPage {
-                id: "vibe-coding".into(),
-                name: "Vibe Coding".into(),
+                id: "classic-remote".into(),
+                name: "经典遥控器".into(),
+                layout: PageLayout::Remote,
                 columns: 3,
                 tiles: vec![
-                    MobileTile {
-                        id: "tile.continue".into(),
-                        label: "继续执行".into(),
-                        subtitle: Some("发送提示词".into()),
-                        icon: "sparkles".into(),
-                        accent: TileAccent::Blue,
-                        col_span: 2,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: true,
-                    },
-                    MobileTile {
-                        id: "tile.enter".into(),
-                        label: "确认".into(),
-                        subtitle: Some("Enter".into()),
-                        icon: "enter".into(),
-                        accent: TileAccent::Emerald,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.accept".into(),
-                        label: "接受变更".into(),
-                        subtitle: Some("Ctrl+Enter".into()),
-                        icon: "check".into(),
-                        accent: TileAccent::Emerald,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.undo".into(),
-                        label: "撤销".into(),
-                        subtitle: Some("Ctrl+Z".into()),
-                        icon: "undo".into(),
-                        accent: TileAccent::Amber,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: true,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.esc".into(),
-                        label: "中断".into(),
-                        subtitle: Some("Esc".into()),
-                        icon: "esc".into(),
-                        accent: TileAccent::Rose,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.copy".into(),
-                        label: "复制".into(),
-                        subtitle: Some("Ctrl+C".into()),
-                        icon: "copy".into(),
-                        accent: TileAccent::Slate,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.paste".into(),
-                        label: "粘贴".into(),
-                        subtitle: Some("Ctrl+V".into()),
-                        icon: "clipboard".into(),
-                        accent: TileAccent::Slate,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.terminal".into(),
-                        label: "终端".into(),
-                        subtitle: Some("Ctrl+`".into()),
-                        icon: "terminal".into(),
-                        accent: TileAccent::Violet,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
+                    tile("remote.esc", "退出/中断", "esc", TileAccent::Rose, 1),
+                    tile("remote.menu", "命令菜单", "search", TileAccent::Blue, 1),
+                    tile("remote.up", "上", "arrow-up", TileAccent::Slate, 1),
+                    tile("remote.down", "下", "arrow-down", TileAccent::Slate, 1),
+                    tile("remote.left", "左", "arrow-left", TileAccent::Slate, 1),
+                    tile("remote.right", "右", "arrow-right", TileAccent::Slate, 1),
+                    tile("remote.ok", "确认", "enter", TileAccent::Blue, 1),
+                    tile("remote.back", "返回", "undo", TileAccent::Slate, 1),
+                    tile("remote.home", "主页/对话", "command", TileAccent::Slate, 1),
+                    tile("remote.vol_up", "音量+", "volume-up", TileAccent::Slate, 1),
+                    tile("remote.vol_down", "音量-", "volume-mute", TileAccent::Slate, 1),
+                    tile("remote.mute", "静音", "volume-mute", TileAccent::Slate, 1),
+                    tile("remote.q1", "继续执行", "sparkles", TileAccent::Blue, 1),
+                    tile("remote.q2", "接受变更", "check", TileAccent::Emerald, 1),
+                    tile("remote.q3", "撤销", "undo", TileAccent::Amber, 1),
+                    tile("remote.q4", "播放/暂停", "play", TileAccent::Violet, 1),
                 ],
             },
             MobileDeckPage {
-                id: "nav-media".into(),
-                name: "导航与媒体".into(),
+                id: "vibe-coding".into(),
+                name: "Vibe Coding".into(),
+                layout: PageLayout::Grid,
                 columns: 3,
                 tiles: vec![
-                    MobileTile {
-                        id: "tile.search".into(),
-                        label: "全局搜索".into(),
-                        subtitle: Some("Ctrl+K".into()),
-                        icon: "search".into(),
-                        accent: TileAccent::Blue,
-                        col_span: 2,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.save".into(),
-                        label: "保存".into(),
-                        subtitle: Some("Ctrl+S".into()),
-                        icon: "save".into(),
-                        accent: TileAccent::Emerald,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.prev".into(),
-                        label: "上一曲".into(),
-                        subtitle: None,
-                        icon: "skip-back".into(),
-                        accent: TileAccent::Slate,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.play".into(),
-                        label: "播放/暂停".into(),
-                        subtitle: None,
-                        icon: "play".into(),
-                        accent: TileAccent::Violet,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
-                    MobileTile {
-                        id: "tile.next".into(),
-                        label: "下一曲".into(),
-                        subtitle: None,
-                        icon: "skip-forward".into(),
-                        accent: TileAccent::Slate,
-                        col_span: 1,
-                        mode: TileMode::Gesture,
-                        has_double_click: false,
-                        has_long_press: false,
-                    },
+                    tile("tile.continue", "继续执行", "sparkles", TileAccent::Blue, 2),
+                    tile("tile.enter", "确认", "enter", TileAccent::Emerald, 1),
+                    tile("tile.accept", "接受变更", "check", TileAccent::Emerald, 1),
+                    tile("tile.undo", "撤销", "undo", TileAccent::Amber, 1),
+                    tile("tile.esc", "中断", "esc", TileAccent::Rose, 1),
+                    tile("tile.copy", "复制", "copy", TileAccent::Slate, 1),
+                    tile("tile.paste", "粘贴", "clipboard", TileAccent::Slate, 1),
+                    tile("tile.terminal", "终端", "terminal", TileAccent::Violet, 1),
                 ],
             },
         ],
@@ -548,6 +652,16 @@ mod tests {
         let path = dir.join("mobile-deck.json");
         let mut store = DeckStore::load(path.clone()).unwrap();
         assert_eq!(store.revision(), 1);
+        assert_eq!(store.snapshot().active_page_id, "classic-remote");
+        // Verify PC-derived action_summary is populated automatically
+        let ok_tile = store.snapshot().pages[0]
+            .tiles
+            .iter()
+            .find(|t| t.id == "remote.ok")
+            .unwrap()
+            .clone();
+        assert_eq!(ok_tile.action_summary.as_deref(), Some("Enter"));
+        assert!(ok_tile.has_double_click);
 
         let (rev2, snap2) = store
             .apply_layout_patch(
@@ -562,6 +676,24 @@ mod tests {
         assert_eq!(rev2, 2);
         assert!((snap2.trackpad_split - 0.5).abs() < f64::EPSILON);
 
+        // PC binding update dynamically recomputes action_summary and bumps revision
+        let (rev3, snap3) = store
+            .set_tile_binding(
+                "remote.ok".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Control", "Shift", "P"])],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(rev3, 3);
+        let updated_ok = snap3.pages[0]
+            .tiles
+            .iter()
+            .find(|t| t.id == "remote.ok")
+            .unwrap();
+        assert_eq!(updated_ok.action_summary.as_deref(), Some("Ctrl+Shift+P"));
+
         // Stale update based on revision 1 must return explicit Conflict.
         let err = store
             .apply_layout_patch(
@@ -575,15 +707,13 @@ mod tests {
             .unwrap();
         match err {
             DeckUpdateError::Conflict(c) => {
-                assert_eq!(c.revision, 2);
-                assert!((c.snapshot.trackpad_split - 0.5).abs() < f64::EPSILON);
+                assert_eq!(c.revision, 3);
             }
             _ => panic!("Expected DeckUpdateError::Conflict"),
         }
 
-        // Reloading from disk preserves revision 2.
         let reloaded = DeckStore::load(path).unwrap();
-        assert_eq!(reloaded.revision(), 2);
+        assert_eq!(reloaded.revision(), 3);
         let _ = fs::remove_dir_all(&dir);
     }
 }

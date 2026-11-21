@@ -78,7 +78,7 @@
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  padding: 14px;
+  padding: 16px;
   border-radius: 14px;
   background: #ffffff;
   color: #18181b;
@@ -90,6 +90,118 @@
   color: #52525b;
 }
 
+.mobile-mapping-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.2));
+  background: var(--surface-subtle, rgba(128, 128, 128, 0.04));
+}
+
+.mobile-mapping-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-mapping-page-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-mapping-page-name {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.mobile-mapping-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mobile-mapping-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.22));
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mobile-mapping-chip.selected {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.mobile-mapping-chip-label {
+  font-weight: 600;
+}
+
+.mobile-mapping-chip-action {
+  font-size: 11px;
+  opacity: 0.7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mobile-mapping-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.18));
+}
+
+.mobile-mapping-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.mobile-mapping-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #10b981;
+  font-size: 12px;
+}
+
+.mobile-mapping-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-mapping-select {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.28));
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.mobile-mapping-input {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.28));
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
 .mobile-pairing-peers {
   display: flex;
   flex-direction: column;
@@ -97,6 +209,9 @@
 }
 
 .mobile-pairing-peers-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
   opacity: 0.8;

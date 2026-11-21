@@ -147,6 +147,31 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         (self.deck.revision(), self.deck.snapshot())
     }
 
+    pub fn bindings(&self) -> std::collections::HashMap<String, super::deck::TileActionBindings> {
+        self.deck.bindings()
+    }
+
+    pub fn set_tile_binding_from_desktop(
+        &mut self,
+        tile_id: String,
+        binding: super::deck::TileActionBindings,
+    ) -> Result<(u64, DeckSnapshot), String> {
+        let (rev, snap) = self.deck.set_tile_binding(tile_id, binding)?;
+        if let Some(session) = &mut self.active {
+            // Bump inputEpoch so in-flight presses from old bindings cannot trigger new bindings.
+            let next_epoch = self.next_epoch;
+            self.next_epoch += 1;
+            session.input_epoch = next_epoch;
+            let _ = self.input.revoke_session(&session.session_id);
+            let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
+                deck_snapshot: snap.clone(),
+                deck_revision: rev,
+                input_epoch: next_epoch,
+            });
+        }
+        Ok((rev, snap))
+    }
+
     pub fn active_session_info(&self) -> Option<ActiveSessionInfo> {
         self.active.as_ref().map(|s| ActiveSessionInfo {
             session_id: s.session_id.clone(),

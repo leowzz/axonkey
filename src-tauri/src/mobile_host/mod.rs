@@ -173,6 +173,26 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         MobileDeckResponse { revision, snapshot }
     }
 
+    pub fn get_bindings(&self) -> std::collections::HashMap<String, deck::TileActionBindings> {
+        self.coordinator
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .bindings()
+    }
+
+    pub fn set_tile_binding(
+        &self,
+        tile_id: String,
+        binding: deck::TileActionBindings,
+    ) -> Result<MobileDeckResponse, String> {
+        let (revision, snapshot) = self
+            .coordinator
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_tile_binding_from_desktop(tile_id, binding)?;
+        Ok(MobileDeckResponse { revision, snapshot })
+    }
+
     pub fn update_deck(
         &self,
         base_revision: u64,
@@ -253,6 +273,22 @@ pub fn mobile_host_update_deck(
     patch: DeckLayoutPatch,
 ) -> Result<MobileDeckResponse, String> {
     host.update_deck(base_revision, patch)
+}
+
+#[tauri::command]
+pub fn mobile_host_get_bindings(
+    host: tauri::State<'_, MobileHostHandle>,
+) -> Result<std::collections::HashMap<String, deck::TileActionBindings>, String> {
+    Ok(host.get_bindings())
+}
+
+#[tauri::command]
+pub fn mobile_host_set_tile_binding(
+    host: tauri::State<'_, MobileHostHandle>,
+    tile_id: String,
+    binding: deck::TileActionBindings,
+) -> Result<MobileDeckResponse, String> {
+    host.set_tile_binding(tile_id, binding)
 }
 
 #[cfg(test)]

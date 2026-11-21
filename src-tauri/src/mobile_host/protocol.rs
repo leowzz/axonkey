@@ -103,6 +103,14 @@ pub enum TextCommitMode {
     Type,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PageLayout {
+    Remote,
+    #[default]
+    Grid,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileTile {
@@ -110,6 +118,9 @@ pub struct MobileTile {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
+    /// Derived automatically on the PC from the actual configured NativeBehavior bindings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_summary: Option<String>,
     pub icon: String,
     pub accent: TileAccent,
     pub col_span: u8,
@@ -125,6 +136,8 @@ pub struct MobileTile {
 pub struct MobileDeckPage {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub layout: PageLayout,
     pub columns: u8,
     pub tiles: Vec<MobileTile>,
 }
