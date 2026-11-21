@@ -1188,3 +1188,29 @@ test('QuickOverlayPresentation renders Pure Prompt Mode pill, titled keycaps, co
     act(() => renderer.unmount())
   }
 })
+
+test('QuickOverlayConfigurator renders inline trigger binding controls and empty-slot quick-add chips', () => {
+  const harness = configuratorHarness()
+  const boundEvents = []
+  harness.render({
+    triggerInput: 'menu',
+    triggerType: 'longPress',
+    onBindTrigger: (inputId, trigger) => boundEvents.push([inputId, trigger]),
+  })
+  try {
+    const keySelect = harness.view.root.findByProps({ 'aria-label': '快捷交互窗唤起按键' })
+    const triggerSelect = harness.view.root.findByProps({ 'aria-label': '快捷交互窗唤起方式' })
+    assert.equal(keySelect.props.value, 'menu')
+    assert.equal(triggerSelect.props.value, 'longPress')
+
+    act(() => {
+      keySelect.props.onChange({ target: { value: 'tv' } })
+    })
+    assert.deepEqual(boundEvents.at(-1), ['tv', 'longPress'])
+
+    const chips = harness.view.root.findAllByProps({ className: 'quick-overlay-quick-chip' })
+    assert.deepEqual(chips.map(chip => text(chip).trim()), ['按键', '快捷键', '粘贴文本'])
+  } finally {
+    harness.close()
+  }
+})

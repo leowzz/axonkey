@@ -72,9 +72,12 @@ import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
   addQuickInstanceProfile,
+  bindQuickOverlayTrigger,
   deleteInstanceProfile,
   applyInstanceProfileSwitch,
   createInstanceBehaviorHistory,
+  findQuickOverlayTriggerBinding,
+  hasExistingNonQuickBehavior,
   instanceBehaviorHistoryReducer,
   mergeEditedProfileBehaviors,
   removeInstanceProfileSwitch,
@@ -88,29 +91,6 @@ function countConfiguredInputs(behaviors: InstanceProfileBehaviors, quick?: bool
       trigger => (sequences?.[trigger]?.filter(step => step.enabled).length ?? 0) > 0,
     ),
   ).length
-}
-
-function findQuickTriggerBinding(
-  instance: DeviceInstance,
-  sanitizedProfiles: ReadonlyMap<string, SanitizedProfileBehaviors>,
-  targetProfileId: string,
-) {
-  for (const candidate of instance.profiles) {
-    if (candidate.quick || candidate.id === targetProfileId) continue
-    const behaviors = sanitizedProfiles.get(candidate.id)?.behaviors ?? {}
-    for (const [inputId, sequences] of Object.entries(behaviors)) {
-      for (const trigger of triggerTypes) {
-        if (
-          sequences?.[trigger]?.some(
-            step => step.enabled && step.type === 'quickOverlay' && step.profileId === targetProfileId,
-          )
-        ) {
-          return inputId
-        }
-      }
-    }
-  }
-  return null
 }
 
 type Props = {
@@ -544,7 +524,7 @@ export function InstanceWorkspace({
       if (!target) return
       const behaviorsForPreview =
         target.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(target.id)?.behaviors ?? {})
-      const triggerInput = explicitTriggerInput ?? findQuickTriggerBinding(instance, sanitizedProfiles, target.id) ?? ''
+      const triggerInput = explicitTriggerInput ?? findQuickOverlayTriggerBinding(instance, target.id)?.inputId ?? ''
       if (!native) {
         onToast?.('桌面应用中可打开顶层快捷交互窗预览')
         return
@@ -687,6 +667,7 @@ export function InstanceWorkspace({
             ? '正在安装按键驱动，请完成 Windows 管理员授权…'
             : '按键驱动未安装，请先安装此设备的按键驱动。'
   if (profile.quick) {
+    const quickTriggerBinding = findQuickOverlayTriggerBinding(instance, profile.id)
     return (
       <QuickOverlayConfigurator
         key={profile.id}
@@ -695,11 +676,25 @@ export function InstanceWorkspace({
         profileId={profile.id}
         profileName={profile.name}
         promptMode={Boolean(profile.promptMode)}
-        triggerInput={findQuickTriggerBinding(instance, sanitizedProfiles, profile.id) ?? undefined}
+        triggerInput={quickTriggerBinding?.inputId}
+        triggerType={quickTriggerBinding?.trigger ?? 'click'}
         inputs={pkg.inputs}
         behaviors={activeBehaviors}
         platform={platform}
         onChange={changeSequence}
+        onBindTrigger={(nextInputId, nextTrigger) => {
+          const hadExisting =
+            Boolean(nextInputId) && hasExistingNonQuickBehavior(permanentProfile, nextInputId, nextTrigger, profile.id)
+          update(item =>
+            bindQuickOverlayTrigger(item, profile.id, permanentProfile.id, nextInputId || null, nextTrigger),
+          )
+          if (!nextInputId) {
+            onToast?.('已解除快捷交互窗唤起按键')
+            return
+          }
+          const keyLabel = pkg.inputs.find(item => item.id === nextInputId)?.label ?? nextInputId
+          onToast?.(hadExisting ? `已将「${keyLabel}」切换为快捷交互窗唤起键` : `已绑定「${keyLabel}」唤起快捷交互窗`)
+        }}
         onTogglePromptMode={toggleQuickPromptMode}
         onRename={renameProfile}
         onDuplicate={() => {
@@ -715,6 +710,7 @@ export function InstanceWorkspace({
       />
     )
   }
+  const quickProfiles = instance.profiles.filter(item => item.quick)
   return (
     <div
       ref={workspaceRef}
@@ -768,6 +764,19 @@ export function InstanceWorkspace({
                 update(item => addInstanceProfile(item, false, applicationProfile?.application.id))
               }}
               onCreateQuickProfile={() => {
+                void createQuickProfile()
+                  .then(id => {
+                    if (id) setEditingQuickProfileId(id)
+                  })
+                  .catch(() => {})
+              }}
+              quickProfileCount={quickProfiles.length}
+              onOpenQuickOverlay={() => {
+                const existing = quickProfiles[0]
+                if (existing) {
+                  setEditingQuickProfileId(existing.id)
+                  return
+                }
                 void createQuickProfile()
                   .then(id => {
                     if (id) setEditingQuickProfileId(id)

@@ -2640,29 +2640,75 @@ function AppController({
     }).length
   }
 
-  const findDeviceQuickTrigger = (targetProfileId: string) => {
+  const findDeviceQuickTrigger = (targetProfileId: string): { inputId: InputId; trigger: TriggerType } | null => {
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     for (const candidate of saved) {
       if (candidate.deviceId !== selectedDeviceId || candidate.quick || candidate.id === targetProfileId) continue
       for (const inputId of selectedDevice.inputIds) {
         const seq = candidate.behaviors[inputId]
-        if (
-          seq.click.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
-          seq.doubleClick.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
-          seq.longPress.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId)
-        ) {
-          return inputId
+        for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
+          if (seq[trigger].some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId)) {
+            return { inputId, trigger }
+          }
         }
       }
     }
     return null
   }
 
+  const bindDeviceQuickTrigger = (quickProfileId: string, nextInputId: InputId | '', nextTrigger: TriggerType) => {
+    const targetId = permanentMappingProfile?.id
+    if (!targetId) return
+    const current = profileStateRef.current
+    const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
+    const nextProfiles = saved.map(candidate => {
+      if (candidate.deviceId !== selectedDeviceId || candidate.quick || candidate.id === quickProfileId)
+        return candidate
+      const updatedBehaviors = { ...candidate.behaviors }
+      let changed = false
+      for (const id of selectedDevice.inputIds) {
+        const seq = updatedBehaviors[id]
+        if (!seq) continue
+        const nextSeq = {
+          click: seq.click.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+          doubleClick: seq.doubleClick.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+          longPress: seq.longPress.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+        }
+        if (
+          nextSeq.click.length !== seq.click.length ||
+          nextSeq.doubleClick.length !== seq.doubleClick.length ||
+          nextSeq.longPress.length !== seq.longPress.length
+        ) {
+          updatedBehaviors[id] = nextSeq
+          changed = true
+        }
+      }
+      if (nextInputId && candidate.id === targetId) {
+        const seq = updatedBehaviors[nextInputId] ?? { click: [], doubleClick: [], longPress: [] }
+        updatedBehaviors[nextInputId] = {
+          ...seq,
+          [nextTrigger]: [createBehavior({ type: 'quickOverlay', profileId: quickProfileId })],
+        }
+        changed = true
+      }
+      return changed ? { ...candidate, behaviors: updatedBehaviors } : candidate
+    })
+    profileStateRef.current = { ...current, profiles: nextProfiles }
+    setProfiles(nextProfiles)
+    setAutoSaveState('saving')
+    if (!nextInputId) {
+      showBehaviorToast('已解除快捷交互窗唤起按键')
+      return
+    }
+    const label = (isMouse ? mouseInputs : editableButtons).find(item => item.id === nextInputId)?.label ?? nextInputId
+    showBehaviorToast(`已绑定「${label}」唤起快捷交互窗`)
+  }
+
   const previewDeviceQuickProfile = (targetProfileId: string, explicitTriggerInput?: string) => {
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     const target = saved.find(item => item.id === targetProfileId)
     if (!target) return
-    const triggerInput = explicitTriggerInput ?? findDeviceQuickTrigger(target.id) ?? ''
+    const triggerInput = explicitTriggerInput ?? findDeviceQuickTrigger(target.id)?.inputId ?? ''
     if (!nativeRuntime) {
       setToast('桌面应用中可打开顶层快捷交互窗预览')
       window.setTimeout(() => setToast(''), 2000)
@@ -2729,6 +2775,12 @@ function AppController({
           onToggle={() => setMouseApplicationProfileSwitching(value => !value)}
           onCreate={createMappingProfileFromScratch}
           onCreateQuick={createQuickMappingProfileFromToolbar}
+          quickProfileCount={deviceProfiles.filter(item => item.quick).length}
+          onOpenQuickOverlay={() => {
+            const existing = deviceProfiles.find(item => item.quick)
+            if (existing) switchMouseProfile(existing.id)
+            else createQuickMappingProfileFromToolbar()
+          }}
           onDuplicate={duplicateMappingProfile}
           onRename={renameMappingProfile}
           onDelete={deleteMappingProfile}
@@ -2872,30 +2924,39 @@ function AppController({
             )}
 
             {workspacePage === 'mapping' && isEditingQuickMappingProfile && permanentMappingProfile ? (
-              <QuickOverlayConfigurator
-                key={activeMappingProfile.id}
-                deviceKind={selectedDeviceId}
-                deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
-                profileId={activeMappingProfile.id}
-                profileName={activeMappingProfile.name}
-                promptMode={Boolean(activeMappingProfile.promptMode)}
-                triggerInput={findDeviceQuickTrigger(activeMappingProfile.id) ?? undefined}
-                inputs={isMouse ? mouseInputs : editableButtons}
-                behaviors={behaviors}
-                platform={platform}
-                onChange={updateWorkflow}
-                onTogglePromptMode={toggleQuickMappingPromptMode}
-                onRename={renameMappingProfile}
-                onDuplicate={duplicateMappingProfile}
-                onDelete={deleteMappingProfile}
-                onClose={() => switchMappingProfile(permanentMappingProfile.id)}
-                history={{
-                  canUndo: canUndoBehavior,
-                  canRedo: canRedoBehavior,
-                  onUndo: undoBehaviorChange,
-                  onRedo: redoBehaviorChange,
-                }}
-              />
+              (() => {
+                const triggerBinding = findDeviceQuickTrigger(activeMappingProfile.id)
+                return (
+                  <QuickOverlayConfigurator
+                    key={activeMappingProfile.id}
+                    deviceKind={selectedDeviceId}
+                    deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
+                    profileId={activeMappingProfile.id}
+                    profileName={activeMappingProfile.name}
+                    promptMode={Boolean(activeMappingProfile.promptMode)}
+                    triggerInput={triggerBinding?.inputId}
+                    triggerType={triggerBinding?.trigger ?? 'click'}
+                    inputs={isMouse ? mouseInputs : editableButtons}
+                    behaviors={behaviors}
+                    platform={platform}
+                    onChange={updateWorkflow}
+                    onBindTrigger={(inputId, nextTrigger) =>
+                      bindDeviceQuickTrigger(activeMappingProfile.id, inputId, nextTrigger)
+                    }
+                    onTogglePromptMode={toggleQuickMappingPromptMode}
+                    onRename={renameMappingProfile}
+                    onDuplicate={duplicateMappingProfile}
+                    onDelete={deleteMappingProfile}
+                    onClose={() => switchMappingProfile(permanentMappingProfile.id)}
+                    history={{
+                      canUndo: canUndoBehavior,
+                      canRedo: canRedoBehavior,
+                      onUndo: undoBehaviorChange,
+                      onRedo: redoBehaviorChange,
+                    }}
+                  />
+                )
+              })()
             ) : workspacePage === 'mapping' ? (
               <MappingPageComponent
                 activeDeviceId={selectedDeviceId === 'mouse' ? systemMouseCardId : undefined}

@@ -739,12 +739,20 @@ function QuickOverlayEditorFields({
   const [creating, setCreating] = useState(() => candidates.length === 0)
   const [draftName, setDraftName] = useState('快捷交互')
   const [creatingBusy, setCreatingBusy] = useState(false)
+  const [pendingOpenAfterCreateId, setPendingOpenAfterCreateId] = useState<string | null>(null)
 
   useEffect(() => {
     if (candidates.length === 0) setCreating(true)
   }, [candidates.length])
 
-  const submitCreate = async () => {
+  useEffect(() => {
+    if (!pendingOpenAfterCreateId || profileId !== pendingOpenAfterCreateId) return
+    setPendingOpenAfterCreateId(null)
+    onSaveBeforeEdit?.()
+    context?.onEditProfile?.(pendingOpenAfterCreateId)
+  }, [context, onSaveBeforeEdit, pendingOpenAfterCreateId, profileId])
+
+  const submitCreate = async (openImmediately = false) => {
     const trimmed = draftName.trim()
     if (!trimmed || !context || creatingBusy) return
     setCreatingBusy(true)
@@ -753,6 +761,9 @@ function QuickOverlayEditorFields({
       if (createdId) {
         onSelectProfile(createdId)
         setCreating(false)
+        if (openImmediately && context.onEditProfile) {
+          setPendingOpenAfterCreateId(createdId)
+        }
       }
     } finally {
       setCreatingBusy(false)
@@ -828,12 +839,22 @@ function QuickOverlayEditorFields({
               />
               <button
                 type="button"
-                className="button primary"
+                className={context?.onEditProfile ? 'dialog-secondary' : 'button primary'}
                 disabled={!draftName.trim() || !context || creatingBusy}
-                onClick={() => void submitCreate()}
+                onClick={() => void submitCreate(false)}
               >
                 创建并关联
               </button>
+              {context?.onEditProfile && (
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={!draftName.trim() || creatingBusy}
+                  onClick={() => void submitCreate(true)}
+                >
+                  创建并立即配置
+                </button>
+              )}
               {candidates.length > 0 && (
                 <button type="button" className="dialog-secondary" onClick={() => setCreating(false)}>
                   选择已有

@@ -1,7 +1,15 @@
-import type { DeviceInstance } from './model'
-import type { SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
+import type { DeviceInstance, InstanceProfile } from './model'
+import type { QuickOverlayBehavior, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { setApplicationProfile } from './applicationProfiles.ts'
 import type { Application } from '../../applications'
+
+export type QuickOverlayTriggerBinding = {
+  profileId: string
+  inputId: string
+  trigger: TriggerType
+}
+
+const TRIGGER_TYPES: readonly TriggerType[] = ['click', 'doubleClick', 'longPress']
 
 export type InstanceProfileBehaviors = Record<string, TriggerBehaviors>
 
@@ -196,6 +204,92 @@ export function removeInstanceProfileSwitch(
           : []
       }
       return { ...p, behaviors: { ...p.behaviors, [inputId]: updated } }
+    }),
+  }
+}
+
+export function findQuickOverlayTriggerBinding(
+  instance: DeviceInstance,
+  quickProfileId: string,
+): QuickOverlayTriggerBinding | null {
+  for (const candidate of instance.profiles) {
+    if (candidate.quick || candidate.id === quickProfileId) continue
+    for (const [inputId, sequences] of Object.entries(candidate.behaviors ?? {})) {
+      if (!sequences || typeof sequences !== 'object') continue
+      for (const trigger of TRIGGER_TYPES) {
+        const list = sequences[trigger]
+        if (
+          Array.isArray(list) &&
+          list.some(step => step && step.enabled && step.type === 'quickOverlay' && step.profileId === quickProfileId)
+        ) {
+          return { profileId: candidate.id, inputId, trigger }
+        }
+      }
+    }
+  }
+  return null
+}
+
+export function hasExistingNonQuickBehavior(
+  profile: Pick<InstanceProfile, 'behaviors'> | undefined,
+  inputId: string,
+  trigger: TriggerType,
+  quickProfileId: string,
+): boolean {
+  const list = profile?.behaviors?.[inputId]?.[trigger]
+  if (!Array.isArray(list) || list.length === 0) return false
+  return list.some(step => !(step.type === 'quickOverlay' && step.profileId === quickProfileId))
+}
+
+export function bindQuickOverlayTrigger(
+  instance: DeviceInstance,
+  quickProfileId: string,
+  targetProfileId: string,
+  inputId: string | null,
+  trigger: TriggerType = 'click',
+): DeviceInstance {
+  const nextInputId = inputId?.trim() || ''
+  return {
+    ...instance,
+    profiles: instance.profiles.map(candidate => {
+      if (candidate.quick || candidate.id === quickProfileId) return candidate
+      let changed = false
+      const nextBehaviors: InstanceProfileBehaviors = { ...candidate.behaviors }
+      for (const [key, sequences] of Object.entries(nextBehaviors)) {
+        if (!sequences || typeof sequences !== 'object') continue
+        let seqChanged = false
+        const updated = { ...empty(), ...sequences }
+        for (const t of TRIGGER_TYPES) {
+          const filtered = Array.isArray(updated[t])
+            ? updated[t].filter(step => !(step && step.type === 'quickOverlay' && step.profileId === quickProfileId))
+            : []
+          if (filtered.length !== (updated[t]?.length ?? 0)) {
+            updated[t] = filtered
+            seqChanged = true
+          }
+        }
+        if (seqChanged) {
+          changed = true
+          if (updated.click.length === 0 && updated.doubleClick.length === 0 && updated.longPress.length === 0) {
+            delete nextBehaviors[key]
+          } else {
+            nextBehaviors[key] = updated
+          }
+        }
+      }
+      if (nextInputId && candidate.id === targetProfileId) {
+        const currentSeq = { ...empty(), ...(nextBehaviors[nextInputId] ?? {}) }
+        const quickStep: QuickOverlayBehavior = {
+          id: crypto.randomUUID(),
+          enabled: true,
+          type: 'quickOverlay',
+          profileId: quickProfileId,
+        }
+        currentSeq[trigger] = [quickStep]
+        nextBehaviors[nextInputId] = currentSeq
+        changed = true
+      }
+      return changed ? { ...candidate, behaviors: nextBehaviors } : candidate
     }),
   }
 }

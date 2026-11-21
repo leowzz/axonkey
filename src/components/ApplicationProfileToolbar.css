@@ -371,3 +371,45 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.application-quick-overlay-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    border-color 0.14s ease,
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+.application-quick-overlay-button:hover:not(:disabled) {
+  border-color: var(--blue-border);
+  background: #f5f9ff;
+  color: var(--blue);
+}
+.application-quick-overlay-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.application-quick-overlay-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+}

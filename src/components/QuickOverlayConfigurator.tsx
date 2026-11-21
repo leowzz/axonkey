@@ -7,7 +7,7 @@ import { behaviorTypeLabels } from '../appConfig'
 import { appStorage } from '../appStorage'
 import type { MappingInput, Platform } from '../appTypes'
 import { createBehavior, normalizeBehavior } from '../behaviorModel'
-import type { Behavior, InputId, TriggerBehaviors } from '../behaviorModel'
+import type { Behavior, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
 import { behaviorSummary } from '../behaviorSummary'
 import { recordLibraryAdditions } from '../cloud/libraryUsage'
 import { mouseInputId, mouseInputParts, mouseScopes } from '../devices'
@@ -57,10 +57,13 @@ export function QuickOverlayConfigurator<Id extends string>({
   profileName,
   promptMode,
   triggerInput,
+  triggerType = 'click',
+  triggerBindingWarning,
   inputs,
   behaviors,
   platform,
   onChange,
+  onBindTrigger,
   onTogglePromptMode,
   onRename,
   onDuplicate,
@@ -74,10 +77,13 @@ export function QuickOverlayConfigurator<Id extends string>({
   profileName: string
   promptMode?: boolean
   triggerInput?: string
+  triggerType?: TriggerType
+  triggerBindingWarning?: string
   inputs: readonly MappingInput<Id>[]
   behaviors: Record<string, TriggerBehaviors>
   platform: Platform
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
+  onBindTrigger?: (inputId: Id | '', trigger: TriggerType) => void
   onTogglePromptMode?: (enabled: boolean) => void
   onRename: (name: string) => void
   onDuplicate: () => void
@@ -91,6 +97,11 @@ export function QuickOverlayConfigurator<Id extends string>({
     () => (isMouse ? inputs.filter(input => mouseInputParts(input.id as InputId).scope.id === scope) : inputs),
     [inputs, isMouse, scope],
   )
+  const triggerSelectInputs = useMemo(() => {
+    if (!triggerInput || scopeInputs.some(item => item.id === triggerInput)) return scopeInputs
+    const matched = inputs.find(item => item.id === triggerInput)
+    return matched ? [matched, ...scopeInputs] : scopeInputs
+  }, [inputs, scopeInputs, triggerInput])
   const [selectedId, setSelectedId] = useState<Id>()
   const [name, setName] = useState(profileName)
   const [localPromptMode, setLocalPromptMode] = useState(Boolean(promptMode))
@@ -642,6 +653,45 @@ export function QuickOverlayConfigurator<Id extends string>({
           </button>
         </div>
       </header>
+      {onBindTrigger && (
+        <div className="quick-overlay-trigger-bar">
+          <label className="quick-overlay-trigger-field">
+            <span>唤起按键</span>
+            <SelectControl
+              aria-label="快捷交互窗唤起按键"
+              value={triggerInput ?? ''}
+              onChange={event => onBindTrigger(event.target.value as Id | '', triggerType)}
+            >
+              <option value="">暂未绑定</option>
+              {triggerSelectInputs.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </SelectControl>
+          </label>
+          <label className="quick-overlay-trigger-field">
+            <span>唤起方式</span>
+            <SelectControl
+              aria-label="快捷交互窗唤起方式"
+              disabled={!triggerInput}
+              value={triggerType}
+              onChange={event => {
+                if (triggerInput) onBindTrigger(triggerInput as Id, event.target.value as TriggerType)
+              }}
+            >
+              <option value="click">单击</option>
+              <option value="doubleClick">双击</option>
+              <option value="longPress">长按</option>
+            </SelectControl>
+          </label>
+          {triggerBindingWarning && (
+            <span className="quick-overlay-trigger-note" role="status">
+              {triggerBindingWarning}
+            </span>
+          )}
+        </div>
+      )}
       <div className={`quick-overlay-config-body${isPromptMode ? ' is-prompt-mode' : ''}`}>
         <div className="quick-overlay-config-workspace">
           <div className="quick-overlay-config-stage">
@@ -767,6 +817,37 @@ export function QuickOverlayConfigurator<Id extends string>({
                   >
                     <Plus size={16} /> 添加行为
                   </button>
+                  {sequence.length === 0 && (
+                    <div className="quick-overlay-quick-chips" role="group" aria-label="常用快速添加">
+                      {(
+                        [
+                          ['key', '按键'],
+                          ['shortcut', '快捷键'],
+                          ['paste', '粘贴文本'],
+                        ] as const
+                      ).map(([type, label]) => (
+                        <button
+                          key={type}
+                          type="button"
+                          className="quick-overlay-quick-chip"
+                          onClick={() =>
+                            addAction(
+                              {
+                                componentType: 'task',
+                                type,
+                                name: label,
+                                properties: {},
+                              },
+                              selected,
+                              0,
+                            )
+                          }
+                        >
+                          <Plus size={12} aria-hidden="true" /> {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
