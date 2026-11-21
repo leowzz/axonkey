@@ -841,6 +841,17 @@ pub(crate) fn matches_hardware(
 ) -> bool {
     descriptor_for_kind(kind).is_some_and(|descriptor| {
         descriptor.identities.iter().any(|identity| {
+            // Network-only descriptors (or identities lacking explicit VID/PID) must never
+            // wildcard-match physical USB/Bluetooth HID devices.
+            if identity
+                .attributes
+                .get("transport")
+                .is_some_and(|t| t == "network")
+                || !identity.attributes.contains_key("vid")
+                || !identity.attributes.contains_key("pid")
+            {
+                return false;
+            }
             matches_identity_number(identity, "vid", Some(vid))
                 && matches_identity_number(identity, "pid", Some(pid))
                 && matches_identity_number(identity, "usage-page", usage_page)
@@ -880,6 +891,15 @@ fn identity_matches_hardware_id(
     identity: &super::device_descriptor::IdentityDescriptor,
     id: &str,
 ) -> bool {
+    if identity
+        .attributes
+        .get("transport")
+        .is_some_and(|t| t == "network")
+        || !identity.attributes.contains_key("vid")
+        || !identity.attributes.contains_key("pid")
+    {
+        return false;
+    }
     let tokens = id
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty())
