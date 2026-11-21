@@ -533,7 +533,7 @@ test('switching inputs flushes a pending designer event into the outgoing input 
 })
 
 test('switching inputs keeps the library search and list scroll while routing actions to the new input', async () => {
-  const app = await render(empty(), { toolboxCategory: '常用行为/常用行为' })
+  const app = await render(empty(), { toolboxCategory: '内置/键盘' })
   try {
     const previous = app.current()
     const input = app.view.root.findByType('input')
@@ -547,7 +547,7 @@ test('switching inputs keeps the library search and list scroll while routing ac
     assert.equal(input.props.value, '回车')
     assert.equal(app.toolboxLists.length, 1)
     assert.equal(list.scrollTop, 200)
-    assert.equal(app.view.root.findByType(WorkflowToolbox).props.selectedCategory, '常用行为/常用行为')
+    assert.equal(app.view.root.findByType(WorkflowToolbox).props.selectedCategory, '内置/键盘')
 
     const enter = app.view.root.findByProps({ className: 'sqd-toolbox-item sqd-type-enter' })
     await act(async () => enter.findByProps({ className: 'workflow-toolbox-item-main' }).props.onMouseDown({
@@ -555,7 +555,7 @@ test('switching inputs keeps the library search and list scroll while routing ac
     }))
     assert.equal(previous.drags.length, 0)
     assert.equal(app.current().drags[0].step.type, 'enter')
-    await act(async () => enter.findByProps({ className: 'workflow-toolbox-add' }).props.onClick({ detail: 1 }))
+    await act(async () => enter.findByProps({ className: 'workflow-toolbox-item-main' }).props.onClick({ detail: 1, clientX: 120, clientY: 80 }))
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'power')
     assert.equal(app.writes[0][1].click[0].key, 'Enter')
@@ -656,7 +656,7 @@ test('the disable action is offered in the control palette and replaces only its
   const app = await render(original)
   try {
     const toolbox = app.view.root.findByType(WorkflowToolbox)
-    const action = toolbox.props.palettes.flatMap(palette => palette.groups).find(group => group.name === '控制').steps.find(step => step.type === 'disabled')
+    const action = toolbox.props.palettes.flatMap(palette => palette.groups).find(group => group.name === '流程控制').steps.find(step => step.type === 'disabled')
     assert.equal(action.name, '禁用此触发方式')
     const node = { ...action, id: 'disable-drop', properties: { ...action.properties } }
     const instance = app.current()

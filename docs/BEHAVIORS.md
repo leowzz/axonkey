@@ -6,8 +6,12 @@
 | --- | --- | --- | --- |
 | 模拟输入文字 | `{"type":"typeText","text":"你好🙂\n第二行"}` | `SendInput` Unicode 键盘事件 | `CGEventKeyboardSetUnicodeString` |
 | 粘贴文本 | `{"type":"paste","text":"你好"}` | 写入剪贴板后发送 Ctrl+V | 写入剪贴板后发送 Cmd+V |
+| 写入剪贴板 | `{"type":"copyText","text":"你好","title":"常用片段"}` | 仅写入剪贴板，不粘贴 | 仅写入剪贴板，不粘贴 |
 | 打开文件或文件夹 | `{"type":"openPath","path":"C:\\Users\\name\\Documents"}` | `ShellExecuteW` 默认打开方式 | `/usr/bin/open -- <path>` |
 | 打开应用 | `{"type":"openApp","path":"/Applications/Safari.app"}` | 限定 exe/com/lnk | 限定 app |
+| 执行命令 | `{"type":"runCommand","command":"echo hi","workingDirectory":"/tmp","title":"示例"}` | 后台工作线程隐藏窗口 PowerShell（`CREATE_NO_WINDOW`） | 后台工作线程 `/bin/zsh -lc` |
+| 发送 HTTP 请求 | `{"type":"httpRequest","method":"POST","url":"http://127.0.0.1:8123/hook","headers":{"Content-Type":"application/json"},"body":"{}","title":"Webhook"}` | `tauri::async_runtime::spawn` + `reqwest`（10s 超时） | `tauri::async_runtime::spawn` + `reqwest`（10s 超时） |
+| 鼠标按键 | `{"type":"mouse","button":"back"}` | 支持 `left` / `right` / `back` / `forward` | 支持 `left` / `right` / `back` / `forward` |
 
 `typeText` 不读写剪贴板，保留 Unicode、emoji 和换行，不模拟特定键盘布局的物理按键。目标应用需要支持系统文字输入；安全输入框、提权窗口或自定义输入控件的系统限制仍适用。macOS 分块不会拆开 UTF-16 代理对。
 
@@ -15,20 +19,25 @@
 
 `openPath` 要求完整的绝对路径；支持空格、中文和 UNC 路径。编辑时不要求目标已经存在，便于导入另一台电脑的配置；执行时检查存在性。路径直接交给系统，不拼接 shell 命令，不展开环境变量或 `~`。打开失败会记录到运行日志。
 
+## 行为库分类、排序与社区边界
+
+行为库默认入口为完整的「内置」Tab，来源 Tab 顺序为「内置 | 推荐 | 社区 | 我的」（未接入账号时为「内置 | 我的」）。内置动作按高频与互斥原则归类为 6 组：**键盘**、**鼠标**、**媒体**、**文本**、**系统与命令**、**流程控制**，并在列表行内展示单行说明，点击条目主体直接添加，多步骤/已保存/云端条目提供独立详情预览入口。
+
+- **安全边界**：`runCommand` 与 `httpRequest` 仅限本地配置、已保存序列、`axonkey-cli`、本地备份导入导出及个人云同步使用；前后端与分享弹窗均禁止将此类包含本机命令或网络地址的序列公开提交或加载到公共社区库（`copyText` 属于无副作用纯文本剪贴板动作，允许公开分享）。
+
 ## 最小兼容约定
 
-新增行为的首次发布目标版本为 **1.8.11**，由 `newBehaviorMinAppVersion` 统一标注。本次开发没有修改应用发布版本号。
-
+- `typeText` 与 `openPath` 引入的兼容门槛为 **1.8.11**（`newBehaviorMinAppVersion`）；`quickOverlay` 及 `paste`/`typeText` 短标题 `title` 为 **1.9.11**（`quickOverlayMinAppVersion`）；`copyText`、`runCommand`、`httpRequest` 的兼容门槛为 **1.9.19**（`commandBehaviorMinAppVersion`）。
 - 只含旧行为：继续导出 `axonkey/1` 文本序列、映射 v2、备份 v2。
-- 含 `typeText` 或 `openPath`（包括停用步骤）：导出 `axonkey/2` 文本序列、映射 v3、备份 v3；JSON 导出附带 `minAppVersion`。
-- 序列新增指令为 `type "文字"` 和 `path "完整路径"`。原来的 `text` 指令继续表示 `paste`。
+- 含 `typeText`、`openPath`、`quickOverlay`、短标题或 `copyText`/`runCommand`/`httpRequest`（包括停用步骤）：导出 `axonkey/2` 文本序列、映射 v3、备份 v3；JSON 导出附带对应的最低版本 `minAppVersion`。
+- `axonkey/2` 序列新增指令为 `copy "文本" ["标题"]`、`cmd "命令" [cwd "目录"] [title "标题"]`、`http <METHOD> <URL> [header "Key" "Val"]... [body "正文"] [title "标题"]`。
 - 新客户端同时接受旧、新格式。旧客户端按其已有版本检查拒绝整个新格式，不会只导入剩余步骤；未知版本和未知指令同样拒绝。
 - 新客户端读取本地旧配置时，遇到不支持的行为会禁用整个对应触发序列并输出明确错误；备份导入和配置迁移整份拒绝，不丢弃未知步骤。原生设备存储已有严格枚举解码，旧服务无法解码新行为时拒绝整个配置。
-- 云端同步、恢复和社区分享支持这两种行为，保留原始类型、内容、顺序和停用状态。未知云端行为库条目仍整条跳过，界面提示更新客户端。
+- 云端个人同步支持 `copyText`、`runCommand` 与 `httpRequest`，保留原始类型、参数、顺序与停用状态；公共社区行为库仅允许普通键鼠/文本/启动/延时与 `copyText`。
 
 这些规则保证经过导入、导出和云端边界的版本协商；无法给已经发布的旧客户端补充错误文案。直接降级运行旧程序读取新客户端的浏览器本地存储不属于受支持的迁移方式，应保留导出备份并使用支持该格式的版本恢复。
 
-本分支已接入 Agent CLI；`capabilities` 会公布 `typeText` 和 `openPath`，`mapping set` 与 `shortcut set` 使用同一套行为序列格式。CLI 写入的配置会继续沿用这里的导入、导出、备份和云端版本兼容规则。
+本分支已接入 Agent CLI；`capabilities` 会公布 `typeText`、`openPath`、`copyText`、`runCommand` 与 `httpRequest`，`mapping set` 与 `shortcut set` 使用同一套行为序列格式。CLI 写入的配置会继续沿用这里的导入、导出、备份和云端版本兼容规则。
 
 ## 本次验证（Windows）
 

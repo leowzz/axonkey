@@ -276,6 +276,24 @@ function compactActionText(step: Behavior, platform: Platform): string {
       return behaviorSummary(step, platform)
     }
   }
+  if (step.type === 'copyText') {
+    if (step.title) return `复制：${step.title}`
+    return step.text ? `复制：${step.text.slice(0, 14)}` : '写入剪贴板'
+  }
+  if (step.type === 'runCommand') {
+    if (step.title) return step.title
+    return step.command ? `命令：${step.command.slice(0, 18)}` : '执行命令'
+  }
+  if (step.type === 'httpRequest') {
+    if (step.title) return `${step.method} ${step.title}`
+    try {
+      const parsed = new URL(step.url)
+      const cleanPath = parsed.pathname === '/' ? '' : parsed.pathname.slice(0, 14)
+      return `${step.method} ${parsed.host}${cleanPath}`
+    } catch {
+      return behaviorSummary(step, platform)
+    }
+  }
   return behaviorSummary(step, platform)
 }
 

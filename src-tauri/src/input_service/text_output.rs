@@ -14,6 +14,15 @@ pub(super) fn paste_with(text: &str, send_shortcut: impl FnOnce()) {
     }
 }
 
+pub(super) fn copy_text(text: &str) {
+    match write_clipboard(text) {
+        Ok(()) => {
+            log::info!(target: "axonkey::input", "Mapped action: type=copyText, chars={}", text.chars().count())
+        }
+        Err(error) => log::warn!(target: "axonkey::input", "Mapped copyText failed: {error}"),
+    }
+}
+
 #[cfg(not(test))]
 fn write_clipboard(text: &str) -> Result<(), String> {
     APP.get()

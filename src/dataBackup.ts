@@ -1,4 +1,5 @@
 import {
+  commandBehaviorMinAppVersion,
   createEmptyBehaviorMap,
   minAppVersionForBehaviors,
   normalizeBehavior,
@@ -126,9 +127,13 @@ export function createDataBackup(
     ),
     ...document.savedBehaviors.flatMap(saved => saved.behaviors),
   ]
-  const minAppVersion = document.profiles.some(profile => profile.quick)
-    ? quickOverlayMinAppVersion
-    : minAppVersionForBehaviors(behaviors)
+  const behaviorMinVersion = minAppVersionForBehaviors(behaviors)
+  const minAppVersion =
+    behaviorMinVersion === commandBehaviorMinAppVersion
+      ? commandBehaviorMinAppVersion
+      : document.profiles.some(profile => profile.quick)
+        ? quickOverlayMinAppVersion
+        : behaviorMinVersion
   if (minAppVersion) {
     document.version = 3
     document.minAppVersion = minAppVersion

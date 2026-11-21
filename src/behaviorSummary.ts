@@ -150,6 +150,12 @@ export function behaviorSummary(
         : behavior.text
           ? `输入：${behavior.text.slice(0, 12)}`
           : '模拟输入文字'
+    case 'copyText':
+      return behavior.title
+        ? `复制：${behavior.title}`
+        : behavior.text
+          ? `复制：${behavior.text.slice(0, 12)}`
+          : '写入剪贴板'
     case 'openPath':
       return `打开：${behavior.path || '文件或文件夹'}`
     case 'paste':
@@ -164,6 +170,18 @@ export function behaviorSummary(
       return behavior.path.split(/[\\/]/).pop() || '打开应用'
     case 'openWebsite':
       return behavior.url || '打开网站'
+    case 'runCommand':
+      return behavior.title
+        ? `命令：${behavior.title}`
+        : behavior.command
+          ? `命令：${behavior.command.slice(0, 20)}`
+          : '执行命令'
+    case 'httpRequest':
+      return behavior.title
+        ? `${behavior.method} ${behavior.title}`
+        : behavior.url
+          ? `${behavior.method} ${behavior.url.slice(0, 24)}`
+          : '发送 HTTP 请求'
     case 'switchProfile':
       return `${behavior.direction === 'previous' ? '上一个' : '下一个'}配置文件${behavior.wrap ? ' · 循环' : ''}`
     case 'quickOverlay': {

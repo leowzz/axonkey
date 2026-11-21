@@ -22,7 +22,10 @@ const saved = { id: 'local-sequence', name: '发送', sequence: serializeSequenc
 const session = { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now()/1000 + 3600, user: { id: 'user' } }
 const shared = { id: 'abc-123', revision: 2, source_sequence_key: saved.id, status: 'active', published_version_id: null, latest_version: { id: 'version-1', status: 'pending' } }
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
-const button = (view, name) => view.root.findAllByType('button').find(node => text(node) === name)
+const button = (view, name) => view.root.findAllByType('button').find(node =>
+  text(node) === name ||
+  node.findAll(child => child.props?.className === 'sqd-toolbox-item-text' && text(child) === name).length > 0,
+)
 const flush = () => new Promise(resolve => setImmediate(resolve))
 const recommendationButtons = view => view.root.findAllByType('button').filter(node => /^(设为推荐|取消推荐)：/.test(node.props['aria-label'] ?? ''))
 const recommendationItem = (id, catalog_key = null, recommend_enabled = false, revision = 2) => ({ id, catalog_key, recommend_enabled, revision, status: 'active', published_version_id: `version-${id}` })
@@ -431,4 +434,35 @@ test('recommended list hides manual load-more button, auto-loads near scroll bot
     await act(async () => { list.props.onScroll({ currentTarget: listNode }); await flush() })
     assert.deepEqual(cursors, ['', 'cursor-2', 'cursor-3', 'cursor-4'])
   } finally { act(() => view.unmount()) }
+})
+
+test('community library rejects runCommand and httpRequest while permitting copyText', async () => {
+  const { publishRecommendation } = await import('../src/cloud/behaviorLibrary.ts')
+  const copySeq = serializeSequence([{ id: 'cp1', type: 'copyText', text: 'hello', title: '片段', enabled: true }])
+  const cmdSeq = serializeSequence([{ id: 'cm1', type: 'runCommand', command: 'echo hi', enabled: true }])
+  const httpSeq = serializeSequence([{ id: 'ht1', type: 'httpRequest', method: 'GET', url: 'https://example.com', enabled: true }])
+
+  const page = parseLibraryPage({
+    items: [
+      { ...publicItem('cp'), content: { kind: 'sequence', behaviors: [{ id: 'cp1', type: 'copyText', text: 'hello', title: '片段', enabled: true }] } },
+      { ...publicItem('cm'), content: { kind: 'sequence', behaviors: [{ id: 'cm1', type: 'runCommand', command: 'echo hi', enabled: true }] } },
+      { ...publicItem('ht'), content: { kind: 'sequence', behaviors: [{ id: 'ht1', type: 'httpRequest', method: 'GET', url: 'https://example.com', enabled: true }] } },
+    ],
+  }, 'macos', [builtin])
+  assert.deepEqual(page.steps.map(s => s.name), ['cp'])
+  assert.equal(page.skipped, 2)
+
+  let posts = 0
+  const client = new RelayClient(async method => {
+    if (method === 'POST') posts++
+    return { status: 200, body: shared }
+  }, session, () => {})
+  assert.throws(() => submitSequence(client, { id: 's1', name: 'cmd', sequence: cmdSeq }, 'macos', '', false), /不可公开分享/)
+  assert.throws(() => submitSequence(client, { id: 's2', name: 'http', sequence: httpSeq }, 'macos', '', false), /不可公开分享/)
+  const stepFromSeq = (id, name, sequence) => ({ componentType: 'task', type: 'savedSequence', name, properties: { savedSequenceId: id, sequence } })
+  assert.throws(() => publishRecommendation(client, stepFromSeq('s1', 'cmd', cmdSeq), 'macos', 'system'), /不可设为公开推荐/)
+  assert.throws(() => publishRecommendation(client, stepFromSeq('s2', 'http', httpSeq), 'macos', 'system'), /不可设为公开推荐/)
+  assert.equal(posts, 0)
+  await submitSequence(client, { id: 's3', name: 'copy', sequence: copySeq }, 'macos', '', false)
+  assert.equal(posts, 1)
 })

@@ -39,10 +39,21 @@ pub(super) enum Output<K = HidKey> {
     MouseClick(MouseButton),
     Wheel(WheelDirection),
     TypeText(String),
+    CopyText(String),
     OpenPath(String),
     Paste(String),
     OpenApp(String),
     OpenWebsite(String),
+    RunCommand {
+        command: String,
+        working_directory: Option<String>,
+    },
+    HttpRequest {
+        method: String,
+        url: String,
+        headers: Option<std::collections::BTreeMap<String, String>>,
+        body: Option<String>,
+    },
     Key(K, bool),
     SwitchProfile(super::ProfileDirection, bool),
 }
@@ -128,6 +139,9 @@ fn schedule<K: RemoteKey>(
             NativeBehavior::TypeText { text, .. } => {
                 queue.push((due, Output::TypeText(text.clone())))
             }
+            NativeBehavior::CopyText { text, .. } => {
+                queue.push((due, Output::CopyText(text.clone())))
+            }
             NativeBehavior::OpenPath { path, .. } => {
                 queue.push((due, Output::OpenPath(path.clone())))
             }
@@ -138,6 +152,32 @@ fn schedule<K: RemoteKey>(
             NativeBehavior::OpenWebsite { url, .. } => {
                 queue.push((due, Output::OpenWebsite(url.clone())))
             }
+            NativeBehavior::RunCommand {
+                command,
+                working_directory,
+                ..
+            } => queue.push((
+                due,
+                Output::RunCommand {
+                    command: command.clone(),
+                    working_directory: working_directory.clone(),
+                },
+            )),
+            NativeBehavior::HttpRequest {
+                method,
+                url,
+                headers,
+                body,
+                ..
+            } => queue.push((
+                due,
+                Output::HttpRequest {
+                    method: method.clone(),
+                    url: url.clone(),
+                    headers: headers.clone(),
+                    body: body.clone(),
+                },
+            )),
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(keys) = K::chord(action) {
                     if queued_actions(queue) + keys.len() * 2 <= 256 {
@@ -709,7 +749,10 @@ mod tests {
             {"type":"delay","ms":100},
             {"type":"openApp","path":"C:\\Example.exe"},
             {"type":"openPath","path":"C:\\文档 & 文件夹"},
-            {"type":"openWebsite","url":"https://example.com/"}
+            {"type":"openWebsite","url":"https://example.com/"},
+            {"type":"copyText","text":"复制到剪贴板"},
+            {"type":"runCommand","command":"echo hi","workingDirectory":"C:\\Work"},
+            {"type":"httpRequest","method":"POST","url":"http://127.0.0.1:8123/hook","headers":{"X-A":"1"},"body":"{}"}
         ]}));
         let now = Instant::now();
         let mut actions = RemoteActions::default();
@@ -735,12 +778,25 @@ mod tests {
             ]
         );
         assert!(outputs(&mut actions, now + Duration::from_millis(99)).is_empty());
+        let mut expected_headers = std::collections::BTreeMap::new();
+        expected_headers.insert("X-A".into(), "1".into());
         assert_eq!(
             outputs(&mut actions, now + Duration::from_millis(100)),
             [
                 Output::OpenApp("C:\\Example.exe".into()),
                 Output::OpenPath("C:\\文档 & 文件夹".into()),
-                Output::OpenWebsite("https://example.com/".into())
+                Output::OpenWebsite("https://example.com/".into()),
+                Output::CopyText("复制到剪贴板".into()),
+                Output::RunCommand {
+                    command: "echo hi".into(),
+                    working_directory: Some("C:\\Work".into()),
+                },
+                Output::HttpRequest {
+                    method: "POST".into(),
+                    url: "http://127.0.0.1:8123/hook".into(),
+                    headers: Some(expected_headers),
+                    body: Some("{}".into()),
+                },
             ]
         );
         actions.edge("up", true, &config, now + Duration::from_secs(1));

@@ -1558,6 +1558,22 @@ h1 {
   min-height: 104px;
   margin: 0;
 }
+.behavior-edit-form .behavior-dialog-field .behavior-compact-textarea {
+  min-height: 74px;
+}
+.behavior-mono-input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.behavior-http-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.behavior-http-method {
+  flex: 0 0 auto;
+  min-width: 92px;
+}
 .behavior-edit-form .settings-checkbox {
   min-height: var(--behavior-control-height);
   font-size: 13px;

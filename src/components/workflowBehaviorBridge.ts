@@ -199,7 +199,17 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
         id: step.id,
       }),
     ]
-  else if (preset === 'deleteAllText') {
+  else if (
+    preset === 'copy' ||
+    preset === 'pasteShortcut' ||
+    preset === 'undo' ||
+    preset === 'selectAll' ||
+    preset === 'closeTab'
+  ) {
+    const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
+    const keyMap = { copy: 'C', pasteShortcut: 'V', undo: 'Z', selectAll: 'A', closeTab: 'W' } as const
+    behaviors = [createBehavior({ type: 'shortcut', keys: [modifier, keyMap[preset]], id: step.id })]
+  } else if (preset === 'deleteAllText') {
     const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
     behaviors = [
       createBehavior({ type: 'shortcut', keys: [modifier, 'A'], id: step.id }),
@@ -218,7 +228,19 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
     behaviors = [behavior]
   }
   const steps = behaviors.map(behavior => behaviorToWorkflowStep(behavior, label))
-  if (['paste', 'typeText', 'openPath', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
+  if (
+    [
+      'paste',
+      'typeText',
+      'copyText',
+      'openPath',
+      'openApp',
+      'openWebsite',
+      'runCommand',
+      'httpRequest',
+      'textAndEnter',
+    ].includes(preset)
+  ) {
     for (const node of steps) node.properties.draftGroup = step.id
   }
   return steps

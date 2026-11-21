@@ -1,6 +1,8 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { Platform } from '../appTypes'
+import { isCommunityShareableBehavior } from '../behaviorModel'
+import { savedSequenceBehaviors } from '../savedSequences'
 import type { SavedSequence } from '../savedSequences'
 import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
 import { findSharedSequence, submitSequence, withdrawSequence } from '../cloud/behaviorLibrary'
@@ -70,6 +72,7 @@ export function BehaviorShareDialog({
       setBusy(false)
     }
   }
+  const shareBlocked = !(savedSequenceBehaviors(sequence)?.every(isCommunityShareableBehavior) ?? true)
   const pending = item?.latest_version.status === 'pending'
   const status =
     item?.status === 'blocked'
@@ -106,7 +109,7 @@ export function BehaviorShareDialog({
             }
             return
           }
-          if (!busy && loaded && !pending)
+          if (!busy && loaded && !pending && !shareBlocked)
             void run(() =>
               submitSequence(
                 account.client,
@@ -137,6 +140,11 @@ export function BehaviorShareDialog({
                 <li key={index}>{text}</li>
               ))}
             </ol>
+            {shareBlocked && (
+              <p className="behavior-launch-error" role="alert">
+                包含执行命令、HTTP 请求或快捷交互窗等本机行为的序列仅限本地与个人云同步使用，不可公开分享到社区。
+              </p>
+            )}
             {status && (
               <p role="status" className="workflow-share-status">
                 {status}
@@ -210,7 +218,7 @@ export function BehaviorShareDialog({
                   <button
                     type="submit"
                     className="button primary"
-                    disabled={busy || !loaded || item?.status === 'blocked'}
+                    disabled={busy || !loaded || shareBlocked || item?.status === 'blocked'}
                   >
                     {busy ? '提交中…' : item ? '重新提交审核' : '确认提交'}
                   </button>

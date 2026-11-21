@@ -1,6 +1,6 @@
 import type { StepDefinition } from 'sequential-workflow-designer'
 import type { Platform } from '../appTypes.ts'
-import { normalizeBehavior, serializeSequence } from '../behaviorModel.ts'
+import { isCommunityShareableBehavior, normalizeBehavior, serializeSequence } from '../behaviorModel.ts'
 import type { SavedSequence } from '../savedSequences.ts'
 import { savedSequenceBehaviors } from '../savedSequences.ts'
 import type { RelayClient } from './relayClient.ts'
@@ -149,6 +149,8 @@ export function publishRecommendation(client: RelayClient, step: StepDefinition,
     ? savedSequenceBehaviors(step.properties as Pick<SavedSequence, 'sequence' | 'libraryItemIds'>)
     : null
   if (saved && !behaviors?.length) throw new Error('此序列无法推荐，请重新保存')
+  if (saved && !behaviors!.every(isCommunityShareableBehavior))
+    throw new Error('包含执行命令或 HTTP 请求的行为仅限本地与个人云同步使用，不可设为公开推荐')
   return client.request<RecommendationItem>('POST', `${endpoint}/admin/recommendations`, {
     app_id: 'axonkey',
     catalog_key: recommendationCatalogKey(step, platform),
@@ -215,9 +217,9 @@ export function parseLibraryPage(value: unknown, platform: Platform, builtins: S
       ) {
         const behaviors = item.content.behaviors.map(entry => normalizeBehavior(entry))
         if (
-          behaviors.every(entry => entry !== null) &&
-          !behaviors.some(entry => entry?.type === 'quickOverlay') &&
-          (behaviors.length === 1 || !behaviors.some(entry => entry?.type === 'switchProfile'))
+          behaviors.every((entry): entry is NonNullable<typeof entry> => entry !== null) &&
+          behaviors.every(isCommunityShareableBehavior) &&
+          (behaviors.length === 1 || !behaviors.some(entry => entry.type === 'switchProfile'))
         ) {
           step = {
             componentType: 'task',
@@ -281,6 +283,8 @@ export function submitSequence(
 ) {
   const behaviors = savedSequenceBehaviors(sequence)
   if (!behaviors?.length) throw new Error('此序列无法分享，请重新保存')
+  if (!behaviors.every(isCommunityShareableBehavior))
+    throw new Error('包含执行命令或 HTTP 请求的行为仅限本地与个人云同步使用，不可公开分享到社区')
   return client.request<SharedSequence>('POST', `${endpoint}/submissions`, {
     app_id: 'axonkey',
     source_sequence_key: sequence.id,

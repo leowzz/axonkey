@@ -6,6 +6,10 @@ import {
   normalizeApplicationPath,
   normalizeBehaviorTitle,
   normalizeFilePath,
+  normalizeHttpBody,
+  normalizeHttpHeaders,
+  normalizeHttpMethod,
+  normalizeShellCommand,
   normalizeWebsiteUrl,
   triggerTypes,
 } from '../behaviorModel.ts'
@@ -26,10 +30,13 @@ export function isEditableWorkflowStep(step: Step) {
       'delay',
       'paste',
       'typeText',
+      'copyText',
       'openPath',
       'customKey',
       'openApp',
       'openWebsite',
+      'runCommand',
+      'httpRequest',
       'switchProfile',
       'quickOverlay',
     ].includes(step.type) ||
@@ -104,20 +111,45 @@ export function workflowStepBehavior(step: Step): Behavior | null {
         type: 'delay',
         ms: typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= 300000 ? ms : defaultWorkflowDelayMs,
       }
-    case 'typeText': {
+    case 'typeText':
+    case 'paste':
+    case 'copyText': {
       const title = normalizeBehaviorTitle(step.properties.title)
-      return { ...base, type: 'typeText', text: typeof text === 'string' ? text : '', ...(title ? { title } : {}) }
+      return { ...base, type: step.type, text: typeof text === 'string' ? text : '', ...(title ? { title } : {}) }
     }
     case 'openPath':
       return { ...base, type: 'openPath', path: typeof path === 'string' ? path : '' }
-    case 'paste': {
-      const title = normalizeBehaviorTitle(step.properties.title)
-      return { ...base, type: 'paste', text: typeof text === 'string' ? text : '', ...(title ? { title } : {}) }
-    }
     case 'openApp':
       return { ...base, type: 'openApp', path: typeof path === 'string' ? path : '' }
     case 'openWebsite':
       return { ...base, type: 'openWebsite', url: typeof url === 'string' ? url : '' }
+    case 'runCommand': {
+      const workingDirectory =
+        typeof step.properties.workingDirectory === 'string' ? step.properties.workingDirectory : undefined
+      const title = normalizeBehaviorTitle(step.properties.title)
+      return {
+        ...base,
+        type: 'runCommand',
+        command: typeof step.properties.command === 'string' ? step.properties.command : '',
+        ...(workingDirectory ? { workingDirectory } : {}),
+        ...(title ? { title } : {}),
+      }
+    }
+    case 'httpRequest': {
+      const method = normalizeHttpMethod(step.properties.method) ?? 'POST'
+      const headers = normalizeHttpHeaders(step.properties.headers)
+      const body = normalizeHttpBody(step.properties.body)
+      const title = normalizeBehaviorTitle(step.properties.title)
+      return {
+        ...base,
+        type: 'httpRequest',
+        method,
+        url: typeof url === 'string' ? url : '',
+        ...(headers ? { headers } : {}),
+        ...(body ? { body } : {}),
+        ...(title ? { title } : {}),
+      }
+    }
     case 'customKey':
       return typeof key === 'string' && key
         ? { ...base, type: 'key', key }
@@ -168,8 +200,8 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
     return { ...properties, ms: behavior.ms }
   }
   if (
-    (step.type === 'paste' || step.type === 'typeText') &&
-    (behavior.type === 'paste' || behavior.type === 'typeText') &&
+    (step.type === 'paste' || step.type === 'typeText' || step.type === 'copyText') &&
+    (behavior.type === 'paste' || behavior.type === 'typeText' || behavior.type === 'copyText') &&
     step.type === behavior.type &&
     behavior.text.trim()
   ) {
@@ -196,6 +228,38 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   if (step.type === 'openWebsite' && behavior.type === 'openWebsite') {
     const url = normalizeWebsiteUrl(behavior.url)
     return url ? { ...properties, url } : null
+  }
+  if (step.type === 'runCommand' && behavior.type === 'runCommand') {
+    const command = normalizeShellCommand(behavior.command)
+    if (!command) return null
+    const rawDir = behavior.workingDirectory?.trim()
+    const workingDirectory = rawDir ? normalizeFilePath(rawDir) : undefined
+    if (rawDir && !workingDirectory) return null
+    const title = normalizeBehaviorTitle(behavior.title)
+    const rest: Record<string, unknown> = { ...properties }
+    delete rest.workingDirectory
+    delete rest.title
+    return { ...rest, command, ...(workingDirectory ? { workingDirectory } : {}), ...(title ? { title } : {}) }
+  }
+  if (step.type === 'httpRequest' && behavior.type === 'httpRequest') {
+    const method = normalizeHttpMethod(behavior.method)
+    const url = normalizeWebsiteUrl(behavior.url)
+    const headers = normalizeHttpHeaders(behavior.headers)
+    const body = normalizeHttpBody(behavior.body)
+    if (!method || !url || headers === null || body === null) return null
+    const title = normalizeBehaviorTitle(behavior.title)
+    const rest: Record<string, unknown> = { ...properties }
+    delete rest.headers
+    delete rest.body
+    delete rest.title
+    return {
+      ...rest,
+      method,
+      url,
+      ...(headers ? { headers } : {}),
+      ...(body ? { body } : {}),
+      ...(title ? { title } : {}),
+    }
   }
   if (step.type === 'customKey') {
     if (behavior.type === 'key' && behavior.key) return { ...properties, key: behavior.key, keys: [] }

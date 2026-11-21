@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import ts from 'typescript'
+import * as behaviorModel from '../../src/behaviorModel.ts'
 import * as library from '../../src/cloud/behaviorLibrary.ts'
 import * as relayClient from '../../src/cloud/relayClient.ts'
+import * as savedSequences from '../../src/savedSequences.ts'
 
 const require = createRequire(import.meta.url)
 export function libraryHarness({ localStorage } = {}) {
@@ -24,6 +26,8 @@ export function libraryHarness({ localStorage } = {}) {
     vm.runInNewContext(source, { module, exports: module.exports, window, document: { body: {} },
       require(name) {
         if (name === 'react-dom') return { createPortal: node => node }
+        if (name.endsWith('/behaviorModel')) return behaviorModel
+        if (name.endsWith('/savedSequences')) return savedSequences
         if (name.endsWith('/behaviorLibrary') || name === './behaviorLibrary') return library
         if (name.endsWith('/BehaviorLibraryContext')) return load('cloud/BehaviorLibraryContext.tsx')
         if (name.endsWith('/useBehaviorLibrary')) return load('cloud/useBehaviorLibrary.ts')

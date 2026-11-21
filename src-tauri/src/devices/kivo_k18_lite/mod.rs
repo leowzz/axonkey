@@ -334,10 +334,28 @@ fn summarize_single_behavior(behavior: &NativeBehavior, macos_labels: bool) -> S
         }
         NativeBehavior::Shortcut { keys, .. } => format_key_chord_summary(keys, macos_labels),
         NativeBehavior::Paste { .. } => "粘贴".into(),
+        NativeBehavior::CopyText { title, .. } => title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| "复制文本".into()),
         NativeBehavior::TypeText { .. } => "输入文本".into(),
         NativeBehavior::OpenApp { .. } => "打开应用".into(),
         NativeBehavior::OpenPath { .. } => "打开文件".into(),
         NativeBehavior::OpenWebsite { .. } => "打开网页".into(),
+        NativeBehavior::RunCommand { title, .. } => title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| "执行命令".into()),
+        NativeBehavior::HttpRequest { method, title, .. } => title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{} 请求", method.trim().to_ascii_uppercase())),
         NativeBehavior::SwitchProfile { .. } => "切换配置".into(),
         NativeBehavior::QuickOverlay { .. } => "快捷交互窗".into(),
         NativeBehavior::Mouse { button, .. } => match button {

@@ -1916,6 +1916,7 @@ fn execute_behaviors_with_hold(
                     }
                 }
             }
+            NativeBehavior::CopyText { text, .. } => super::text_output::copy_text(text),
             NativeBehavior::Delay { ms, .. } => {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
@@ -1925,7 +1926,9 @@ fn execute_behaviors_with_hold(
             NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
             NativeBehavior::OpenPath { .. }
             | NativeBehavior::OpenApp { .. }
-            | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
+            | NativeBehavior::OpenWebsite { .. }
+            | NativeBehavior::RunCommand { .. }
+            | NativeBehavior::HttpRequest { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,
@@ -1972,6 +1975,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::TypeText { text, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=typeText, chars={}", text.chars().count())
         }
+        NativeBehavior::CopyText { text, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=copyText, chars={}", text.chars().count())
+        }
         NativeBehavior::Paste { text, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count())
         }
@@ -1991,7 +1997,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         }
         NativeBehavior::OpenPath { .. }
         | NativeBehavior::OpenApp { .. }
-        | NativeBehavior::OpenWebsite { .. } => {}
+        | NativeBehavior::OpenWebsite { .. }
+        | NativeBehavior::RunCommand { .. }
+        | NativeBehavior::HttpRequest { .. } => {}
     }
 }
 
@@ -2015,10 +2023,13 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::TypeText { .. }
+        | NativeBehavior::CopyText { .. }
         | NativeBehavior::OpenPath { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }
+        | NativeBehavior::RunCommand { .. }
+        | NativeBehavior::HttpRequest { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::QuickOverlay { .. }

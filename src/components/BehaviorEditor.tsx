@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ClipboardCopy,
   ClipboardPaste,
   Copy,
   Clock3,
@@ -24,9 +25,11 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Send,
   SkipBack,
   SkipForward,
   Square,
+  Terminal,
   Trash2,
   Volume1,
   Volume2,
@@ -36,9 +39,15 @@ import {
 import type { Behavior, TriggerType } from '../behaviorModel'
 import {
   defaultCursorDistance,
+  httpRequestMethods,
   maxCursorDistance,
+  maxHttpBodyLength,
   normalizeApplicationPath,
   normalizeFilePath,
+  normalizeHttpBody,
+  normalizeHttpHeaders,
+  normalizeHttpMethod,
+  normalizeShellCommand,
   normalizeWebsiteUrl,
   parseSequenceImport,
 } from '../behaviorModel'
@@ -347,6 +356,34 @@ export function BehaviorEditor<Id extends string>({
                   onClick={() => onApplyCommonBehavior('customKey')}
                 />
                 <BehaviorActionButton
+                  icon={<Copy size={17} />}
+                  label="复制"
+                  detail={`${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + C`}
+                  onClick={() => onApplyCommonBehavior('copy')}
+                />
+                <BehaviorActionButton
+                  icon={<ClipboardPaste size={17} />}
+                  label="粘贴"
+                  detail={`${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + V`}
+                  onClick={() => onApplyCommonBehavior('pasteShortcut')}
+                />
+                <BehaviorActionButton
+                  icon={<ClipboardCopy size={17} />}
+                  label="写入剪贴板"
+                  detail="仅写入文本，不粘贴"
+                  onClick={() => onApplyCommonBehavior('copyText')}
+                />
+                <BehaviorActionButton
+                  icon={<Terminal size={17} />}
+                  label="执行命令"
+                  onClick={() => onApplyCommonBehavior('runCommand')}
+                />
+                <BehaviorActionButton
+                  icon={<Send size={17} />}
+                  label="发送 HTTP 请求"
+                  onClick={() => onApplyCommonBehavior('httpRequest')}
+                />
+                <BehaviorActionButton
                   icon={<FolderOpen size={17} />}
                   label="打开应用"
                   onClick={() => onApplyCommonBehavior('openApp')}
@@ -539,9 +576,24 @@ export function BehaviorEditor<Id extends string>({
                   onClick={() => onAddAdvancedBehavior('paste')}
                 />
                 <BehaviorActionButton
+                  icon={<ClipboardCopy size={17} />}
+                  label="写入剪贴板"
+                  onClick={() => onAddAdvancedBehavior('copyText')}
+                />
+                <BehaviorActionButton
                   icon={<Clock3 size={17} />}
                   label="等待"
                   onClick={() => onAddAdvancedBehavior('delay')}
+                />
+                <BehaviorActionButton
+                  icon={<Terminal size={17} />}
+                  label="执行命令"
+                  onClick={() => onAddAdvancedBehavior('runCommand')}
+                />
+                <BehaviorActionButton
+                  icon={<Send size={17} />}
+                  label="发送 HTTP 请求"
+                  onClick={() => onAddAdvancedBehavior('httpRequest')}
                 />
                 <BehaviorActionButton
                   icon={<FolderOpen size={17} />}
@@ -898,6 +950,34 @@ function QuickOverlayEditorFields({
   )
 }
 
+function formatHttpHeaderLines(headers?: Record<string, string>) {
+  return Object.entries(headers ?? {})
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n')
+}
+
+function parseHttpHeaderLines(raw: string): { headers: Record<string, string> | undefined; invalid: boolean } {
+  const lines = raw
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return { headers: undefined, invalid: false }
+  const record: Record<string, string> = {}
+  for (const line of lines) {
+    const colon = line.indexOf(':')
+    if (colon <= 0) return { headers: undefined, invalid: true }
+    const key = line.slice(0, colon).trim()
+    const value = line.slice(colon + 1).trim()
+    const lower = key.toLowerCase()
+    if (!key || Object.keys(record).some(existing => existing.toLowerCase() === lower)) {
+      return { headers: undefined, invalid: true }
+    }
+    record[key] = value
+  }
+  const normalized = normalizeHttpHeaders(record)
+  return normalized === null ? { headers: undefined, invalid: true } : { headers: normalized, invalid: false }
+}
+
 export function BehaviorEditDialog({
   manageFocus = true,
   autoCapture = true,
@@ -929,10 +1009,27 @@ export function BehaviorEditDialog({
   const [launchTarget, setLaunchTarget] = useState(
     savedBehavior.type === 'openApp' || savedBehavior.type === 'openPath'
       ? savedBehavior.path
-      : savedBehavior.type === 'openWebsite'
+      : savedBehavior.type === 'openWebsite' || savedBehavior.type === 'httpRequest'
         ? savedBehavior.url
         : '',
   )
+  const [cwdTarget, setCwdTarget] = useState(
+    savedBehavior.type === 'runCommand' ? (savedBehavior.workingDirectory ?? '') : '',
+  )
+  const [headersText, setHeadersText] = useState(() =>
+    savedBehavior.type === 'httpRequest' ? formatHttpHeaderLines(savedBehavior.headers) : '',
+  )
+  useEffect(() => {
+    setLaunchTarget(
+      savedBehavior.type === 'openApp' || savedBehavior.type === 'openPath'
+        ? savedBehavior.path
+        : savedBehavior.type === 'openWebsite' || savedBehavior.type === 'httpRequest'
+          ? savedBehavior.url
+          : '',
+    )
+    setCwdTarget(savedBehavior.type === 'runCommand' ? (savedBehavior.workingDirectory ?? '') : '')
+    setHeadersText(savedBehavior.type === 'httpRequest' ? formatHttpHeaderLines(savedBehavior.headers) : '')
+  }, [savedBehavior.id])
   const [pickerError, setPickerError] = useState('')
   const [picking, setPicking] = useState(false)
   const [applicationDragOver, setApplicationDragOver] = useState(false)
@@ -965,10 +1062,36 @@ export function BehaviorEditDialog({
       onUpdate(current =>
         current.type === 'openApp' || current.type === 'openPath'
           ? { ...current, path: target ?? '' }
-          : current.type === 'openWebsite'
+          : current.type === 'openWebsite' || current.type === 'httpRequest'
             ? { ...current, url: target ?? '' }
             : current,
       )
+  }
+  const cwdTrimmed = cwdTarget.trim()
+  const normalizedCwd = cwdTrimmed ? normalizeFilePath(cwdTrimmed) : undefined
+  const cwdInvalid = Boolean(cwdTrimmed && !normalizedCwd)
+  const updateWorkingDirectory = (value: string) => {
+    setCwdTarget(value)
+    setPickerError('')
+    const trimmed = value.trim()
+    const nextDir = trimmed ? normalizeFilePath(trimmed) : undefined
+    if (trimmed && !nextDir) return
+    onUpdate(current =>
+      current.type === 'runCommand'
+        ? { ...current, ...(nextDir ? { workingDirectory: nextDir } : { workingDirectory: undefined }) }
+        : current,
+    )
+  }
+  const parsedHeaders = parseHttpHeaderLines(headersText)
+  const updateHeadersText = (value: string) => {
+    setHeadersText(value)
+    const parsed = parseHttpHeaderLines(value)
+    if (parsed.invalid) return
+    onUpdate(current =>
+      current.type === 'httpRequest'
+        ? { ...current, ...(parsed.headers ? { headers: parsed.headers } : { headers: undefined }) }
+        : current,
+    )
   }
   const updateLaunchTargetRef = useRef(updateLaunchTarget)
   updateLaunchTargetRef.current = updateLaunchTarget
@@ -1021,18 +1144,33 @@ export function BehaviorEditDialog({
     setPickerError('')
     try {
       const path = await open({
-        title: savedBehavior.type === 'openPath' ? (directory ? '选择文件夹' : '选择文件') : '选择应用',
-        directory,
+        title:
+          savedBehavior.type === 'runCommand'
+            ? '选择工作目录'
+            : savedBehavior.type === 'openPath'
+              ? directory
+                ? '选择文件夹'
+                : '选择文件'
+              : '选择应用',
+        directory: savedBehavior.type === 'runCommand' ? true : directory,
         multiple: false,
-        defaultPath: platform === 'macos' ? '/Applications' : undefined,
+        defaultPath:
+          savedBehavior.type === 'runCommand'
+            ? cwdTrimmed || undefined
+            : platform === 'macos'
+              ? '/Applications'
+              : undefined,
         filters:
-          savedBehavior.type === 'openPath'
+          savedBehavior.type === 'openPath' || savedBehavior.type === 'runCommand'
             ? undefined
             : [{ name: '应用', extensions: platform === 'macos' ? ['app'] : ['exe', 'com', 'lnk'] }],
       })
-      if (typeof path === 'string') updateLaunchTarget(path)
+      if (typeof path === 'string') {
+        if (savedBehavior.type === 'runCommand') updateWorkingDirectory(path)
+        else updateLaunchTarget(path)
+      }
     } catch (error) {
-      setPickerError(`无法选择应用：${String(error)}`)
+      setPickerError(`无法选择目标：${String(error)}`)
     } finally {
       setPicking(false)
     }
@@ -1080,17 +1218,28 @@ export function BehaviorEditDialog({
       shortcutBase,
     )
   }
+  const commandValid =
+    behavior.type === 'runCommand' ? Boolean(normalizeShellCommand(behavior.command)) && !cwdInvalid : true
+  const httpBodyValid = behavior.type === 'httpRequest' ? normalizeHttpBody(behavior.body) !== null : true
+  const httpValid =
+    behavior.type === 'httpRequest'
+      ? Boolean(normalizeHttpMethod(behavior.method) && normalizedTarget && !parsedHeaders.invalid && httpBodyValid)
+      : true
   const canSave = launchBehavior
     ? Boolean(normalizedTarget)
     : behavior.type === 'key'
       ? Boolean(behavior.key)
       : behavior.type === 'shortcut'
         ? behavior.keys.length > 0
-        : behavior.type === 'paste' || behavior.type === 'typeText'
+        : behavior.type === 'paste' || behavior.type === 'typeText' || behavior.type === 'copyText'
           ? Boolean(behavior.text.trim())
-          : behavior.type === 'quickOverlay'
-            ? Boolean(behavior.profileId.trim())
-            : true
+          : behavior.type === 'runCommand'
+            ? commandValid
+            : behavior.type === 'httpRequest'
+              ? httpValid
+              : behavior.type === 'quickOverlay'
+                ? Boolean(behavior.profileId.trim())
+                : true
   const content = (
     <div
       className={inline ? 'behavior-inline-container' : 'behavior-dialog-backdrop'}
@@ -1516,7 +1665,7 @@ export function BehaviorEditDialog({
                 </p>
               )}
             </div>
-          ) : behavior.type === 'paste' || behavior.type === 'typeText' ? (
+          ) : behavior.type === 'paste' || behavior.type === 'typeText' || behavior.type === 'copyText' ? (
             <>
               <div className="behavior-dialog-field">
                 <label htmlFor={`${titleId}-behavior-paste-title`}>显示标题</label>
@@ -1528,7 +1677,8 @@ export function BehaviorEditDialog({
                   placeholder="可选，用于在快捷交互窗展示"
                   onChange={event =>
                     onUpdate(current => {
-                      if (current.type !== 'paste' && current.type !== 'typeText') return current
+                      if (current.type !== 'paste' && current.type !== 'typeText' && current.type !== 'copyText')
+                        return current
                       const title = event.target.value
                       return title ? { ...current, title } : { ...current, title: undefined }
                     })
@@ -1538,10 +1688,12 @@ export function BehaviorEditDialog({
               <div className="behavior-dialog-field">
                 <div className="behavior-launch-label">
                   <label htmlFor={`${titleId}-behavior-paste-text`}>文本内容</label>
-                  <SettingsHelp id={`${titleId}-behavior-text-help`} label="文本输入方式">
+                  <SettingsHelp id={`${titleId}-behavior-text-help`} label="文本方式说明">
                     {behavior.type === 'typeText'
                       ? '通过系统模拟输入文字，不读取或修改剪贴板；目标应用须支持系统文字输入。'
-                      : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
+                      : behavior.type === 'copyText'
+                        ? '仅将文本写入系统剪贴板，不会发送粘贴快捷键；会覆盖当前剪贴板内容。'
+                        : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
                   </SettingsHelp>
                 </div>
                 <textarea
@@ -1549,16 +1701,192 @@ export function BehaviorEditDialog({
                   className="behavior-paste-input"
                   autoFocus={draft}
                   value={behavior.text}
-                  placeholder="输入要发送的文本"
+                  placeholder={behavior.type === 'copyText' ? '输入要写入剪贴板的文本' : '输入要发送的文本'}
                   onChange={event =>
                     onUpdate(current =>
-                      current.type === 'paste' || current.type === 'typeText'
+                      current.type === 'paste' || current.type === 'typeText' || current.type === 'copyText'
                         ? { ...current, text: event.target.value }
                         : current,
                     )
                   }
                 />
               </div>
+            </>
+          ) : behavior.type === 'runCommand' ? (
+            <>
+              <div className="behavior-dialog-field">
+                <label htmlFor={`${titleId}-behavior-command-title`}>显示标题</label>
+                <input
+                  id={`${titleId}-behavior-command-title`}
+                  className="behavior-launch-input"
+                  value={behavior.title ?? ''}
+                  maxLength={40}
+                  placeholder="可选，用于在快捷交互窗和列表中展示"
+                  onChange={event =>
+                    onUpdate(current => {
+                      if (current.type !== 'runCommand') return current
+                      const nextTitle = event.target.value
+                      return nextTitle ? { ...current, title: nextTitle } : { ...current, title: undefined }
+                    })
+                  }
+                />
+              </div>
+              <div className="behavior-dialog-field">
+                <div className="behavior-launch-label">
+                  <label htmlFor={`${titleId}-behavior-command-input`}>执行命令</label>
+                  <SettingsHelp id={`${titleId}-behavior-command-help`} label="执行命令说明">
+                    {platform === 'macos'
+                      ? '按下后在后台线程调用 /bin/zsh -lc 非阻塞执行，不阻塞按键响应。'
+                      : '按下后在后台线程无窗口调用 PowerShell 非阻塞执行，不弹出终端黑框。'}
+                  </SettingsHelp>
+                </div>
+                <textarea
+                  id={`${titleId}-behavior-command-input`}
+                  className="behavior-paste-input behavior-mono-input"
+                  autoFocus={draft}
+                  value={behavior.command}
+                  maxLength={4096}
+                  spellCheck={false}
+                  placeholder={
+                    platform === 'macos' ? '例如：open -a "Raycast" 或 curl -fsS ...' : '例如：Start-Process notepad'
+                  }
+                  aria-invalid={Boolean(behavior.command && !normalizeShellCommand(behavior.command))}
+                  onChange={event =>
+                    onUpdate(current =>
+                      current.type === 'runCommand' ? { ...current, command: event.target.value } : current,
+                    )
+                  }
+                />
+              </div>
+              <div className="behavior-dialog-field">
+                <label htmlFor={`${titleId}-behavior-command-cwd`}>工作目录</label>
+                <div className="behavior-launch-row">
+                  <input
+                    id={`${titleId}-behavior-command-cwd`}
+                    className="behavior-launch-input"
+                    value={cwdTarget}
+                    placeholder={platform === 'macos' ? '可选，例如 /Users/name/project' : '可选，例如 C:\\Projects'}
+                    spellCheck={false}
+                    aria-invalid={cwdInvalid}
+                    aria-describedby={cwdInvalid ? `${titleId}-behavior-command-cwd-error` : undefined}
+                    onChange={event => updateWorkingDirectory(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="reset-button"
+                    disabled={!nativeRuntime || picking}
+                    onClick={() => void chooseApplication(true)}
+                  >
+                    选择目录
+                  </button>
+                </div>
+                {cwdInvalid && (
+                  <p id={`${titleId}-behavior-command-cwd-error`} className="behavior-launch-error" role="alert">
+                    工作目录需填写有效的绝对路径，或留空使用默认目录。
+                  </p>
+                )}
+              </div>
+            </>
+          ) : behavior.type === 'httpRequest' ? (
+            <>
+              <div className="behavior-dialog-field">
+                <label htmlFor={`${titleId}-behavior-http-title`}>显示标题</label>
+                <input
+                  id={`${titleId}-behavior-http-title`}
+                  className="behavior-launch-input"
+                  value={behavior.title ?? ''}
+                  maxLength={40}
+                  placeholder="可选，例如：开灯 / 触发 Webhook"
+                  onChange={event =>
+                    onUpdate(current => {
+                      if (current.type !== 'httpRequest') return current
+                      const nextTitle = event.target.value
+                      return nextTitle ? { ...current, title: nextTitle } : { ...current, title: undefined }
+                    })
+                  }
+                />
+              </div>
+              <div className="behavior-dialog-field">
+                <div className="behavior-launch-label">
+                  <label htmlFor={`${titleId}-behavior-http-url`}>请求地址</label>
+                  <SettingsHelp id={`${titleId}-behavior-http-help`} label="HTTP 请求说明">
+                    在后台异步发送 HTTP/HTTPS 请求（10 秒超时），支持本机 Agent 服务（如 127.0.0.1）与局域网
+                    Webhook，不阻塞按键响应。
+                  </SettingsHelp>
+                </div>
+                <div className="behavior-http-row">
+                  <select
+                    aria-label="请求方法"
+                    className="manual-key-select behavior-http-method"
+                    value={behavior.method}
+                    onChange={event => {
+                      const method = normalizeHttpMethod(event.target.value)
+                      if (!method) return
+                      onUpdate(current => (current.type === 'httpRequest' ? { ...current, method } : current))
+                    }}
+                  >
+                    {httpRequestMethods.map(method => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    id={`${titleId}-behavior-http-url`}
+                    className="behavior-launch-input"
+                    autoFocus={draft}
+                    value={launchTarget}
+                    placeholder="http://127.0.0.1:8123/api/webhook"
+                    spellCheck={false}
+                    aria-invalid={Boolean(launchTarget && !normalizedTarget)}
+                    aria-describedby={launchTarget && !normalizedTarget ? `${titleId}-behavior-http-error` : undefined}
+                    onChange={event => updateLaunchTarget(event.target.value)}
+                  />
+                </div>
+                {launchTarget && !normalizedTarget && (
+                  <p id={`${titleId}-behavior-http-error`} className="behavior-launch-error" role="alert">
+                    请输入有效的 HTTP 或 HTTPS 地址（不支持内嵌用户名密码）。
+                  </p>
+                )}
+              </div>
+              <div className="behavior-dialog-field">
+                <label htmlFor={`${titleId}-behavior-http-headers`}>请求头（可选）</label>
+                <textarea
+                  id={`${titleId}-behavior-http-headers`}
+                  className="behavior-paste-input behavior-mono-input behavior-compact-textarea"
+                  value={headersText}
+                  spellCheck={false}
+                  placeholder={'每行一条，格式 Name: Value\n例如 Content-Type: application/json'}
+                  aria-invalid={parsedHeaders.invalid}
+                  aria-describedby={parsedHeaders.invalid ? `${titleId}-behavior-http-headers-error` : undefined}
+                  onChange={event => updateHeadersText(event.target.value)}
+                />
+                {parsedHeaders.invalid && (
+                  <p id={`${titleId}-behavior-http-headers-error`} className="behavior-launch-error" role="alert">
+                    请求头格式应为「名称: 值」（每行一条，最多 16 条且名称不可重复）。
+                  </p>
+                )}
+              </div>
+              {(behavior.method !== 'GET' || Boolean(behavior.body)) && (
+                <div className="behavior-dialog-field">
+                  <label htmlFor={`${titleId}-behavior-http-body`}>请求体（可选）</label>
+                  <textarea
+                    id={`${titleId}-behavior-http-body`}
+                    className="behavior-paste-input behavior-mono-input behavior-compact-textarea"
+                    value={behavior.body ?? ''}
+                    maxLength={maxHttpBodyLength}
+                    spellCheck={false}
+                    placeholder='例如 {"action": "toggle"}'
+                    onChange={event =>
+                      onUpdate(current => {
+                        if (current.type !== 'httpRequest') return current
+                        const body = event.target.value
+                        return body ? { ...current, body } : { ...current, body: undefined }
+                      })
+                    }
+                  />
+                </div>
+              )}
             </>
           ) : behavior.type === 'delay' ? (
             <div className="behavior-dialog-field">
@@ -1589,13 +1917,23 @@ export function BehaviorEditDialog({
           )}
           {children}
         </div>
-        {(!inline || emptyShortcut || (launchBehavior && !normalizedTarget)) && (
+        {(!inline ||
+          emptyShortcut ||
+          (launchBehavior && !normalizedTarget) ||
+          (behavior.type === 'runCommand' && !commandValid) ||
+          (behavior.type === 'httpRequest' && !httpValid)) && (
           <footer className="behavior-dialog-actions">
-            {((launchBehavior && !draft && !normalizedTarget) || emptyShortcut || !draft) && (
+            {((launchBehavior && !normalizedTarget) ||
+              emptyShortcut ||
+              (behavior.type === 'runCommand' && !commandValid) ||
+              (behavior.type === 'httpRequest' && !httpValid) ||
+              !draft) && (
               <span>
                 <Check size={13} />{' '}
-                {launchBehavior && !normalizedTarget
-                  ? '地址未完成，关闭保留原配置'
+                {(launchBehavior && !normalizedTarget) ||
+                (behavior.type === 'runCommand' && !commandValid) ||
+                (behavior.type === 'httpRequest' && !httpValid)
+                  ? '参数未完成，关闭保留原配置'
                   : emptyShortcut
                     ? '请选择至少一个按键，关闭保留原配置'
                     : '更改会自动保存'}

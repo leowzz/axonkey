@@ -1000,10 +1000,18 @@ function AppController({
                 { type: 'cursorMove', fields: ['direction', 'distance'], distance: { min: 1, max: 500 } },
                 { type: 'paste', fields: ['text'], optionalFields: ['title'] },
                 { type: 'typeText', fields: ['text'], optionalFields: ['title'] },
+                { type: 'copyText', fields: ['text'], optionalFields: ['title'] },
                 { type: 'delay', fields: ['ms'], ms: { min: 0, max: 300000 } },
                 { type: 'openApp', fields: ['path'] },
                 { type: 'openPath', fields: ['path'] },
                 { type: 'openWebsite', fields: ['url'] },
+                { type: 'runCommand', fields: ['command'], optionalFields: ['workingDirectory', 'title'] },
+                {
+                  type: 'httpRequest',
+                  fields: ['method', 'url'],
+                  optionalFields: ['headers', 'body', 'title'],
+                  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+                },
                 {
                   type: 'switchProfile',
                   fields: ['direction', 'wrap'],
@@ -1916,13 +1924,17 @@ function AppController({
       type === 'key'
         ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
         : createBehavior(
-            type === 'paste' || type === 'typeText'
+            type === 'paste' || type === 'typeText' || type === 'copyText'
               ? { type, text: '' }
               : type === 'openApp' || type === 'openPath'
                 ? { type, path: '' }
                 : type === 'openWebsite'
                   ? { type, url: '' }
-                  : { type, ms: 300 },
+                  : type === 'runCommand'
+                    ? { type, command: '' }
+                    : type === 'httpRequest'
+                      ? { type, method: 'POST', url: '' }
+                      : { type, ms: 300 },
           )
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
@@ -2019,6 +2031,24 @@ function AppController({
         showBehaviorToast('已设为删除全部文本')
         return
       }
+      case 'copy':
+      case 'pasteShortcut':
+      case 'undo':
+      case 'selectAll':
+      case 'closeTab': {
+        const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
+        const specs = {
+          copy: { key: 'C', label: '复制' },
+          pasteShortcut: { key: 'V', label: '粘贴' },
+          undo: { key: 'Z', label: '撤销' },
+          selectAll: { key: 'A', label: '全选' },
+          closeTab: { key: 'W', label: '关闭标签页' },
+        } as const
+        const spec = specs[preset]
+        replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: [modifier, spec.key] })])
+        showBehaviorToast(`已设为${spec.label}`)
+        return
+      }
       case 'keyHome':
         return replaceWithKey('Home')
       case 'keyEnd':
@@ -2053,9 +2083,12 @@ function AppController({
         beginBehaviorDraft('key', 'replace')
         return
       case 'typeText':
+      case 'copyText':
       case 'openPath':
       case 'openApp':
       case 'openWebsite':
+      case 'runCommand':
+      case 'httpRequest':
         beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':

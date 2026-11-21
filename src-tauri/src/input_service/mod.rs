@@ -524,6 +524,14 @@ pub(super) enum NativeBehavior {
         enabled: bool,
         text: String,
     },
+    CopyText {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        title: Option<String>,
+    },
     OpenPath {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -550,6 +558,27 @@ pub(super) enum NativeBehavior {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
         url: String,
+    },
+    RunCommand {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        command: String,
+        #[serde(default, rename = "workingDirectory")]
+        working_directory: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+    },
+    HttpRequest {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        method: String,
+        url: String,
+        #[serde(default)]
+        headers: Option<std::collections::BTreeMap<String, String>>,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
     },
     SwitchProfile {
         #[serde(default = "enabled_by_default")]
@@ -655,11 +684,14 @@ impl NativeBehavior {
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
             | Self::TypeText { enabled, .. }
+            | Self::CopyText { enabled, .. }
             | Self::OpenPath { enabled, .. }
             | Self::Paste { enabled, .. }
             | Self::Delay { enabled, .. }
             | Self::OpenApp { enabled, .. }
             | Self::OpenWebsite { enabled, .. }
+            | Self::RunCommand { enabled, .. }
+            | Self::HttpRequest { enabled, .. }
             | Self::SwitchProfile { enabled, .. }
             | Self::QuickOverlay { enabled, .. }
             | Self::Disabled { enabled } => *enabled,

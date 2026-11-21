@@ -1610,6 +1610,7 @@ fn emit_remote_output(
             super::profile_switch::execute(device, direction, wrap)
         }
         Output::TypeText(text) => send_unicode_text(&text),
+        Output::CopyText(text) => super::text_output::copy_text(&text),
         Output::Paste(text) => paste_text(&text),
         Output::OpenPath(path) => super::launch::execute(&NativeBehavior::OpenPath {
             enabled: true,
@@ -1622,6 +1623,28 @@ fn emit_remote_output(
         Output::OpenWebsite(url) => {
             super::launch::execute(&NativeBehavior::OpenWebsite { enabled: true, url })
         }
+        Output::RunCommand {
+            command,
+            working_directory,
+        } => super::launch::execute(&NativeBehavior::RunCommand {
+            enabled: true,
+            command,
+            working_directory,
+            title: None,
+        }),
+        Output::HttpRequest {
+            method,
+            url,
+            headers,
+            body,
+        } => super::launch::execute(&NativeBehavior::HttpRequest {
+            enabled: true,
+            method,
+            url,
+            headers,
+            body,
+            title: None,
+        }),
         Output::Key(key, down) => {
             let supported = context
                 .reader
@@ -1817,10 +1840,13 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         }
         NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
         NativeBehavior::TypeText { text, .. } => send_unicode_text(text),
+        NativeBehavior::CopyText { text, .. } => super::text_output::copy_text(text),
         NativeBehavior::Paste { text, .. } => paste_text(text),
         NativeBehavior::OpenPath { .. }
         | NativeBehavior::OpenApp { .. }
-        | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
+        | NativeBehavior::OpenWebsite { .. }
+        | NativeBehavior::RunCommand { .. }
+        | NativeBehavior::HttpRequest { .. } => super::launch::execute(behavior),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
                 if !send_mouse_chord_with(&keys, hold_ms, send_keyboard_inputs) {
@@ -1965,10 +1991,13 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::TypeText { .. }
+        | NativeBehavior::CopyText { .. }
         | NativeBehavior::OpenPath { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }
+        | NativeBehavior::RunCommand { .. }
+        | NativeBehavior::HttpRequest { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::QuickOverlay { .. }

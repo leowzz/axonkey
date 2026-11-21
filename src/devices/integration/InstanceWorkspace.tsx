@@ -178,7 +178,7 @@ export function InstanceWorkspace({
   const [settingsSection, setSettingsSection] = useState<'overview' | 'information'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
-  const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const [toolboxCategory, setToolboxCategory] = useState('all')
   const [pendingSwitch, setPendingSwitch] = useState<{
     inputId: string
     trigger: TriggerType
