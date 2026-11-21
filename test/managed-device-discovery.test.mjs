@@ -719,16 +719,14 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     const driverNotice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-    assert.equal(driverNotice.props.role, 'dialog')
-    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动', '关闭'])
+    assert.equal(driverNotice.props.role, 'status')
+    assert.equal(driverNotice.props['aria-live'], 'polite')
+    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动'])
     assert.ok(text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes('正在录音'))
     assert.ok(!text(views[0].root.findByProps({ className: 'mapping-device-rail panel-surface' })).includes('正在录音'))
     act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
     assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
-    await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
-    assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
     act(() => views[0].update(React.createElement(InstanceWorkspace, props(0))))
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
@@ -741,7 +739,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
         views[0].update(React.createElement(InstanceWorkspace, props(0)))
       })
       const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(notice.props.role, 'dialog')
+      assert.equal(notice.props.role, 'status')
       assert.ok(text(notice).includes('驱动错误，请重新安装。'))
       assert.equal(text(notice).includes(communicationError), true)
       assert.equal(notice.findByProps({ className: 'managed-driver-notice-details' }).findByType('summary').children[0], '查看错误详情')
@@ -751,11 +749,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[0].root.findAllByProps({ className: 'managed-error' }).length, 0, 'communication errors are shown once')
       act(() => button.props.onClick())
       assert.deepEqual(actions.at(-1), ['install', 'one'])
-      await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-      const banner = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(banner.props.role, 'status')
-      assert.equal(text(banner.findByType('span')), '驱动错误，请重新安装。')
-      assert.equal(text(banner).includes(communicationError), false)
       act(() => views[0].update(React.createElement(InstanceWorkspace, {
         ...props(0), driverAction: { instanceId: 'two', status: 'running' },
       })))
@@ -2079,6 +2072,94 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     assert.equal(view.root.findAll(node => node.props?.className === 'managed-warning').length, 0)
   } finally {
     model.resetRuntimeSupportPackages()
+    act(() => view.unmount())
+  }
+})
+
+test('Windows integration installs the device driver via UAC before entering workspace and handles UAC cancellation', async () => {
+  const remote = { ...device, id: 'xbox-win', kind: 'xboxBluetooth', connected: true }
+  const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+  const savedCalls = []
+  const installCalls = []
+  let finishInstall = null
+  const controller = {
+    snapshot,
+    busy: false,
+    error: '',
+    async put(instance) {
+      savedCalls.push(instance)
+      const persisted = { ...instance, id: instance.id || 'xbox-instance-1' }
+      snapshot.store.instances = [persisted]
+      return snapshot
+    },
+  }
+  let completedId = ''
+  let view
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceDiscoverySection, {
+        controller,
+        native: true,
+        platform: 'windows',
+        permissions: {},
+        onIntegrated: id => {
+          completedId = id
+        },
+        onInstallDriver: instanceId => {
+          installCalls.push(instanceId)
+          return new Promise(resolve => {
+            finishInstall = resolve
+          })
+        },
+      }),
+    )
+  })
+  try {
+    act(() => view.root.find(node => node.type === 'button' && node.props['data-discovered']).props.onClick())
+    const primary = () => view.root.findByProps({ className: 'managed-primary' })
+    assert.equal(text(primary()), '集成并配置驱动')
+
+    let clickPromise
+    act(() => {
+      clickPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1)
+    assert.deepEqual(installCalls, ['xbox-instance-1'])
+    assert.equal(completedId, '', 'does not jump into workspace while UAC prompt is pending')
+    assert.ok(text(view.root.findByProps({ className: 'integration-uac-status' })).includes('Windows UAC'))
+
+    await act(async () => {
+      finishInstall({ ok: false, status: 'error', error: '用户取消了管理员授权' })
+      await clickPromise
+    })
+    assert.equal(completedId, '', 'stays inside integration dialog when UAC is cancelled')
+    assert.ok(
+      text(view.root.findByProps({ className: 'managed-error integration-uac-error' })).includes(
+        '用户取消了管理员授权',
+      ),
+    )
+    const footerButtons = view.root.findByProps({ className: 'managed-dialog-footer' }).findAllByType('button')
+    assert.deepEqual(footerButtons.map(text), ['先进入配键位（稍后安装）', '重新授权安装'])
+
+    let retryPromise
+    act(() => {
+      retryPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1, 'retrying UAC reuses the already persisted instance without duplicating')
+    assert.deepEqual(installCalls, ['xbox-instance-1', 'xbox-instance-1'])
+
+    await act(async () => {
+      finishInstall({ ok: true, status: 'installed', message: '按键驱动已安装' })
+      await retryPromise
+    })
+    assert.equal(completedId, 'xbox-instance-1')
+  } finally {
     act(() => view.unmount())
   }
 })

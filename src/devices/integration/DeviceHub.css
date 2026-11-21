@@ -1047,18 +1047,19 @@ button.managed-package:hover:not(:disabled) {
   grid-column: 1 / -1;
   display: flex;
   flex-shrink: 0;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   margin: 8px 16px;
   padding: 9px 14px;
-  border: 1px solid rgb(220 38 38 / 16%);
-  border-radius: 9px;
-  background: #fef2f2;
-  color: #991b1b;
+  border: 1px solid #f0d4b0;
+  border-radius: 8px;
+  background: #fff9ef;
+  color: #8f5719;
   font-size: 13px;
   line-height: 1.5;
 }
-.managed-driver-notice > span {
+.managed-driver-notice-copy {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1066,74 +1067,36 @@ button.managed-package:hover:not(:disabled) {
 .managed-driver-notice > button {
   flex-shrink: 0;
   padding: 5px 10px;
-  border: 1px solid rgb(220 38 38 / 28%);
+  border: 1px solid #ddb37e;
   border-radius: 6px;
   background: #fff;
-  color: inherit;
+  color: #7d4a12;
   font-size: 12px;
   font-weight: 500;
+}
+.managed-driver-notice > button:hover:not(:disabled) {
+  background: #fef3e1;
 }
 .managed-driver-notice > button:disabled {
   opacity: 0.6;
 }
-.managed-driver-notice-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgb(15 23 42 / 38%);
-  backdrop-filter: blur(2px);
-}
-.managed-driver-notice-backdrop > .managed-driver-notice {
-  display: block;
-  width: min(560px, calc(100vw - 48px));
-  max-height: calc(100dvh - 48px);
-  overflow-y: auto;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 28px 30px 24px;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: var(--shadow-popover);
-  color: var(--ink-secondary);
-}
-.managed-driver-notice-backdrop > .managed-driver-notice[data-dismissing] {
-  pointer-events: none;
-  transform-origin: center;
-}
-.managed-driver-notice-backdrop h2 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 19px;
-  line-height: 1.4;
-}
-.managed-driver-notice-backdrop p {
-  margin: 10px 0 0;
-  color: var(--ink-secondary);
-  line-height: 1.65;
-}
 .managed-driver-notice-details {
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
-  color: var(--ink-secondary);
+  margin-top: 6px;
+  color: #7d4a12;
 }
 .managed-driver-notice-details summary {
   cursor: pointer;
-  padding: 12px 0 8px;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 500;
+  padding: 2px 0;
+  font-size: 12px;
 }
 .managed-driver-notice-details code {
   display: block;
   overflow-x: auto;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--surface-subtle);
-  color: var(--ink);
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 80%);
+  color: #63322f;
   font:
     12px/1.55 ui-monospace,
     SFMono-Regular,
@@ -1142,31 +1105,25 @@ button.managed-package:hover:not(:disabled) {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.managed-driver-notice-actions {
+.integration-uac-status {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid #cfe1f3;
+  border-radius: 8px;
+  background: #eef5fc;
+  color: #2f6493;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.integration-uac-error {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 24px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+  margin-bottom: 0;
 }
-.managed-driver-notice-actions > button {
-  min-width: 76px;
-  padding: 7px 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  color: var(--ink-secondary);
-  background: #fff;
-  font-weight: 500;
-}
-.managed-driver-notice-actions > .managed-driver-notice-install {
-  border-color: var(--blue);
-  color: #fff;
-  background: var(--blue);
-}
-.managed-driver-notice-actions > button:hover:not(:disabled) {
-  filter: brightness(0.96);
-}
-.managed-driver-notice-actions > button:disabled {
-  opacity: 0.6;
+.integration-uac-error strong {
+  font-weight: 600;
 }
 .managed-instance-workspace .mapping-main > .managed-error,
 .managed-instance-workspace .mapping-main > .managed-notice,
