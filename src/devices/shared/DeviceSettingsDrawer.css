@@ -1,6 +1,6 @@
 .device-settings-drawer {
   inset: 0;
-  width: min(580px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   height: calc(100dvh - var(--native-titlebar-height));
   max-height: none;
   margin: var(--native-titlebar-height) 0 0 auto;
@@ -8,12 +8,12 @@
   border: 0;
   border-left: 1px solid var(--line-strong);
   color: var(--ink);
-  background: #f9fafb;
-  box-shadow: -16px 0 42px rgb(15 23 42 / 14%);
+  background: var(--bg);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
 }
 .device-settings-drawer::backdrop {
-  background: rgb(15 23 42 / 22%);
+  background: var(--backdrop);
   backdrop-filter: blur(2px);
 }
 .device-settings-drawer-content {
@@ -27,19 +27,20 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 24px 24px 18px;
+  padding: 18px 20px 14px;
   flex-shrink: 0;
 }
 .device-settings-drawer-header h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .device-settings-drawer-header p {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 .device-settings-drawer nav.device-settings-drawer-nav {
@@ -47,23 +48,45 @@
   flex-direction: row;
   align-items: center;
   flex-shrink: 0;
-  gap: 6px;
-  padding: 0 24px 18px;
+  gap: 12px;
+  padding: 0 20px;
+  margin-bottom: 16px;
   border: 0;
+  border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
 }
-.device-settings-drawer .device-settings-drawer-nav > button {
+.device-settings-drawer .device-settings-drawer-nav > button:not(.settings-refresh) {
+  position: relative;
   width: auto;
+  min-height: 34px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  border-color: transparent;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
 }
-.device-settings-drawer .device-settings-drawer-nav > button[aria-current='page'] {
+.device-settings-drawer .device-settings-drawer-nav > button:not(.settings-refresh):hover {
+  color: var(--ink);
+  background: transparent;
+}
+.device-settings-drawer .device-settings-drawer-nav > button[aria-current='page']:not(.settings-refresh) {
   color: var(--blue);
-  border-color: rgb(0 102 255 / 22%);
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 600;
+}
+.device-settings-drawer .device-settings-drawer-nav > button[aria-current='page']:not(.settings-refresh)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--blue);
 }
 .device-settings-drawer-nav .settings-refresh {
   margin-left: auto;
@@ -76,39 +99,49 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 24px 24px;
+  padding: 0 20px 24px;
+}
+.device-settings-drawer-panel > .managed-driver-status-row {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 .device-settings-drawer .settings-form-row {
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 14px;
 }
 .device-settings-drawer .managed-remove {
-  margin-left: 122px;
+  margin-left: 0;
+  margin-top: 14px;
   flex-wrap: wrap;
 }
 .device-settings-drawer input:not([type]) {
-  padding: 7px 10px;
+  height: var(--control-height-lg);
+  padding: 4px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--ink);
   min-width: 0;
 }
 .device-settings-drawer input:not([type]):focus {
   outline: none;
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgb(0 102 255 / 11%);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 11%);
 }
 .device-settings-drawer .dialog-secondary,
 .device-settings-drawer .managed-remove > button,
 .device-settings-drawer .managed-driver-status-control > button {
-  min-height: 32px;
-  padding: 6px 12px;
+  min-height: var(--control-height);
+  padding: 0 11px;
   color: var(--ink-secondary);
   border: 1px solid var(--line-strong);
-  background: #fff;
-  border-radius: 7px;
-  font-size: 13px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-xs);
+  font-size: 12.5px;
   font-weight: 500;
 }
 .device-settings-drawer .dialog-secondary:hover:not(:disabled),
@@ -116,6 +149,7 @@
 .device-settings-drawer .managed-driver-status-control > button:hover:not(:disabled) {
   border-color: var(--blue-border);
   color: var(--blue);
+  background: #f5f9ff;
 }
 .device-settings-drawer .dialog-close {
   flex-shrink: 0;
@@ -123,5 +157,5 @@
   background: transparent;
 }
 .device-settings-drawer-panel > .settings-form-fields {
-  margin-top: 20px;
+  margin-top: 0;
 }

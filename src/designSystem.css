@@ -1,0 +1,58 @@
+:root {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-subtle: #f1f3f6;
+  --surface-hover: #eaedf2;
+  --chrome: rgb(255 255 255 / 90%);
+  --slot: #e5e7eb;
+
+  --ink: #111827;
+  --ink-secondary: #4b5563;
+  --muted: #6b7280;
+
+  --line-subtle: rgb(15 23 42 / 6%);
+  --line: rgb(15 23 42 / 9%);
+  --line-strong: rgb(15 23 42 / 15%);
+
+  --blue: #2563eb;
+  --blue-hover: #1d4ed8;
+  --blue-soft: rgb(37 99 235 / 9%);
+  --blue-border: rgb(37 99 235 / 32%);
+
+  --green: #15803d;
+  --green-soft: rgb(21 128 61 / 10%);
+  --green-border: rgb(21 128 61 / 22%);
+
+  --warn: #b45309;
+  --warn-soft: rgb(217 119 6 / 10%);
+  --warn-border: rgb(217 119 6 / 24%);
+  --warn-bg: #fffbeb;
+
+  --danger: #dc2626;
+  --danger-soft: rgb(220 38 38 / 9%);
+  --danger-border: rgb(220 38 38 / 24%);
+
+  --radius-xs: 5px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+
+  --control-height: 30px;
+  --control-height-lg: 32px;
+  --chrome-header-height: 46px;
+  --chrome-footer-height: 32px;
+  --settings-content-width: 760px;
+
+  --shadow-xs: 0 1px 1px rgb(15 23 42 / 4%);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 4%);
+  --shadow-hover: 0 3px 10px rgb(15 23 42 / 7%);
+  --shadow-popover: 0 10px 28px rgb(15 23 42 / 12%), 0 2px 6px rgb(15 23 42 / 5%);
+  --shadow-dialog: 0 20px 48px rgb(15 23 42 / 16%), 0 4px 12px rgb(15 23 42 / 6%);
+  --backdrop: rgb(15 23 42 / 28%);
+}

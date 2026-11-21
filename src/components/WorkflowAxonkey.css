@@ -68,12 +68,12 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   margin: 12px 0 12px 14px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 82%);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
   box-shadow: var(--shadow-card);
 }
 .macos-vibrancy .mapping-flow-page .mapping-device-rail {
-  border-color: rgb(24 28 36 / 9%);
+  border-color: rgb(15 23 42 / 9%);
   background: rgb(255 255 255 / 44%);
 }
 .mapping-flow-page .managed-instance-status {
@@ -84,16 +84,17 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   flex-shrink: 0;
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  padding: 2.5px;
-  border-radius: 8px;
-  background: rgb(24 28 36 / 6%);
+  padding: 3px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
 }
 .rail-tab {
   min-width: 0;
   height: 26px;
   padding: 0 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-secondary);
   font-size: 12px;
@@ -114,10 +115,10 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   outline-offset: 1px;
 }
 .rail-tab.active {
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  box-shadow: var(--shadow-xs);
 }
 .macos-vibrancy .rail-tab.active {
   background: rgb(255 255 255 / 86%);
@@ -133,8 +134,9 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   justify-content: center;
   margin: 0;
   padding: 12px 6px;
-  border-radius: 11px;
-  background: linear-gradient(180deg, rgb(241 245 249 / 82%) 0%, rgb(248 250 252 / 42%) 100%);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
 }
 .macos-vibrancy .mapping-active .mapping-flow-page .remote-stage {
   background: rgb(255 255 255 / 30%);
@@ -201,7 +203,7 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   font-weight: 500;
 }
 .rail-keymap-empty button:hover {
-  background: rgb(0 102 255 / 15%);
+  background: rgb(37 99 235 / 15%);
 }
 .rail-keymap-row {
   flex-shrink: 0;
@@ -237,9 +239,9 @@ body:has(.mapping-column-splitter[data-resizing]) * {
   outline-offset: 1px;
 }
 .rail-keymap-row.selected {
-  border-color: rgb(0 102 255 / 45%);
+  border-color: rgb(37 99 235 / 45%);
   background: #eaf3ff;
-  box-shadow: 0 0 0 1px rgb(0 102 255 / 12%);
+  box-shadow: 0 0 0 1px rgb(37 99 235 / 12%);
 }
 .macos-vibrancy .rail-keymap-row.selected {
   background: rgb(245 250 255 / 84%);
@@ -651,12 +653,12 @@ body:has(.workflow-split-layout[data-resizing]) * {
   min-height: 0;
   padding: 12px 0 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 82%);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
   box-shadow: var(--shadow-card);
 }
 .macos-vibrancy .workflow-axonkey .sqd-toolbox {
-  border-color: rgb(24 28 36 / 9%);
+  border-color: rgb(15 23 42 / 9%);
   background: rgb(255 255 255 / 44%);
 }
 .workflow-axonkey .workflow-toolbox {
@@ -705,7 +707,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
   border-color: var(--blue);
   color: var(--blue);
   background: #fff;
-  box-shadow: 0 0 0 3px rgb(0 102 255 / 10%);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
 }
 .workflow-toolbox-search-field > svg {
   flex-shrink: 0;
@@ -741,15 +743,16 @@ body:has(.workflow-split-layout[data-resizing]) * {
   gap: 2px;
   margin: 0 12px 10px;
   padding: 3px;
-  border-radius: 8px;
-  background: rgb(24 28 36 / 5%);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
 }
 .workflow-toolbox-tabs button {
   flex: 1;
-  min-height: 28px;
+  min-height: 26px;
   padding: 4px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   color: var(--ink-secondary);
   background: transparent;
   font-size: 12.5px;
@@ -760,9 +763,9 @@ body:has(.workflow-split-layout[data-resizing]) * {
     box-shadow 0.14s ease;
 }
 .workflow-toolbox-tabs button[aria-pressed='true'] {
-  color: var(--blue);
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
   font-weight: 600;
 }
 .workflow-toolbox-categories {
@@ -857,7 +860,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-axonkey .sqd-toolbox-item:hover {
   border-color: var(--blue-border);
   background: #fafcff;
-  box-shadow: 0 2px 8px rgb(0 102 255 / 6%);
+  box-shadow: 0 2px 8px rgb(37 99 235 / 6%);
 }
 .workflow-toolbox-item-main {
   display: flex;
@@ -932,7 +935,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
   transition: background-color 0.14s ease;
 }
 .workflow-toolbox-add:hover {
-  background: rgb(0 102 255 / 16%);
+  background: rgb(37 99 235 / 16%);
 }
 .workflow-recommendation[aria-pressed='true'] {
   color: #b45309;
@@ -1066,14 +1069,14 @@ body:has(.workflow-split-layout[data-resizing]) * {
     filter 0.14s ease;
 }
 .workflow-drag-preview .sqd-step-task .sqd-step-task-rect {
-  stroke: rgb(0 102 255 / 45%);
+  stroke: rgb(37 99 235 / 45%);
   filter: drop-shadow(0 4px 10px rgb(15 23 42 / 14%));
 }
 .workflow-axonkey .sqd-step-task:hover .sqd-step-task-rect {
-  stroke: rgb(0 102 255 / 42%);
+  stroke: rgb(37 99 235 / 42%);
 }
 .workflow-axonkey .workflow-step-editing.sqd-step-task .sqd-step-task-rect {
-  stroke: rgb(0 102 255 / 65%);
+  stroke: rgb(37 99 235 / 65%);
   stroke-width: 1.4;
   fill: #f6f9ff;
 }
@@ -1082,7 +1085,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
   stroke: var(--blue);
   stroke-width: 1.75;
   fill: #eef5ff;
-  filter: drop-shadow(0 2px 8px rgb(0 102 255 / 12%));
+  filter: drop-shadow(0 2px 8px rgb(37 99 235 / 12%));
 }
 .workflow-axonkey .sqd-step-task .sqd-step-task-text,
 .workflow-drag-preview .sqd-step-task .sqd-step-task-text {
@@ -1115,11 +1118,11 @@ body:has(.workflow-split-layout[data-resizing]) * {
   fill: var(--blue);
   stroke: none;
   opacity: 1;
-  filter: drop-shadow(0 0 3px rgb(0 102 255 / 35%));
+  filter: drop-shadow(0 0 3px rgb(37 99 235 / 35%));
 }
 .workflow-axonkey .workflow-empty-lane-placeholder .sqd-placeholder-rect {
-  fill: rgb(0 102 255 / 4%);
-  stroke: rgb(0 102 255 / 32%);
+  fill: rgb(37 99 235 / 4%);
+  stroke: rgb(37 99 235 / 32%);
   stroke-width: 1;
   stroke-dasharray: 4 3;
   rx: 8px;
@@ -1129,14 +1132,14 @@ body:has(.workflow-split-layout[data-resizing]) * {
     stroke 0.12s ease;
 }
 .workflow-axonkey .workflow-empty-lane-placeholder.sqd-hover .sqd-placeholder-rect {
-  fill: rgb(0 102 255 / 11%);
+  fill: rgb(37 99 235 / 11%);
   stroke: var(--blue);
   stroke-width: 1.5;
   stroke-dasharray: none;
 }
 .workflow-empty-lane-plus {
   fill: none;
-  stroke: rgb(0 102 255 / 45%);
+  stroke: rgb(37 99 235 / 45%);
   stroke-width: 1.5;
   stroke-linecap: round;
 }
@@ -1166,7 +1169,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
   box-sizing: border-box;
   border: 1px solid var(--blue);
   border-radius: 4px;
-  background: rgb(0 102 255 / 10%);
+  background: rgb(37 99 235 / 10%);
   pointer-events: none;
 }
 .workflow-step-editor .behavior-dialog {
@@ -1303,7 +1306,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
 
 /* Option A Trigger Lanes: Clean neutral glass lanes + semantic accent dot */
 .workflow-trigger-click {
-  --trigger-color: #0066ff;
+  --trigger-color: var(--blue);
   --trigger-background: #ffffff;
 }
 .workflow-trigger-doubleClick {

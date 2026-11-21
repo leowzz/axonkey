@@ -3,16 +3,17 @@
   max-height: min(82vh, 720px);
   padding: 0;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--surface, #fff);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 18px 48px rgb(15 23 42 / 14%);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
   overscroll-behavior: contain;
 }
 
 .preset-profile-dialog::backdrop {
-  background: rgb(15 23 42 / 34%);
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
 }
 
 .preset-profile-surface {

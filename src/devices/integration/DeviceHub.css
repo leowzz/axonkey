@@ -1,7 +1,7 @@
 .managed-hub {
   flex: 1;
   min-width: 0;
-  padding: 28px 32px;
+  padding: 20px 28px 28px;
   color: var(--ink-secondary);
 }
 .managed-device-sections {
@@ -145,7 +145,7 @@ body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open])
 }
 .managed-device-grid .my-devices-card {
   width: 100%;
-  min-height: 216px;
+  min-height: 196px;
 }
 .managed-device-grid .my-devices-card-main {
   grid-template-columns: minmax(0, 96px) minmax(0, 1fr);
@@ -213,12 +213,12 @@ body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open])
 .managed-notice,
 .managed-error {
   margin: 0 0 14px;
-  padding: 10px 14px;
+  padding: 7px 12px;
   font-size: 12.5px;
-  line-height: 1.75;
-  border-radius: 9px;
-  border: 1px solid rgb(0 102 255 / 14%);
-  background: rgb(0 102 255 / 5%);
+  line-height: 1.5;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
   color: var(--ink-secondary);
 }
 .managed-error {
