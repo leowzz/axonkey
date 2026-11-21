@@ -81,6 +81,11 @@ impl RemoteOutput {
                 enabled: true,
                 text,
             },
+            Output::CopyText(text) => NativeBehavior::CopyText {
+                enabled: true,
+                text,
+                title: None,
+            },
             Output::OpenPath(path) => NativeBehavior::OpenPath {
                 enabled: true,
                 path,
@@ -94,6 +99,28 @@ impl RemoteOutput {
                 path,
             },
             Output::OpenWebsite(url) => NativeBehavior::OpenWebsite { enabled: true, url },
+            Output::RunCommand {
+                command,
+                working_directory,
+            } => NativeBehavior::RunCommand {
+                enabled: true,
+                command,
+                working_directory,
+                title: None,
+            },
+            Output::HttpRequest {
+                method,
+                url,
+                headers,
+                body,
+            } => NativeBehavior::HttpRequest {
+                enabled: true,
+                method,
+                url,
+                headers,
+                body,
+                title: None,
+            },
         };
         execute_behaviors(&[behavior]);
     }

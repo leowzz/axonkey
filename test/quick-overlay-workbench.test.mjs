@@ -209,3 +209,48 @@ test('extractQuickPrompt and buildQuickPromptSequence round-trip prompts while d
   assert.equal(built[1].id, 'd1')
   assert.equal(built[2].id, 'e1')
 })
+
+test('quick overlay trigger binding moves cleanly across inputs/triggers and unbinds without leaving stale references', async () => {
+  const { bindQuickOverlayTrigger, findQuickOverlayTriggerBinding, hasExistingNonQuickBehavior } = await import(
+    '../src/devices/integration/instanceProfiles.ts'
+  )
+  const { newInstance } = await import('../src/devices/integration/model.ts')
+
+  let instance = newInstance('rc003', null)
+  instance = {
+    ...instance,
+    profiles: [
+      {
+        id: 'default',
+        name: '默认配置',
+        behaviors: {
+          confirm: { click: [{ id: 'b1', enabled: true, type: 'mouse', button: 'left' }], doubleClick: [], longPress: [] },
+        },
+      },
+      { id: 'q1', name: '快捷交互', quick: true, behaviors: {} },
+    ],
+  }
+
+  assert.equal(hasExistingNonQuickBehavior(instance.profiles[0], 'confirm', 'click', 'q1'), true)
+  assert.equal(hasExistingNonQuickBehavior(instance.profiles[0], 'menu', 'longPress', 'q1'), false)
+
+  instance = bindQuickOverlayTrigger(instance, 'q1', 'default', 'menu', 'longPress')
+  assert.deepEqual(findQuickOverlayTriggerBinding(instance, 'q1'), {
+    profileId: 'default',
+    inputId: 'menu',
+    trigger: 'longPress',
+  })
+
+  // Move to another trigger cleanly clears the prior binding
+  instance = bindQuickOverlayTrigger(instance, 'q1', 'default', 'tv', 'doubleClick')
+  assert.equal(instance.profiles[0].behaviors.menu, undefined)
+  assert.deepEqual(findQuickOverlayTriggerBinding(instance, 'q1'), {
+    profileId: 'default',
+    inputId: 'tv',
+    trigger: 'doubleClick',
+  })
+
+  // Unbind cleanly removes quickOverlay action
+  instance = bindQuickOverlayTrigger(instance, 'q1', 'default', '', 'click')
+  assert.equal(findQuickOverlayTriggerBinding(instance, 'q1'), null)
+})

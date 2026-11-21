@@ -83,7 +83,6 @@ export function CaptureSafetyConfirmDialog({
     <dialog
       ref={dialogRef}
       className="capture-safety-dialog"
-      aria-modal="true"
       aria-busy={busy || undefined}
       aria-labelledby="capture-safety-dialog-title"
       onCancel={event => {

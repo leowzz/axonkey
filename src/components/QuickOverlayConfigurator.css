@@ -11,26 +11,56 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 10px;
+  min-height: var(--chrome-header-height);
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+  backdrop-filter: blur(12px);
 }
 
 .quick-overlay-config-header .reset-button {
   gap: 6px;
+  height: var(--control-height);
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
+.quick-overlay-config-header .reset-button:hover {
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+
+.quick-overlay-config-actions .reset-button {
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.quick-overlay-config-actions .reset-button:hover {
+  border-color: var(--blue-border);
+  color: var(--blue);
+  background: #f5f9ff;
+}
+
 .quick-overlay-config-name {
-  flex: 0 1 210px;
+  flex: 0 1 200px;
   min-width: 100px;
-  font-weight: 650;
+  height: var(--control-height);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .quick-overlay-config-device {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -40,12 +70,13 @@
   align-items: center;
   gap: 7px;
   flex: 0 0 auto;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 56%);
+  height: var(--control-height);
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
   border: 1px solid var(--line);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
 }
@@ -69,7 +100,7 @@
   grid-template-columns: minmax(0, 1fr) clamp(238px, 27vw, 318px);
   gap: 12px;
   min-height: 0;
-  padding: 0 12px 12px;
+  padding: 12px 14px;
 }
 
 .quick-overlay-config-body.is-prompt-mode {
@@ -85,8 +116,9 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 44%);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .quick-overlay-config-stage {
@@ -205,13 +237,13 @@
 .quick-overlay-editor-key:not(:disabled):hover,
 .quick-overlay-editor-key[aria-pressed='true'],
 .quick-overlay-editor-key.is-drop-target {
-  border-color: #5287d8;
-  box-shadow: inset 0 0 0 1px #5287d8;
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
 }
 
 .quick-overlay-editor-key[aria-pressed='true'],
 .quick-overlay-editor-key.is-drop-target {
-  background: #e7f0ff;
+  background: var(--blue-soft);
 }
 
 .quick-overlay-editor-key:disabled {
@@ -253,7 +285,8 @@
   flex-shrink: 0;
   min-width: 0;
   padding: 12px 16px;
-  background: rgb(233 239 247 / 62%);
+  border-top: 1px solid var(--line);
+  background: var(--surface-subtle);
 }
 
 .quick-overlay-track > header {
@@ -285,12 +318,17 @@
   cursor: pointer;
 }
 
-.quick-overlay-track-clear:hover:not(:disabled),
+.quick-overlay-track-clear:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #dc2626;
+  background: #fef2f2;
+}
 .quick-overlay-track-clear:focus-visible {
   border-color: #ef4444;
   color: #dc2626;
   background: #fef2f2;
-  outline: none;
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
 }
 
 .quick-overlay-track-clear:disabled {
@@ -359,7 +397,7 @@
 
 .quick-overlay-step:hover,
 .quick-overlay-step:focus-visible {
-  border-color: #5287d8;
+  border-color: var(--blue);
 }
 
 .quick-overlay-step.is-disabled {
@@ -421,23 +459,30 @@
   opacity: 1;
 }
 
-.quick-overlay-step-remove:hover,
+.quick-overlay-step-remove:hover {
+  opacity: 1;
+  color: #dc2626;
+  background: #fee2e2;
+}
 .quick-overlay-step-remove:focus-visible {
   opacity: 1;
   color: #dc2626;
   background: #fee2e2;
-  outline: none;
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
 }
 
 .quick-overlay-step-add {
   border-style: dashed;
-  color: #315e97;
-  background: rgb(255 255 255 / 52%);
+  color: var(--ink-secondary);
+  background: var(--surface);
   cursor: pointer;
 }
 
 .quick-overlay-step-add:hover {
-  background: white;
+  border-color: var(--blue-border);
+  color: var(--blue);
+  background: #f5f9ff;
 }
 
 .quick-overlay-config-toolbox.workflow-axonkey {
@@ -456,8 +501,9 @@
   min-height: 0;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 58%);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   overflow-y: auto;
 }
 
@@ -571,27 +617,29 @@
 .quick-overlay-prompt-method {
   display: inline-flex;
   padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: rgb(236 241 247 / 80%);
-  gap: 3px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  gap: 2px;
 }
 
 .quick-overlay-prompt-method button {
-  padding: 4px 11px;
+  min-height: 26px;
+  padding: 3px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-secondary);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .quick-overlay-prompt-method button[aria-pressed='true'] {
-  background: #ffffff;
+  background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgb(15 23 42 / 10%);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
 }
 
 .quick-overlay-prompt-autoenter {
@@ -627,27 +675,30 @@
   display: grid;
   width: 132px;
   padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgb(15 23 42 / 16%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
 }
 
 .quick-overlay-step-menu button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 9px;
+  min-height: 30px;
+  padding: 5px 8px;
   border: 0;
-  border-radius: 6px;
-  color: var(--ink);
+  border-radius: var(--radius-xs);
+  color: var(--ink-secondary);
   background: transparent;
+  font-size: 12.5px;
   text-align: left;
 }
 
 .quick-overlay-step-menu button:not(:disabled):hover,
 .quick-overlay-step-menu button:focus-visible {
-  background: #e7f0ff;
+  color: var(--ink);
+  background: var(--surface-subtle);
 }
 
 .quick-overlay-step-menu button:disabled {
@@ -684,4 +735,65 @@
   .quick-overlay-config-preview[open] .quick-overlay-shell {
     animation: none;
   }
+}
+
+.quick-overlay-trigger-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+  font-size: 12.5px;
+}
+
+.quick-overlay-trigger-field .select-control {
+  height: var(--control-height);
+  border-radius: var(--radius-sm);
+}
+
+.quick-overlay-trigger-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-overlay-trigger-field > span {
+  color: var(--ink-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quick-overlay-trigger-note {
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.quick-overlay-quick-chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.quick-overlay-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.quick-overlay-quick-chip:hover {
+  border-color: var(--blue-border);
+  color: var(--blue);
+  background: #f5f9ff;
 }

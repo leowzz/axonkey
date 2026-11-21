@@ -27,8 +27,17 @@ import { setApplicationProfile } from './applicationProfiles'
 import { buildRailOverviewItems, railKeyGlyphText, shouldOpenRailSummaryPopover } from './railOverview'
 import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
+import { PresetProfileDialog } from '../../components/PresetProfileDialog'
 import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
+import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog'
+import {
+  clonePresetBehaviors,
+  getPresetsForDevice,
+  materializePresetToProfile,
+  pickDefaultPreset,
+  type DevicePresetOption,
+} from '../bundledPresets.ts'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
@@ -64,9 +73,12 @@ import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
   addQuickInstanceProfile,
+  bindQuickOverlayTrigger,
   deleteInstanceProfile,
   applyInstanceProfileSwitch,
   createInstanceBehaviorHistory,
+  findQuickOverlayTriggerBinding,
+  hasExistingNonQuickBehavior,
   instanceBehaviorHistoryReducer,
   mergeEditedProfileBehaviors,
   removeInstanceProfileSwitch,
@@ -80,29 +92,6 @@ function countConfiguredInputs(behaviors: InstanceProfileBehaviors, quick?: bool
       trigger => (sequences?.[trigger]?.filter(step => step.enabled).length ?? 0) > 0,
     ),
   ).length
-}
-
-function findQuickTriggerBinding(
-  instance: DeviceInstance,
-  sanitizedProfiles: ReadonlyMap<string, SanitizedProfileBehaviors>,
-  targetProfileId: string,
-) {
-  for (const candidate of instance.profiles) {
-    if (candidate.quick || candidate.id === targetProfileId) continue
-    const behaviors = sanitizedProfiles.get(candidate.id)?.behaviors ?? {}
-    for (const [inputId, sequences] of Object.entries(behaviors)) {
-      for (const trigger of triggerTypes) {
-        if (
-          sequences?.[trigger]?.some(
-            step => step.enabled && step.type === 'quickOverlay' && step.profileId === targetProfileId,
-          )
-        ) {
-          return inputId
-        }
-      }
-    }
-  }
-  return null
 }
 
 type Props = {
@@ -123,6 +112,7 @@ type Props = {
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
   onToast?: (message: string) => void
+  catalogModel?: CatalogDeviceModel | null
   deviceOptions?: WorkspaceDeviceOption[]
   onSelectDevice?: (id: string) => void
 }
@@ -144,6 +134,7 @@ export function InstanceWorkspace({
   driverAction,
   batteryLevel,
   onToast,
+  catalogModel,
   deviceOptions,
   onSelectDevice,
 }: Props) {
@@ -184,17 +175,11 @@ export function InstanceWorkspace({
   const [editingApplicationId, setEditingApplicationId] = useState('')
   const applications = useForegroundApplications(native)
   const [recordingPending, setRecordingPending] = useState(false)
-  const [driverNoticeDismissed, setDriverNoticeDismissed] = useState(false)
-  const [dismissingDriverNotice, setDismissingDriverNotice] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const driverNoticeRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    if (!instance.hideDriverMissingReminder) setDriverNoticeDismissed(false)
-  }, [instance.hideDriverMissingReminder])
   const [settingsSection, setSettingsSection] = useState<'overview' | 'information'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
-  const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const [toolboxCategory, setToolboxCategory] = useState('all')
   const [pendingSwitch, setPendingSwitch] = useState<{
     inputId: string
     trigger: TriggerType
@@ -210,9 +195,16 @@ export function InstanceWorkspace({
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
   const recordingRef = useRef({ instanceId: instance.id, recording: false })
   const [editingQuickProfileId, setEditingQuickProfileId] = useState<string | null>(null)
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   useEffect(() => {
     setEditingQuickProfileId(null)
+    setPresetDialogOpen(false)
   }, [instance.id])
+  const devicePresets = useMemo(
+    () => getPresetsForDevice(instance.kind, catalogModel, platform),
+    [catalogModel, instance.kind, platform],
+  )
+  const defaultPreset = useMemo(() => pickDefaultPreset(devicePresets), [devicePresets])
   useEffect(() => {
     if (editingQuickProfileId && !instance.profiles.some(item => item.id === editingQuickProfileId)) {
       setEditingQuickProfileId(null)
@@ -284,51 +276,6 @@ export function InstanceWorkspace({
       // The controller exposes HID errors through the device hub banner.
     } finally {
       setRecordingPending(false)
-    }
-  }
-  const dismissDriverNotice = async () => {
-    const notice = driverNoticeRef.current
-    const settingsButton = workspaceRef.current?.querySelector<HTMLButtonElement>('.device-workspace-settings')
-    if (!notice || !settingsButton || typeof notice.animate !== 'function') {
-      try {
-        await controller.update(instance.id, item => ({ ...item, hideDriverMissingReminder: true }))
-        setDriverNoticeDismissed(true)
-      } catch {
-        // A failed save leaves the reminder visible; the controller displays the error.
-      }
-      return
-    }
-    setDismissingDriverNotice(true)
-    const reducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const source = notice.getBoundingClientRect()
-    const target = settingsButton.getBoundingClientRect()
-    const dx = target.x + target.width / 2 - (source.x + source.width / 2)
-    const dy = target.y + target.height / 2 - (source.y + source.height / 2)
-    const flight = notice.animate(
-      reducedMotion
-        ? [{ opacity: 1 }, { opacity: 0 }]
-        : [
-            { transform: 'translate(0, 0) scale(1)', opacity: 1, borderRadius: '12px' },
-            { transform: `translate(${dx * 0.7}px, ${dy * 0.7}px) scale(0.32)`, opacity: 0.75, offset: 0.62 },
-            {
-              transform: `translate(${dx}px, ${dy}px) scale(${target.width / source.width}, ${target.height / source.height})`,
-              opacity: 0,
-              borderRadius: '20px',
-            },
-          ],
-      { duration: reducedMotion ? 100 : 520, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' },
-    )
-    let dismissed = false
-    try {
-      await flight.finished
-      await controller.update(instance.id, item => ({ ...item, hideDriverMissingReminder: true }))
-      setDriverNoticeDismissed(true)
-      dismissed = true
-    } catch {
-      // A failed save leaves the reminder visible; the controller displays the error.
-    } finally {
-      if (!dismissed) flight.cancel()
-      setDismissingDriverNotice(false)
     }
   }
   const unbindDevice = () => {
@@ -421,6 +368,57 @@ export function InstanceWorkspace({
     },
     [controller, instance.id],
   )
+  const applyPresetAsNew = (preset: DevicePresetOption) => {
+    const nextProfile = materializePresetToProfile(preset, {
+      existingNames: instance.profiles.map(item => item.name),
+    })
+    setPresetDialogOpen(false)
+    pendingSavesRef.current += 1
+    void controller
+      .update(instance.id, item => {
+        const added = { ...item, profiles: [...item.profiles, nextProfile] }
+        if (nextProfile.quick) return added
+        return applicationProfile
+          ? setApplicationProfile(added, applicationProfile.application, nextProfile.id)
+          : { ...added, activeProfileId: nextProfile.id }
+      })
+      .then(() => {
+        if (nextProfile.quick) {
+          setEditingQuickProfileId(nextProfile.id)
+        } else {
+          setEditingQuickProfileId(null)
+        }
+        onToast?.(`已复制预制配置「${nextProfile.name}」`)
+      })
+      .catch(() => {})
+      .finally(() => {
+        pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+      })
+  }
+  const applyPresetToCurrent = (preset: DevicePresetOption) => {
+    const freshBehaviors = clonePresetBehaviors(preset.behaviors, true)
+    setPresetDialogOpen(false)
+    applyHistoryAction({ type: 'replace', profileId: profile.id, present: freshBehaviors })
+    pendingSavesRef.current += 1
+    void controller
+      .update(instance.id, item => {
+        const replaced = replaceInstanceProfileBehaviors(item, profile.id, freshBehaviors)
+        if (!preset.display) return replaced
+        return {
+          ...replaced,
+          profiles: replaced.profiles.map(entry =>
+            entry.id === profile.id ? { ...entry, display: { ...preset.display! } } : entry,
+          ),
+        }
+      })
+      .then(() => {
+        onToast?.(`已套用预制配置「${preset.name}」`)
+      })
+      .catch(() => {})
+      .finally(() => {
+        pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+      })
+  }
   const activeBehaviors = history.profileId === profile.id ? history.present : currentSanitized.behaviors
   const inputWarnings = useMemo(() => {
     const cleanedSet = new Set(cleanedInputs)
@@ -527,7 +525,7 @@ export function InstanceWorkspace({
       if (!target) return
       const behaviorsForPreview =
         target.id === profile.id ? activeBehaviors : (sanitizedProfiles.get(target.id)?.behaviors ?? {})
-      const triggerInput = explicitTriggerInput ?? findQuickTriggerBinding(instance, sanitizedProfiles, target.id) ?? ''
+      const triggerInput = explicitTriggerInput ?? findQuickOverlayTriggerBinding(instance, target.id)?.inputId ?? ''
       if (!native) {
         onToast?.('桌面应用中可打开顶层快捷交互窗预览')
         return
@@ -616,11 +614,11 @@ export function InstanceWorkspace({
       ? currentDriverAction.error
       : driverCommunicationError
     : null
-  const showDriverNotice =
-    !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
+  const showDriverBanner =
+    deviceOffline || driverRestartRequired || !!driverErrorDetail || driverMissing || !!currentDriverAction
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
-    if (!profile.quick && (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected)) return
+    if (!profile.quick && (settings || pendingSwitch || pendingDeletion || isScreenSelected)) return
     const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const target = event.target
@@ -656,7 +654,6 @@ export function InstanceWorkspace({
     pendingSwitch,
     redoBehaviorChange,
     settings,
-    showDriverNotice,
     undoBehaviorChange,
   ])
   const driverNoticeMessage = driverErrorDetail
@@ -671,6 +668,7 @@ export function InstanceWorkspace({
             ? '正在安装按键驱动，请完成 Windows 管理员授权…'
             : '按键驱动未安装，请先安装此设备的按键驱动。'
   if (profile.quick) {
+    const quickTriggerBinding = findQuickOverlayTriggerBinding(instance, profile.id)
     return (
       <QuickOverlayConfigurator
         key={profile.id}
@@ -679,11 +677,25 @@ export function InstanceWorkspace({
         profileId={profile.id}
         profileName={profile.name}
         promptMode={Boolean(profile.promptMode)}
-        triggerInput={findQuickTriggerBinding(instance, sanitizedProfiles, profile.id) ?? undefined}
+        triggerInput={quickTriggerBinding?.inputId}
+        triggerType={quickTriggerBinding?.trigger ?? 'click'}
         inputs={pkg.inputs}
         behaviors={activeBehaviors}
         platform={platform}
         onChange={changeSequence}
+        onBindTrigger={(nextInputId, nextTrigger) => {
+          const hadExisting =
+            Boolean(nextInputId) && hasExistingNonQuickBehavior(permanentProfile, nextInputId, nextTrigger, profile.id)
+          update(item =>
+            bindQuickOverlayTrigger(item, profile.id, permanentProfile.id, nextInputId || null, nextTrigger),
+          )
+          if (!nextInputId) {
+            onToast?.('已解除快捷交互窗唤起按键')
+            return
+          }
+          const keyLabel = pkg.inputs.find(item => item.id === nextInputId)?.label ?? nextInputId
+          onToast?.(hadExisting ? `已将「${keyLabel}」切换为快捷交互窗唤起键` : `已绑定「${keyLabel}」唤起快捷交互窗`)
+        }}
         onTogglePromptMode={toggleQuickPromptMode}
         onRename={renameProfile}
         onDuplicate={() => {
@@ -699,6 +711,7 @@ export function InstanceWorkspace({
       />
     )
   }
+  const quickProfiles = instance.profiles.filter(item => item.quick)
   return (
     <div
       ref={workspaceRef}
@@ -758,6 +771,20 @@ export function InstanceWorkspace({
                   })
                   .catch(() => {})
               }}
+              quickProfileCount={quickProfiles.length}
+              onOpenQuickOverlay={() => {
+                const existing = quickProfiles[0]
+                if (existing) {
+                  setEditingQuickProfileId(existing.id)
+                  return
+                }
+                void createQuickProfile()
+                  .then(id => {
+                    if (id) setEditingQuickProfileId(id)
+                  })
+                  .catch(() => {})
+              }}
+              onOpenPresets={devicePresets.length > 0 ? () => setPresetDialogOpen(true) : undefined}
               onDuplicateProfile={() =>
                 update(item => addInstanceProfile(item, true, applicationProfile?.application.id))
               }
@@ -766,86 +793,37 @@ export function InstanceWorkspace({
             />
           }
         />
-        {showDriverNotice &&
-          createPortal(
-            <div className="managed-driver-notice-backdrop" role="presentation">
-              <section
-                ref={driverNoticeRef}
-                className="managed-driver-notice"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="managed-driver-notice-title"
-                aria-describedby="managed-driver-notice-description"
-                data-dismissing={dismissingDriverNotice || undefined}
-              >
-                <h2 id="managed-driver-notice-title">{driverErrorDetail ? '驱动错误' : '设备按键驱动提示'}</h2>
-                <p id="managed-driver-notice-description">{driverNoticeMessage}</p>
-                {driverErrorDetail && (
-                  <details className="managed-driver-notice-details">
-                    <summary>查看错误详情</summary>
-                    <code>{driverErrorDetail}</code>
-                  </details>
-                )}
-                <div className="managed-driver-notice-actions">
-                  {!deviceOffline && !driverRestartRequired && (
-                    <button
-                      type="button"
-                      className="managed-driver-notice-install"
-                      disabled={driverBusy || dismissingDriverNotice}
-                      onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
-                    >
-                      {!instance.binding
-                        ? '绑定设备'
-                        : driverRunning
-                          ? '正在安装…'
-                          : driverInstalled
-                            ? '重新安装驱动'
-                            : currentDriverAction?.error
-                              ? '重试安装'
-                              : '安装驱动'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="managed-driver-notice-close"
-                    aria-label="关闭驱动提示"
-                    disabled={dismissingDriverNotice}
-                    onClick={() => void dismissDriverNotice()}
-                  >
-                    关闭
-                  </button>
-                </div>
-              </section>
-            </div>,
-            document.body,
-          )}
-        {!showDriverNotice &&
-          (deviceOffline ||
-            driverRestartRequired ||
-            driverCommunicationError ||
-            driverMissing ||
-            currentDriverAction) && (
-            <div className="managed-driver-notice" role="status" aria-live="polite">
+        {showDriverBanner && (
+          <div className="managed-driver-notice" role="status" aria-live="polite">
+            <div className="managed-driver-notice-copy">
               <span>{driverNoticeMessage}</span>
-              {!deviceOffline && !driverRestartRequired && (
-                <button
-                  type="button"
-                  disabled={driverBusy}
-                  onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
-                >
-                  {!instance.binding
-                    ? '绑定设备'
-                    : driverRunning
-                      ? '正在安装…'
-                      : driverInstalled
-                        ? '重新安装驱动'
-                        : currentDriverAction?.error
-                          ? '重试安装'
-                          : '安装驱动'}
-                </button>
+              {driverErrorDetail && (
+                <details className="managed-driver-notice-details">
+                  <summary>查看错误详情</summary>
+                  <code>{driverErrorDetail}</code>
+                </details>
               )}
             </div>
-          )}
+            {!deviceOffline && !driverRestartRequired && (
+              <button
+                type="button"
+                className="managed-driver-notice-install"
+                disabled={driverBusy}
+                onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
+              >
+                {!instance.binding
+                  ? '绑定设备'
+                  : driverRunning
+                    ? '正在安装…'
+                    : driverInstalled
+                      ? '重新安装驱动'
+                      : currentDriverAction?.error
+                        ? '重试安装'
+                        : '安装驱动'}
+              </button>
+            )}
+          </div>
+        )}
         <aside className="mapping-device-rail panel-surface">
           <section className="managed-instance-status" aria-label="设备状态">
             {instance.binding ? (
@@ -1032,6 +1010,26 @@ export function InstanceWorkspace({
               )}
             </div>
           )}
+          {!isScreenSelected &&
+            !profile.quick &&
+            countConfiguredInputs(activeBehaviors, false) === 0 &&
+            defaultPreset && (
+              <div className="preset-blank-banner" role="region" aria-label="预制配置建议">
+                <span>当前配置为空，可直接套用开箱方案快速上手。</span>
+                <div className="preset-blank-banner-actions">
+                  <button
+                    type="button"
+                    className="preset-blank-apply"
+                    onClick={() => applyPresetToCurrent(defaultPreset)}
+                  >
+                    一键套用「{defaultPreset.name}」
+                  </button>
+                  <button type="button" className="preset-blank-browse" onClick={() => setPresetDialogOpen(true)}>
+                    查看全部预制
+                  </button>
+                </div>
+              </div>
+            )}
           {isScreenSelected ? (
             <KivoScreenEditor
               instance={instance}
@@ -1369,6 +1367,21 @@ export function InstanceWorkspace({
                 })
               setPendingDeletion(null)
             }}
+          />,
+          document.body,
+        )}
+      {presetDialogOpen &&
+        createPortal(
+          <PresetProfileDialog
+            deviceName={instance.name}
+            platform={platform}
+            inputs={pkg.inputs}
+            presets={devicePresets}
+            activeProfileName={profile.name}
+            activeProfileIsQuick={Boolean(profile.quick)}
+            onCopyAsNew={applyPresetAsNew}
+            onOverwriteCurrent={applyPresetToCurrent}
+            onClose={() => setPresetDialogOpen(false)}
           />,
           document.body,
         )}

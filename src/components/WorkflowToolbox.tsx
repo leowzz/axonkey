@@ -1,7 +1,7 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Search, Share2, Star, Trash2, X } from 'lucide-react'
+import { Eye, Plus, Search, Share2, Star, Trash2, X } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
 import type { DesignerApi, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 
@@ -19,10 +19,14 @@ export type WorkflowToolboxPalette = {
 const builtInSourceLabel = '内置'
 
 const categoryCodes: Record<string, string> = {
-  控制: 'control',
   键盘: 'keyboard',
   鼠标: 'mouse',
+  媒体: 'media',
   媒体控制: 'media',
+  文本: 'text',
+  系统与命令: 'system',
+  流程控制: 'control',
+  控制: 'control',
   常用行为: 'common',
   组合行为: 'composite',
 }
@@ -73,6 +77,7 @@ export function WorkflowToolbox({
   }, [query, selectedCategory])
 
   const filter = query.trim().toLocaleLowerCase()
+  const terms = filter ? filter.split(/\s+/).filter(Boolean) : []
   const mine = selectedCategory === '已保存/已保存'
   const cloudView =
     account && (selectedCategory === 'recommended' || selectedCategory === 'community') ? selectedCategory : null
@@ -116,10 +121,17 @@ export function WorkflowToolbox({
       })),
     )
     .filter(group => group.steps.length > 0)
+  const fallbackSteps = categories.flatMap(group =>
+    group.steps.filter(step => Boolean(step.properties.recommendedFallback)),
+  )
+  const fallbackGroups =
+    fallbackSteps.length > 0
+      ? [{ id: 'fallback', name: '本地常用', palette: builtInSourceLabel, steps: fallbackSteps }]
+      : categories.filter(group => group.palette === '常用行为' || group.palette === '组合行为')
   const currentCategory = categories.some(group => group.id === selectedCategory) ? selectedCategory : 'all'
   const groups = cloudView
     ? localFallback
-      ? categories.filter(group => group.palette === '常用行为' || group.palette === '组合行为')
+      ? fallbackGroups
       : [{ id: cloudView, name: sourceLabel, palette: sourceLabel, steps: cloud.steps }]
     : mine
       ? palettes
@@ -130,13 +142,13 @@ export function WorkflowToolbox({
     .filter(group => cloudView || mine || filter || currentCategory === 'all' || group.id === currentCategory)
     .map(group => ({
       ...group,
-      steps: group.steps.filter(
-        step =>
-          (!allowStep || allowStep(step)) &&
-          `${group.palette} ${group.name} ${step.name} ${step.properties.description ?? ''}`
-            .toLocaleLowerCase()
-            .includes(filter),
-      ),
+      steps: group.steps.filter(step => {
+        if (allowStep && !allowStep(step)) return false
+        if (!terms.length) return true
+        const haystack =
+          `${group.palette} ${group.name} ${step.name} ${step.properties.description ?? ''} ${step.properties.keywords ?? ''} ${step.properties.author ?? ''}`.toLocaleLowerCase()
+        return terms.every(term => haystack.includes(term))
+      }),
     }))
     .filter(group => group.steps.length > 0)
 
@@ -146,7 +158,7 @@ export function WorkflowToolbox({
         <h2 className="workflow-toolbox-title">行为库</h2>
         <div className="workflow-toolbox-search sqd-toolbox-filter">
           <label className="workflow-toolbox-search-field">
-            <Search size={16} strokeWidth={1.8} aria-hidden="true" />
+            <Search size={15} strokeWidth={1.8} aria-hidden="true" />
             <input
               className="sqd-toolbox-filter-input"
               type="search"
@@ -156,14 +168,24 @@ export function WorkflowToolbox({
               value={query}
               onChange={event => setQuery(event.target.value)}
             />
+            {query && (
+              <button
+                type="button"
+                className="workflow-toolbox-search-clear"
+                aria-label="清空搜索"
+                onClick={() => setQuery('')}
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
           </label>
         </div>
       </header>
       <nav className="workflow-toolbox-tabs" aria-label="行为来源">
         {(account
           ? [
-              ['recommended', '推荐'],
               ['all', builtInSourceLabel],
+              ['recommended', '推荐'],
               ['community', '社区'],
               ['已保存/已保存', '我的'],
             ]
@@ -203,7 +225,7 @@ export function WorkflowToolbox({
           )}
         </div>
       )}
-      {!mine && !cloudView && (
+      {!mine && !cloudView && categories.length > 0 && (
         <nav className="workflow-toolbox-categories" aria-label="行为分类">
           <button
             type="button"
@@ -269,6 +291,15 @@ export function WorkflowToolbox({
                 )}
                 {group.steps.map(step => {
                   const recommended = recommendations.itemFor(step)?.recommend_enabled === true
+                  const description = typeof step.properties.description === 'string' ? step.properties.description : ''
+                  const author = typeof step.properties.author === 'string' ? step.properties.author : ''
+                  const subtitle = description || (author ? `作者：${author}` : '')
+                  const hasDetailPreview =
+                    step.type === 'savedSequence' ||
+                    step.type === 'textAndEnter' ||
+                    step.type === 'deleteAllText' ||
+                    Boolean(step.properties.savedSequenceId) ||
+                    Boolean(step.properties.libraryItemId)
                   return (
                     <div
                       key={String(step.properties.libraryItemId ?? step.properties.savedSequenceId ?? step.type)}
@@ -277,7 +308,9 @@ export function WorkflowToolbox({
                       <button
                         type="button"
                         className="workflow-toolbox-item-main"
-                        aria-label={`查看${step.name}`}
+                        aria-label={`${addLabel}：${step.name}`}
+                        aria-description={subtitle || undefined}
+                        title={subtitle ? `${step.name} — ${subtitle}` : step.name}
                         onPointerDown={event => onStepPointerDown?.(event, step)}
                         onMouseDown={event => {
                           if (event.button !== 0) return
@@ -298,8 +331,9 @@ export function WorkflowToolbox({
                           if (
                             event.detail === 0 ||
                             Math.hypot(event.clientX - dragOrigin.current.x, event.clientY - dragOrigin.current.y) < 5
-                          )
-                            setPreview(step)
+                          ) {
+                            onAddStep(step, event.detail === 0)
+                          }
                         }}
                       >
                         <span
@@ -313,17 +347,27 @@ export function WorkflowToolbox({
                             draggable={false}
                           />
                         </span>
-                        <span className="sqd-toolbox-item-text">{step.name}</span>
+                        <span className="workflow-toolbox-item-content">
+                          <span className="sqd-toolbox-item-text">{step.name}</span>
+                          {subtitle && (
+                            <span className="workflow-toolbox-item-desc" aria-hidden="true">
+                              {subtitle}
+                            </span>
+                          )}
+                        </span>
+                        <Plus size={14} className="workflow-toolbox-item-plus" aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        className="workflow-toolbox-add"
-                        aria-label={`${addLabel}：${step.name}`}
-                        title={addLabel}
-                        onClick={event => onAddStep(step, event.detail === 0)}
-                      >
-                        <Plus size={15} aria-hidden="true" />
-                      </button>
+                      {hasDetailPreview && (
+                        <button
+                          type="button"
+                          className="icon-button workflow-toolbox-preview"
+                          aria-label={`查看${step.name}详情`}
+                          title="查看详情"
+                          onClick={() => setPreview(step)}
+                        >
+                          <Eye size={14} aria-hidden="true" />
+                        </button>
+                      )}
                       {account && typeof step.properties.savedSequenceId === 'string' && (
                         <button
                           type="button"

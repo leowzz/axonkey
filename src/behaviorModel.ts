@@ -21,10 +21,13 @@ export const behaviorTypes = [
   'cursorMove',
   'paste',
   'typeText',
+  'copyText',
   'delay',
   'openApp',
   'openPath',
   'openWebsite',
+  'runCommand',
+  'httpRequest',
   'switchProfile',
   'quickOverlay',
   'disabled',
@@ -34,6 +37,12 @@ export const cursorDirections = ['up', 'down', 'left', 'right'] as const
 export type CursorDirection = (typeof cursorDirections)[number]
 export const defaultCursorDistance = 50
 export const maxCursorDistance = 500
+export const httpRequestMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+export type HttpRequestMethod = (typeof httpRequestMethods)[number]
+export const maxCommandLength = 4096
+export const maxHttpHeaders = 16
+export const maxHttpHeaderValueLength = 2048
+export const maxHttpBodyLength = 16_384
 
 type BehaviorBase = {
   id: string
@@ -64,6 +73,7 @@ export type PasteBehavior = BehaviorBase & {
 }
 
 export type TypeTextBehavior = BehaviorBase & { type: 'typeText'; text: string; title?: string }
+export type CopyTextBehavior = BehaviorBase & { type: 'copyText'; text: string; title?: string }
 export type OpenPathBehavior = BehaviorBase & { type: 'openPath'; path: string }
 
 export type DelayBehavior = BehaviorBase & {
@@ -83,6 +93,20 @@ export type ProfileDirection = 'previous' | 'next'
 export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
 export type QuickOverlayBehavior = BehaviorBase & { type: 'quickOverlay'; profileId: string }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
+export type RunCommandBehavior = BehaviorBase & {
+  type: 'runCommand'
+  command: string
+  workingDirectory?: string
+  title?: string
+}
+export type HttpRequestBehavior = BehaviorBase & {
+  type: 'httpRequest'
+  method: HttpRequestMethod
+  url: string
+  headers?: Record<string, string>
+  body?: string
+  title?: string
+}
 
 export type Behavior =
   | KeyBehavior
@@ -92,10 +116,13 @@ export type Behavior =
   | CursorMoveBehavior
   | PasteBehavior
   | TypeTextBehavior
+  | CopyTextBehavior
   | OpenPathBehavior
   | DelayBehavior
   | OpenAppBehavior
   | OpenWebsiteBehavior
+  | RunCommandBehavior
+  | HttpRequestBehavior
   | DisabledBehavior
   | SwitchProfileBehavior
   | QuickOverlayBehavior
@@ -130,11 +157,23 @@ export type CreateBehaviorOptions = { libraryItemId?: string } & (
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'typeText'; text?: string; title?: string; enabled?: boolean; id?: string }
+  | { type: 'copyText'; text?: string; title?: string; enabled?: boolean; id?: string }
   | { type: 'openPath'; path?: string; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; title?: string; enabled?: boolean; id?: string }
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
+  | { type: 'runCommand'; command?: string; workingDirectory?: string; title?: string; enabled?: boolean; id?: string }
+  | {
+      type: 'httpRequest'
+      method?: HttpRequestMethod
+      url?: string
+      headers?: Record<string, string>
+      body?: string
+      title?: string
+      enabled?: boolean
+      id?: string
+    }
   | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
   | { type: 'quickOverlay'; profileId?: string; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
@@ -144,7 +183,14 @@ const maxDelayMs = 300_000
 
 export const newBehaviorMinAppVersion = '1.8.11'
 export const quickOverlayMinAppVersion = '1.9.11'
+export const commandBehaviorMinAppVersion = '1.9.19'
 export function minAppVersionForBehaviors(behaviors: readonly Behavior[]): string | undefined {
+  if (
+    behaviors.some(
+      behavior => behavior.type === 'copyText' || behavior.type === 'runCommand' || behavior.type === 'httpRequest',
+    )
+  )
+    return commandBehaviorMinAppVersion
   if (
     behaviors.some(
       behavior =>
@@ -161,6 +207,10 @@ export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): bool
   return Boolean(minAppVersionForBehaviors(behaviors))
 }
 
+export function isCommunityShareableBehavior(behavior: Pick<Behavior, 'type'>): boolean {
+  return behavior.type !== 'quickOverlay' && behavior.type !== 'runCommand' && behavior.type !== 'httpRequest'
+}
+
 export function normalizeBehaviorTitle(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const clean = value
@@ -168,6 +218,47 @@ export function normalizeBehaviorTitle(value: unknown): string | undefined {
     .trim()
     .slice(0, 40)
   return clean || undefined
+}
+
+export function normalizeShellCommand(value: unknown): string | null {
+  if (typeof value !== 'string' || value.includes('\0')) return null
+  const command = value.trim()
+  if (!command || command.length > maxCommandLength) return null
+  return command
+}
+
+export function normalizeHttpMethod(value: unknown): HttpRequestMethod | null {
+  if (typeof value !== 'string') return null
+  const method = value.trim().toUpperCase()
+  return (httpRequestMethods as readonly string[]).includes(method) ? (method as HttpRequestMethod) : null
+}
+
+const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+export function normalizeHttpHeaders(value: unknown): Record<string, string> | undefined | null {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) return null
+  const entries = Object.entries(value)
+  if (entries.length > maxHttpHeaders) return null
+  const result: Record<string, string> = {}
+  const seen = new Set<string>()
+  for (const [rawKey, rawVal] of entries) {
+    const key = rawKey.trim()
+    if (!key || key.length > 128 || !headerNamePattern.test(key)) return null
+    const lower = key.toLowerCase()
+    if (seen.has(lower)) return null
+    if (typeof rawVal !== 'string' || rawVal.length > maxHttpHeaderValueLength) return null
+    if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(rawVal)) return null
+    seen.add(lower)
+    result[key] = rawVal.trim()
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+export function normalizeHttpBody(value: unknown): string | undefined | null {
+  if (value === undefined || value === '') return undefined
+  if (typeof value !== 'string' || value.includes('\0') || value.length > maxHttpBodyLength) return null
+  return value
 }
 
 export function normalizeProfileReferenceId(value: unknown): string | null {
@@ -272,7 +363,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { ...base, type: 'shortcut', keys: keys.length > 0 ? keys : ['Ctrl', 'C'] }
     }
     case 'typeText':
-    case 'paste': {
+    case 'paste':
+    case 'copyText': {
       const title = normalizeBehaviorTitle(options.title)
       return {
         ...base,
@@ -289,6 +381,31 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { ...base, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
     case 'openWebsite':
       return { ...base, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
+    case 'runCommand': {
+      const workingDirectory = normalizeFilePath(options.workingDirectory)
+      const title = normalizeBehaviorTitle(options.title)
+      return {
+        ...base,
+        type: 'runCommand',
+        command: typeof options.command === 'string' && !options.command.includes('\0') ? options.command.trim() : '',
+        ...(workingDirectory ? { workingDirectory } : {}),
+        ...(title ? { title } : {}),
+      }
+    }
+    case 'httpRequest': {
+      const headers = normalizeHttpHeaders(options.headers)
+      const body = normalizeHttpBody(options.body)
+      const title = normalizeBehaviorTitle(options.title)
+      return {
+        ...base,
+        type: 'httpRequest',
+        method: normalizeHttpMethod(options.method) ?? 'POST',
+        url: normalizeWebsiteUrl(options.url) ?? '',
+        ...(headers ? { headers } : {}),
+        ...(body ? { body } : {}),
+        ...(title ? { title } : {}),
+      }
+    }
     case 'switchProfile':
       return {
         ...base,
@@ -308,7 +425,11 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
 }
 
 function cloneBehavior(behavior: Behavior): Behavior {
-  return behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior }
+  if (behavior.type === 'shortcut') return { ...behavior, keys: [...behavior.keys] }
+  if (behavior.type === 'httpRequest' && behavior.headers) {
+    return { ...behavior, headers: { ...behavior.headers } }
+  }
+  return { ...behavior }
 }
 
 function emptyTriggers(): TriggerBehaviors {
@@ -337,14 +458,7 @@ export function cloneBehaviorMap(map: BehaviorMap): BehaviorMap {
   return Object.fromEntries(
     inputIds.map(id => [
       id,
-      Object.fromEntries(
-        triggerTypes.map(trigger => [
-          trigger,
-          map[id][trigger].map(behavior =>
-            behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior },
-          ),
-        ]),
-      ),
+      Object.fromEntries(triggerTypes.map(trigger => [trigger, map[id][trigger].map(cloneBehavior)])),
     ]),
   ) as BehaviorMap
 }
@@ -395,7 +509,8 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return keys.length > 0 ? { ...base, type, keys } : null
     }
     case 'typeText':
-    case 'paste': {
+    case 'paste':
+    case 'copyText': {
       if (typeof value.text !== 'string') return null
       if (value.title !== undefined && typeof value.title !== 'string') return null
       const title = normalizeBehaviorTitle(value.title)
@@ -414,6 +529,43 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
     case 'openWebsite': {
       const url = normalizeWebsiteUrl(value.url)
       return url ? { ...base, type, url } : null
+    }
+    case 'runCommand': {
+      const command = normalizeShellCommand(value.command)
+      if (!command) return null
+      if (value.workingDirectory !== undefined && typeof value.workingDirectory !== 'string') return null
+      const workingDirectory =
+        typeof value.workingDirectory === 'string' && value.workingDirectory.trim()
+          ? normalizeFilePath(value.workingDirectory)
+          : undefined
+      if (typeof value.workingDirectory === 'string' && value.workingDirectory.trim() && !workingDirectory) return null
+      if (value.title !== undefined && typeof value.title !== 'string') return null
+      const title = normalizeBehaviorTitle(value.title)
+      return {
+        ...base,
+        type,
+        command,
+        ...(workingDirectory ? { workingDirectory } : {}),
+        ...(title ? { title } : {}),
+      }
+    }
+    case 'httpRequest': {
+      const method = normalizeHttpMethod(value.method)
+      const url = normalizeWebsiteUrl(value.url)
+      const headers = normalizeHttpHeaders(value.headers)
+      const body = normalizeHttpBody(value.body)
+      if (!method || !url || headers === null || body === null) return null
+      if (value.title !== undefined && typeof value.title !== 'string') return null
+      const title = normalizeBehaviorTitle(value.title)
+      return {
+        ...base,
+        type,
+        method,
+        url,
+        ...(headers ? { headers } : {}),
+        ...(body ? { body } : {}),
+        ...(title ? { title } : {}),
+      }
     }
     case 'switchProfile':
       return (value.direction === 'previous' || value.direction === 'next') &&
@@ -663,6 +815,11 @@ export function serializeSequence(behaviors: Behavior[]): string {
             ? `text ${JSON.stringify(behavior.text)} ${JSON.stringify(behavior.title)}`
             : `text ${JSON.stringify(behavior.text)}`
           break
+        case 'copyText':
+          line = behavior.title
+            ? `copy ${JSON.stringify(behavior.text)} ${JSON.stringify(behavior.title)}`
+            : `copy ${JSON.stringify(behavior.text)}`
+          break
         case 'wheel':
           line = `wheel ${behavior.direction}`
           break
@@ -678,6 +835,23 @@ export function serializeSequence(behaviors: Behavior[]): string {
         case 'openWebsite':
           line = `url ${sequenceArgument(behavior.url)}`
           break
+        case 'runCommand':
+          line = `cmd ${JSON.stringify(behavior.command)}${
+            behavior.workingDirectory ? ` cwd ${JSON.stringify(behavior.workingDirectory)}` : ''
+          }${behavior.title ? ` title ${JSON.stringify(behavior.title)}` : ''}`
+          break
+        case 'httpRequest': {
+          const parts = ['http', behavior.method, sequenceArgument(behavior.url)]
+          if (behavior.headers) {
+            for (const [key, value] of Object.entries(behavior.headers)) {
+              parts.push('header', JSON.stringify(key), JSON.stringify(value))
+            }
+          }
+          if (behavior.body) parts.push('body', JSON.stringify(behavior.body))
+          if (behavior.title) parts.push('title', JSON.stringify(behavior.title))
+          line = parts.join(' ')
+          break
+        }
         case 'switchProfile':
           line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`
           break
@@ -739,6 +913,9 @@ function parseSequenceText(text: string): unknown[] | null {
       behavior = { type: 'delay', ms }
     } else if (command === 'text' && (args.length === 1 || args.length === 2)) {
       behavior = args.length === 2 ? { type: 'paste', text: args[0], title: args[1] } : { type: 'paste', text: args[0] }
+    } else if (command === 'copy' && (args.length === 1 || args.length === 2)) {
+      behavior =
+        args.length === 2 ? { type: 'copyText', text: args[0], title: args[1] } : { type: 'copyText', text: args[0] }
     } else if (command === 'type' && (args.length === 1 || args.length === 2)) {
       behavior =
         args.length === 2 ? { type: 'typeText', text: args[0], title: args[1] } : { type: 'typeText', text: args[0] }
@@ -751,7 +928,36 @@ function parseSequenceText(text: string): unknown[] | null {
       behavior = { type: 'cursorMove', direction: args[0], distance }
     } else if (command === 'app' && args.length === 1) behavior = { type: 'openApp', path: args[0] }
     else if (command === 'url' && args.length === 1) behavior = { type: 'openWebsite', url: args[0] }
-    else if (
+    else if (command === 'cmd' && args.length >= 1) {
+      behavior = { type: 'runCommand', command: args[0] }
+      for (let index = 1; index < args.length;) {
+        const flag = args[index]
+        if (flag === 'cwd' && index + 1 < args.length && behavior.workingDirectory === undefined) {
+          behavior.workingDirectory = args[index + 1]
+          index += 2
+        } else if (flag === 'title' && index + 1 < args.length && behavior.title === undefined) {
+          behavior.title = args[index + 1]
+          index += 2
+        } else return null
+      }
+    } else if (command === 'http' && args.length >= 2) {
+      const headers: Record<string, string> = {}
+      behavior = { type: 'httpRequest', method: args[0], url: args[1] }
+      for (let index = 2; index < args.length;) {
+        const flag = args[index]
+        if (flag === 'header' && index + 2 < args.length) {
+          headers[args[index + 1]] = args[index + 2]
+          index += 3
+        } else if (flag === 'body' && index + 1 < args.length && behavior.body === undefined) {
+          behavior.body = args[index + 1]
+          index += 2
+        } else if (flag === 'title' && index + 1 < args.length && behavior.title === undefined) {
+          behavior.title = args[index + 1]
+          index += 2
+        } else return null
+      }
+      if (Object.keys(headers).length > 0) behavior.headers = headers
+    } else if (
       command === 'profile' &&
       args.length === 2 &&
       ['previous', 'next'].includes(args[0]) &&

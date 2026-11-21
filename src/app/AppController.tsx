@@ -21,7 +21,9 @@ import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/clo
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
+import type { CatalogDeviceModel } from '../cloud/deviceModelCatalog'
 import { useDeviceModelCatalog } from '../cloud/useDeviceModelCatalog'
+import { getPresetsForDevice } from '../devices/bundledPresets'
 import { recordLibraryAdditions, useLibraryUsage } from '../cloud/libraryUsage'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
@@ -933,6 +935,8 @@ function AppController({
     mouseEdgeWidth,
   }
 
+  const catalogModelsRef = useRef<ReadonlyMap<string, CatalogDeviceModel>>(new Map())
+
   const processCliRequest = useCallback(
     async (request: CliRequest) => {
       const respond = async (response: Record<string, unknown>) => {
@@ -949,7 +953,12 @@ function AppController({
         const params = cliParams(request.params)
         const platformName = cliPlatform(platform)
         const snapshot = await deviceInstances.refresh(true)
-        const instanceContext = { platform: platformName, snapshot, update: deviceInstances.update }
+        const instanceContext = {
+          platform: platformName,
+          snapshot,
+          update: deviceInstances.update,
+          catalogModels: catalogModelsRef.current,
+        }
         const sharedMethod = ['capabilities', 'status', 'keymap.get'].includes(request.method)
         const systemMouseTarget = normalizeCliDeviceSelector(params.device) === 'mouse' && params.instance === undefined
         if (request.method === 'device.list' || (!sharedMethod && !systemMouseTarget)) {
@@ -989,12 +998,20 @@ function AppController({
                 { type: 'wheel', fields: ['direction'] },
                 { type: 'mouse', fields: ['button'] },
                 { type: 'cursorMove', fields: ['direction', 'distance'], distance: { min: 1, max: 500 } },
-                { type: 'paste', fields: ['text'] },
-                { type: 'typeText', fields: ['text'] },
+                { type: 'paste', fields: ['text'], optionalFields: ['title'] },
+                { type: 'typeText', fields: ['text'], optionalFields: ['title'] },
+                { type: 'copyText', fields: ['text'], optionalFields: ['title'] },
                 { type: 'delay', fields: ['ms'], ms: { min: 0, max: 300000 } },
                 { type: 'openApp', fields: ['path'] },
                 { type: 'openPath', fields: ['path'] },
                 { type: 'openWebsite', fields: ['url'] },
+                { type: 'runCommand', fields: ['command'], optionalFields: ['workingDirectory', 'title'] },
+                {
+                  type: 'httpRequest',
+                  fields: ['method', 'url'],
+                  optionalFields: ['headers', 'body', 'title'],
+                  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+                },
                 {
                   type: 'switchProfile',
                   fields: ['direction', 'wrap'],
@@ -1005,6 +1022,7 @@ function AppController({
                 {
                   type: 'quickOverlay',
                   fields: ['profileId'],
+                  description: '按触发方式唤起快捷交互窗；必须为唯一行为',
                   exclusive: true,
                 },
                 { type: 'disabled', fields: [] },
@@ -1014,6 +1032,10 @@ function AppController({
                 name: item.name,
                 model: item.model,
                 inputKind: item.inputKind,
+                presetCount:
+                  item.id === 'mouse'
+                    ? 0
+                    : getPresetsForDevice(item.id, catalogModelsRef.current.get(item.id) ?? null, platformName).length,
                 keymap: item.remoteView
                   ? { method: 'keymap.get', format: 'svg' }
                   : { method: 'keymap.get', format: null, coordinateSystem: 'semantic-inputs' },
@@ -1025,9 +1047,16 @@ function AppController({
               targeting: { instance: '--instance <id>', device: '--device <kind>（必须只有一个匹配实例）' },
               operations: [
                 'device.list',
+                'device.toggle',
+                'preset.list',
+                'preset.apply',
                 'profile.list',
                 'profile.create',
                 'profile.activate',
+                'profile.rename',
+                'profile.duplicate',
+                'profile.delete',
+                'profile.prompt-mode',
                 'profile.application-list',
                 'profile.application-set',
                 'profile.application-remove',
@@ -1050,6 +1079,8 @@ function AppController({
                     id: profile.id,
                     name: profile.name,
                     active: profile.id === instance.activeProfileId,
+                    ...(profile.quick ? { quick: true } : {}),
+                    ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
                   })),
                 ]),
                 [
@@ -1064,6 +1095,8 @@ function AppController({
                       id: profile.id,
                       name: profile.name,
                       active: profile.id === mouseGlobalProfileRef.current,
+                      ...(profile.quick ? { quick: true } : {}),
+                      ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
                     })),
                 ],
               ]),
@@ -1172,6 +1205,43 @@ function AppController({
           })
           return
         }
+        if (request.method === 'device.toggle') {
+          if (params.dryRun !== undefined && typeof params.dryRun !== 'boolean') {
+            throw new CliOperationError('invalid_arguments', 'dryRun 必须是布尔值')
+          }
+          if (typeof params.enabled !== 'boolean') {
+            throw new CliOperationError('invalid_arguments', '启用或停用鼠标映射需要 --on 或 --off')
+          }
+          const dryRun = params.dryRun === true
+          const nextEnabled = params.enabled === true
+          if (!dryRun) {
+            const storedRaw = appStorage.getItem(settingsStorageKey)
+            if (storedRaw) {
+              try {
+                const parsed = JSON.parse(storedRaw) as Record<string, unknown>
+                appStorage.setItem(settingsStorageKey, JSON.stringify({ ...parsed, mouseEnabled: nextEnabled }))
+              } catch {
+                /* ignore malformed cache; React effect will rewrite */
+              }
+            }
+            await flushAppStorage()
+            inputSettingsRef.current = { ...inputSettingsRef.current, mouseEnabled: nextEnabled }
+            await invoke('update_input_settings', {
+              settings: inputSettingsRef.current,
+            })
+            setMouseEnabled(nextEnabled)
+          }
+          await respond({
+            ok: true,
+            result: {
+              device: 'mouse',
+              before: mouseEnabled,
+              enabled: nextEnabled,
+              ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+            },
+          })
+          return
+        }
         const result = await processMouseCliRequest(
           request.method,
           params,
@@ -1228,6 +1298,7 @@ function AppController({
                 name: profile.name,
                 deviceId: profile.deviceId,
                 deviceName: profile.deviceId === 'mouse' ? '系统鼠标' : (device?.name ?? profile.deviceId),
+                promptMode: Boolean(profile.quick && profile.promptMode),
                 behaviors: scoped,
               }
             })
@@ -1792,11 +1863,12 @@ function AppController({
     () => deviceInstances.snapshot.store.instances.map(item => item.kind),
     [deviceInstances.snapshot.store.instances],
   )
-  useDeviceModelCatalog(cloud.client, cloud.accountReady, {
+  const { modelsByCode } = useDeviceModelCatalog(cloud.client, cloud.accountReady, {
     native: nativeRuntime,
     retainedKinds: retainedCatalogKinds,
     onNativeDescriptorsSynced: () => void deviceInstances.refresh(),
   })
+  catalogModelsRef.current = modelsByCode
   useLibraryUsage(cloud.client, platform, nativeRuntime && platformReady)
 
   const openMappingImport = () => {
@@ -1852,13 +1924,17 @@ function AppController({
       type === 'key'
         ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
         : createBehavior(
-            type === 'paste' || type === 'typeText'
+            type === 'paste' || type === 'typeText' || type === 'copyText'
               ? { type, text: '' }
               : type === 'openApp' || type === 'openPath'
                 ? { type, path: '' }
                 : type === 'openWebsite'
                   ? { type, url: '' }
-                  : { type, ms: 300 },
+                  : type === 'runCommand'
+                    ? { type, command: '' }
+                    : type === 'httpRequest'
+                      ? { type, method: 'POST', url: '' }
+                      : { type, ms: 300 },
           )
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
@@ -1955,6 +2031,24 @@ function AppController({
         showBehaviorToast('已设为删除全部文本')
         return
       }
+      case 'copy':
+      case 'pasteShortcut':
+      case 'undo':
+      case 'selectAll':
+      case 'closeTab': {
+        const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
+        const specs = {
+          copy: { key: 'C', label: '复制' },
+          pasteShortcut: { key: 'V', label: '粘贴' },
+          undo: { key: 'Z', label: '撤销' },
+          selectAll: { key: 'A', label: '全选' },
+          closeTab: { key: 'W', label: '关闭标签页' },
+        } as const
+        const spec = specs[preset]
+        replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: [modifier, spec.key] })])
+        showBehaviorToast(`已设为${spec.label}`)
+        return
+      }
       case 'keyHome':
         return replaceWithKey('Home')
       case 'keyEnd':
@@ -1989,9 +2083,12 @@ function AppController({
         beginBehaviorDraft('key', 'replace')
         return
       case 'typeText':
+      case 'copyText':
       case 'openPath':
       case 'openApp':
       case 'openWebsite':
+      case 'runCommand':
+      case 'httpRequest':
         beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':
@@ -2102,7 +2199,9 @@ function AppController({
   }
 
   const installManagedDriver = async (instanceId: string) => {
-    if (managedDriverAction?.status === 'running') return
+    if (managedDriverAction?.status === 'running') {
+      return { ok: false, status: 'error' as const, error: '驱动安装正在进行中，请稍候。' }
+    }
     setManagedDriverAction({ instanceId, status: 'running' })
     if (platform === 'windows') reportTencentEvent('windows_hid_driver_install')
     try {
@@ -2113,15 +2212,20 @@ function AppController({
       await new Promise(resolve => window.setTimeout(resolve, 900))
       await deviceInstances.refresh()
       const message = managedDriverInstallMessage(result)
-      setManagedDriverAction(
-        result.installationState === 'restart_before_install'
-          ? { instanceId, status: 'restartRequired', message }
-          : null,
-      )
+      if (result.installationState === 'restart_before_install') {
+        setManagedDriverAction({ instanceId, status: 'restartRequired', message })
+        setToast(message)
+        window.setTimeout(() => setToast(''), 3200)
+        return { ok: false, status: 'restartRequired' as const, message }
+      }
+      setManagedDriverAction(null)
       setToast(message)
       window.setTimeout(() => setToast(''), 3200)
+      return { ok: true, status: 'installed' as const, message }
     } catch (error) {
-      setManagedDriverAction(current => (current ? { ...current, status: 'error', error: String(error) } : current))
+      const errorMessage = String(error)
+      setManagedDriverAction(current => (current ? { ...current, status: 'error', error: errorMessage } : current))
+      return { ok: false, status: 'error' as const, error: errorMessage }
     }
   }
 
@@ -2461,6 +2565,27 @@ function AppController({
     }
   }, [platform])
 
+  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
+    instance => instance.id === selectedInstanceId,
+  )
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const sectionTitle =
+      activePanel === 'settings'
+        ? '设置'
+        : activePanel === 'cloud'
+          ? '云同步'
+          : activePanel === 'about'
+            ? '关于'
+            : workspaceInstance
+              ? workspaceInstance.name
+              : workspacePage === 'mapping'
+                ? selectedDevice.name
+                : '我的设备'
+    document.title = `Axonkey · ${sectionTitle}`
+  }, [activePanel, selectedDevice.name, workspaceInstance, workspacePage])
+
   const editingBehavior = editingBehaviorId
     ? (behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find(
         behavior => behavior.id === editingBehaviorId,
@@ -2551,8 +2676,8 @@ function AppController({
           onClose={() => void closePermissionHelper()}
         />
         {toast && (
-          <div className="toast">
-            <Check size={15} /> {toast}
+          <div className="toast" role="status" aria-live="polite">
+            <Check size={15} aria-hidden="true" /> {toast}
           </div>
         )}
       </>
@@ -2633,29 +2758,75 @@ function AppController({
     }).length
   }
 
-  const findDeviceQuickTrigger = (targetProfileId: string) => {
+  const findDeviceQuickTrigger = (targetProfileId: string): { inputId: InputId; trigger: TriggerType } | null => {
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     for (const candidate of saved) {
       if (candidate.deviceId !== selectedDeviceId || candidate.quick || candidate.id === targetProfileId) continue
       for (const inputId of selectedDevice.inputIds) {
         const seq = candidate.behaviors[inputId]
-        if (
-          seq.click.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
-          seq.doubleClick.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId) ||
-          seq.longPress.some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId)
-        ) {
-          return inputId
+        for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
+          if (seq[trigger].some(b => b.enabled && b.type === 'quickOverlay' && b.profileId === targetProfileId)) {
+            return { inputId, trigger }
+          }
         }
       }
     }
     return null
   }
 
+  const bindDeviceQuickTrigger = (quickProfileId: string, nextInputId: InputId | '', nextTrigger: TriggerType) => {
+    const targetId = permanentMappingProfile?.id
+    if (!targetId) return
+    const current = profileStateRef.current
+    const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
+    const nextProfiles = saved.map(candidate => {
+      if (candidate.deviceId !== selectedDeviceId || candidate.quick || candidate.id === quickProfileId)
+        return candidate
+      const updatedBehaviors = { ...candidate.behaviors }
+      let changed = false
+      for (const id of selectedDevice.inputIds) {
+        const seq = updatedBehaviors[id]
+        if (!seq) continue
+        const nextSeq = {
+          click: seq.click.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+          doubleClick: seq.doubleClick.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+          longPress: seq.longPress.filter(b => !(b.type === 'quickOverlay' && b.profileId === quickProfileId)),
+        }
+        if (
+          nextSeq.click.length !== seq.click.length ||
+          nextSeq.doubleClick.length !== seq.doubleClick.length ||
+          nextSeq.longPress.length !== seq.longPress.length
+        ) {
+          updatedBehaviors[id] = nextSeq
+          changed = true
+        }
+      }
+      if (nextInputId && candidate.id === targetId) {
+        const seq = updatedBehaviors[nextInputId] ?? { click: [], doubleClick: [], longPress: [] }
+        updatedBehaviors[nextInputId] = {
+          ...seq,
+          [nextTrigger]: [createBehavior({ type: 'quickOverlay', profileId: quickProfileId })],
+        }
+        changed = true
+      }
+      return changed ? { ...candidate, behaviors: updatedBehaviors } : candidate
+    })
+    profileStateRef.current = { ...current, profiles: nextProfiles }
+    setProfiles(nextProfiles)
+    setAutoSaveState('saving')
+    if (!nextInputId) {
+      showBehaviorToast('已解除快捷交互窗唤起按键')
+      return
+    }
+    const label = (isMouse ? mouseInputs : editableButtons).find(item => item.id === nextInputId)?.label ?? nextInputId
+    showBehaviorToast(`已绑定「${label}」唤起快捷交互窗`)
+  }
+
   const previewDeviceQuickProfile = (targetProfileId: string, explicitTriggerInput?: string) => {
     const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     const target = saved.find(item => item.id === targetProfileId)
     if (!target) return
-    const triggerInput = explicitTriggerInput ?? findDeviceQuickTrigger(target.id) ?? ''
+    const triggerInput = explicitTriggerInput ?? findDeviceQuickTrigger(target.id)?.inputId ?? ''
     if (!nativeRuntime) {
       setToast('桌面应用中可打开顶层快捷交互窗预览')
       window.setTimeout(() => setToast(''), 2000)
@@ -2722,6 +2893,12 @@ function AppController({
           onToggle={() => setMouseApplicationProfileSwitching(value => !value)}
           onCreate={createMappingProfileFromScratch}
           onCreateQuick={createQuickMappingProfileFromToolbar}
+          quickProfileCount={deviceProfiles.filter(item => item.quick).length}
+          onOpenQuickOverlay={() => {
+            const existing = deviceProfiles.find(item => item.quick)
+            if (existing) switchMouseProfile(existing.id)
+            else createQuickMappingProfileFromToolbar()
+          }}
           onDuplicate={duplicateMappingProfile}
           onRename={renameMappingProfile}
           onDelete={deleteMappingProfile}
@@ -2812,9 +2989,6 @@ function AppController({
     </div>
   )
 
-  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
-    instance => instance.id === selectedInstanceId,
-  )
   const managedState = workspaceInstance ? instanceState(workspaceInstance, deviceInstances.snapshot) : undefined
   const workspaceStatus: AppBottomBarProps['workspaceStatus'] = workspaceInstance
     ? {
@@ -2845,12 +3019,15 @@ function AppController({
 
   const appShell = (
     <div className={`app-shell ${workspacePage === 'mapping' ? 'mapping-active' : ''}`}>
+      <a className="skip-link" href="#main-content">
+        跳至主内容
+      </a>
       {nativeRuntime && platform === 'macos' && (
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
       )}
       <div className="app-main">
         <div className="app-workspace">
-          <main ref={mainContentRef} key={workspacePage} className="main-content">
+          <main ref={mainContentRef} id="main-content" tabIndex={-1} key={workspacePage} className="main-content">
             {!enabled && (
               <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
                 <Info size={20} aria-hidden="true" />
@@ -2865,30 +3042,39 @@ function AppController({
             )}
 
             {workspacePage === 'mapping' && isEditingQuickMappingProfile && permanentMappingProfile ? (
-              <QuickOverlayConfigurator
-                key={activeMappingProfile.id}
-                deviceKind={selectedDeviceId}
-                deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
-                profileId={activeMappingProfile.id}
-                profileName={activeMappingProfile.name}
-                promptMode={Boolean(activeMappingProfile.promptMode)}
-                triggerInput={findDeviceQuickTrigger(activeMappingProfile.id) ?? undefined}
-                inputs={isMouse ? mouseInputs : editableButtons}
-                behaviors={behaviors}
-                platform={platform}
-                onChange={updateWorkflow}
-                onTogglePromptMode={toggleQuickMappingPromptMode}
-                onRename={renameMappingProfile}
-                onDuplicate={duplicateMappingProfile}
-                onDelete={deleteMappingProfile}
-                onClose={() => switchMappingProfile(permanentMappingProfile.id)}
-                history={{
-                  canUndo: canUndoBehavior,
-                  canRedo: canRedoBehavior,
-                  onUndo: undoBehaviorChange,
-                  onRedo: redoBehaviorChange,
-                }}
-              />
+              (() => {
+                const triggerBinding = findDeviceQuickTrigger(activeMappingProfile.id)
+                return (
+                  <QuickOverlayConfigurator
+                    key={activeMappingProfile.id}
+                    deviceKind={selectedDeviceId}
+                    deviceName={isMouse ? '系统鼠标' : selectedDevice.name}
+                    profileId={activeMappingProfile.id}
+                    profileName={activeMappingProfile.name}
+                    promptMode={Boolean(activeMappingProfile.promptMode)}
+                    triggerInput={triggerBinding?.inputId}
+                    triggerType={triggerBinding?.trigger ?? 'click'}
+                    inputs={isMouse ? mouseInputs : editableButtons}
+                    behaviors={behaviors}
+                    platform={platform}
+                    onChange={updateWorkflow}
+                    onBindTrigger={(inputId, nextTrigger) =>
+                      bindDeviceQuickTrigger(activeMappingProfile.id, inputId, nextTrigger)
+                    }
+                    onTogglePromptMode={toggleQuickMappingPromptMode}
+                    onRename={renameMappingProfile}
+                    onDuplicate={duplicateMappingProfile}
+                    onDelete={deleteMappingProfile}
+                    onClose={() => switchMappingProfile(permanentMappingProfile.id)}
+                    history={{
+                      canUndo: canUndoBehavior,
+                      canRedo: canRedoBehavior,
+                      onUndo: undoBehaviorChange,
+                      onRedo: redoBehaviorChange,
+                    }}
+                  />
+                )
+              })()
             ) : workspacePage === 'mapping' ? (
               <MappingPageComponent
                 activeDeviceId={selectedDeviceId === 'mouse' ? systemMouseCardId : undefined}
@@ -2988,7 +3174,7 @@ function AppController({
                     }}
                     onOpenAudioCalibration={openInstanceAudioCalibration}
                     driverAction={managedDriverAction}
-                    onInstallDriver={instanceId => void installManagedDriver(instanceId)}
+                    onInstallDriver={installManagedDriver}
                     onUnbindDevice={unbindManagedInstance}
                     onRemoveDevice={removeManagedInstance}
                     onLegacy={deviceId => {
@@ -3089,8 +3275,8 @@ function AppController({
         />
       </div>
       {toast && (
-        <div className="toast">
-          <Check size={15} /> {toast}
+        <div className="toast" role="status" aria-live="polite">
+          <Check size={15} aria-hidden="true" /> {toast}
         </div>
       )}
       {pendingProfileSwitch &&
@@ -3292,6 +3478,7 @@ function AppController({
             onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
             onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
             onOpenLogs: () => void openLogDirectory(),
+            onInstallDriver: installManagedDriver,
           }}
           windowsAudioDriver={windowsAudioDriver}
           nativeRuntime={nativeRuntime}

@@ -2,7 +2,7 @@
 .main-content:has(> .home-page) {
   display: flex;
   flex-direction: column;
-  background: radial-gradient(120% 90% at 15% 0%, #ffffff 0%, #f4f6f9 58%, #eef1f6 100%);
+  background: var(--bg);
 }
 .main-content:has(> .home-page) > .mapping-disabled-notice {
   flex-shrink: 0;

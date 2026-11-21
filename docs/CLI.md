@@ -8,6 +8,7 @@ Axonkey CLI 让 Agent 通过本机终端查看和修改映射配置。CLI 由 Ax
 
 ```bash
 axonkey-cli capabilities --json
+axonkey-cli --version --json
 ```
 
 Windows 和 macOS 使用同一套命令。应用未启动时，CLI 会启动一个后台实例处理请求。
@@ -85,6 +86,9 @@ axonkey-cli capabilities --json
 # 列出已添加的设备，获取实例 ID、连接状态和激活配置
 axonkey-cli device list --json
 
+# 启用或停用指定设备（也支持 --device mouse）
+axonkey-cli device toggle --instance "<实例 ID>" --off --json
+
 # 查看某个按键的当前配置；同型号设备有多台时使用 --instance <ID>
 axonkey-cli mapping get \
   --device rc003 --button voice --trigger click --json
@@ -124,13 +128,31 @@ axonkey-cli profile list --instance "<实例 ID>" --json
 axonkey-cli profile create --instance "<实例 ID>" --name "鼠标操作" --dry-run --json
 axonkey-cli profile create --instance "<实例 ID>" --name "鼠标操作" --json
 axonkey-cli profile activate --instance "<实例 ID>" --profile "鼠标操作" --json
+axonkey-cli profile rename --instance "<实例 ID>" --profile "鼠标操作" --name "桌面操控" --json
+axonkey-cli profile duplicate --instance "<实例 ID>" --profile "桌面操控" --json
+axonkey-cli profile delete --instance "<实例 ID>" --profile "旧配置" --yes --json
 axonkey-cli profile application-list --instance "<实例 ID>" --json
 axonkey-cli profile application-set --instance "<实例 ID>" --application "com.example.editor" --profile "编辑配置" --json
 axonkey-cli profile application-remove --instance "<实例 ID>" --application "com.example.editor" --json
 axonkey-cli profile application-toggle --instance "<实例 ID>" --on --json
+
+# 查询并套用云端或内置预制配置文件
+axonkey-cli preset list --device rc003 --json
+axonkey-cli preset apply --instance "<实例 ID>" --preset "mouse-control" --json
+axonkey-cli preset apply --instance "<实例 ID>" --preset "media-reading" --mode overwrite --profile "默认配置" --dry-run --json
+
+# 创建纯 Prompt 模式快捷交互窗并绑定触发键
+axonkey-cli profile create --instance "<实例 ID>" --name "AI 提示词" --quick --prompt-mode --json
+axonkey-cli mapping set --instance "<实例 ID>" --profile "AI 提示词" --button up \
+  --sequence '[{"type":"paste","text":"请帮我总结重点","title":"总结重点"}]' --json
+axonkey-cli mapping set --instance "<实例 ID>" --button menu --trigger click \
+  --sequence '[{"type":"quickOverlay","profileId":"<快捷配置 ID>"}]' --json
+axonkey-cli profile prompt-mode --instance "<实例 ID>" --profile "AI 提示词" --off --json
 ```
 
-新配置只保留跨配置的切换按键，其余映射为空；创建后会立即激活，与界面新建配置的行为一致。创建结果返回新配置 ID；后续 `--profile` 可以使用 ID 或名称，省略或填写 `active` 则使用当前激活配置。重名时使用 ID。`profile create`、`profile activate` 和映射修改均支持 `--dry-run`，预览不会保存修改。
+新配置只保留跨配置的切换按键，其余映射为空；常规配置创建后会立即激活，与界面新建配置的行为一致；带 `--quick` 创建的快捷交互配置不会覆盖当前常驻激活配置，`profile list` 会返回其 `quick`、`promptMode` 与当前绑定的 `trigger`。`preset apply` 默认使用 `--mode copy` 复制生成新配置，并保留当前设备上已设定的跨配置 `switchProfile` 切换键；传入 `--mode overwrite` 可覆写指定同类型配置。
+
+设备实例和系统鼠标均支持 `profile rename`、`profile duplicate`、`profile delete --yes`、`profile prompt-mode --on|--off`（系统鼠标暂不支持 `preset apply`）。`profile create`、`profile activate`、`profile rename/duplicate/delete/prompt-mode`、`preset apply`、`device toggle` 和映射修改均支持 `--dry-run`，预览不会保存修改。
 
 设备实例还支持按前台应用使用独立配置：`profile application-list` 查看绑定，`profile application-set` 将应用 ID 绑定到指定配置，`profile application-remove` 删除绑定。`--application` 应与前台应用检测返回的应用 ID 一致；设置绑定不会改变设备的全局激活配置。使用 `profile application-toggle --on` 或 `--off` 控制该实例是否跟随前台应用切换。
 
@@ -205,21 +227,25 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 {"type":"wheel","direction":"up"}
 {"type":"mouse","button":"back"}
 {"type":"cursorMove","direction":"right","distance":50}
-{"type":"paste","text":"你好"}
-{"type":"typeText","text":"你好🙂\n第二行"}
+{"type":"paste","text":"你好","title":"问候"}
+{"type":"typeText","text":"你好🙂\n第二行","title":"多行文本"}
+{"type":"copyText","text":"常用片段","title":"复制到剪贴板"}
 {"type":"delay","ms":30}
 {"type":"openApp","path":"C:\\Program Files\\Cursor\\Cursor.exe"}
 {"type":"openPath","path":"C:\\Users\\name\\Documents"}
 {"type":"openWebsite","url":"https://example.com"}
+{"type":"runCommand","command":"open -a \"Raycast\"","workingDirectory":"/Users/name/project","title":"打开 Raycast"}
+{"type":"httpRequest","method":"POST","url":"http://127.0.0.1:8123/api/webhook","headers":{"Content-Type":"application/json"},"body":"{\"action\":\"toggle\"}","title":"触发本机 Webhook"}
 {"type":"switchProfile","direction":"next","wrap":true}
+{"type":"quickOverlay","profileId":"<快捷配置 ID>"}
 {"type":"disabled"}
 ```
 
 快捷键 token 使用统一格式。`Mod` 在 Windows 表示 `Ctrl`，在 macOS 表示 `Cmd`；也接受 `Command`、`Cmd`、`Option`、`Esc` 等常见别名。一个快捷键最多包含一个普通键，修饰键顺序会自动规范化。
 
-`typeText` 通过系统文字输入发送 Unicode 文本，不读取或修改剪贴板；`paste` 会替换剪贴板后执行粘贴。`openPath` 通过系统默认程序打开完整的绝对文件或文件夹路径，支持空格、中文和 UNC 路径。
+`typeText`、`paste`、`copyText`、`runCommand` 与 `httpRequest` 均支持可选 `title` 字段，用于在快捷交互窗及纯 Prompt 模式面板中展示更简洁的短标题。`typeText` 通过系统文字输入发送 Unicode 文本，不读取或修改剪贴板；`paste` 会替换剪贴板后执行粘贴；`copyText` 仅写入剪贴板而不发送粘贴快捷键。`openPath` 通过系统默认程序打开完整的绝对文件或文件夹路径，支持空格、中文和 UNC 路径。`runCommand` 支持可选绝对路径 `workingDirectory`，在后台线程非阻塞执行命令（macOS 使用 `/bin/zsh -lc`，Windows 使用隐藏窗口 PowerShell）；`httpRequest` 支持 `GET|POST|PUT|PATCH|DELETE`、可选 `headers`（最多 16 项）与可选 `body`，在后台异步发起 10 秒超时请求并支持 localhost / 局域网地址。`quickOverlay` 必须作为触发方式的唯一行为使用，`profileId` 支持配置 ID 或名称（解析后保存为配置 ID）。
 
-包含 `typeText` 或 `openPath` 的配置在后续文本序列、映射或备份导出时会自动使用对应的新版本格式；CLI 协议本身仍保持 `axonkey.cli/v1`。
+包含 `copyText`、`runCommand`、`httpRequest`、`typeText` 或 `openPath` 的配置在后续文本序列、映射或备份导出时会自动使用对应的新版本格式（含最低版本 `minAppVersion`）；CLI 协议本身仍保持 `axonkey.cli/v1`。
 
 设备型号与按键 ID 以 `capabilities` 和 `keymap get` 返回值为准，实际设备实例以 `device list` 为准。触发方式为 `click`、`doubleClick`、`longPress`，省略时为 `click`。
 
@@ -266,18 +292,19 @@ axonkey-cli capture compile \
 ```text
 修改 Axonkey 配置时先运行 axonkey-cli capabilities --json 和 axonkey-cli device list --json。
 使用 --instance <ID> 明确目标；--device <型号> 仅在该型号只有一个实例时可用。
-用 profile create --name <名称> 新建配置，profile activate --profile <ID或名称> 激活。
+需要开箱即用方案时，先运行 preset list 查看官方/云端预制，再用 preset apply --preset <slug> 复制或覆写配置。
+用 profile create --name <名称> 新建配置（--quick [--prompt-mode] 可建快捷交互窗），profile activate --profile <ID或名称> 激活；支持 profile rename/duplicate/delete --yes。
 需要按空间选择按键时先运行 axonkey-cli keymap get --device <id> --json，使用 keys[].position.percent 和 keys[].id。
 用 mapping get 查看目标按键当前行为，用 --dry-run 预览变更。
 快捷键使用 Mod、Ctrl、Shift、Alt 等 token；Mod 会按系统转换。
 mapping set 的 --sequence 是按顺序执行的行为数组，空数组表示保留原始输入。
-switchProfile 必须是单独的行为，会应用到全部配置并由新配置继承。
-清除映射必须显式传入 --yes。写入后用 mapping get/list 回读。
+switchProfile 和 quickOverlay 均必须是唯一行为；switchProfile 会应用到全部常规配置并由新配置继承。
+清除映射或删除配置必须显式传入 --yes。写入后用 mapping get/list 或 profile list 回读。
 ```
 
 ## 安装后的命令入口
 
-关于页「用 Agent 配置」卡片会自动将当前运行应用的 `axonkey-cli` 绝对路径带入提示词，直接复制给 Agent 即可调用。
+首页顶部「AI 配置」栏和设置 -> 关于页「用 Agent 配置」卡片会自动将当前运行应用的 `axonkey-cli` 绝对路径带入提示词，直接复制给 Agent 即可调用。
 
 Windows 安装器不会修改系统或用户的 `PATH`。`axonkey-cli.exe` 位于应用安装目录（默认 `%LOCALAPPDATA%\Axonkey\axonkey-cli.exe`；自定义安装路径可从注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Axonkey` 的 `InstallLocation` 读取），可直接按完整路径调用，或自行将安装目录加入 `PATH`。
 

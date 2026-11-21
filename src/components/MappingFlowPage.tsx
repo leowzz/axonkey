@@ -43,7 +43,7 @@ export function MappingFlowPage({
   inputWarnings,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
-  const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const [toolboxCategory, setToolboxCategory] = useState('all')
   const panelLayout = useMappingPanelWidths(activeDeviceId ?? selectedDeviceId)
   return (
     <div

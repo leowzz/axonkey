@@ -6,7 +6,7 @@ import { devices } from './devices/index.ts'
 import { snapshotDeviceProfiles } from './deviceProfiles.ts'
 import { applySharedProfileSwitch, removeSharedProfileSwitch } from './profileNavigation.ts'
 import type { ProfileState } from './profileNavigation.ts'
-import { bindMouseApplication } from './mouseProfiles.ts'
+import { bindMouseApplication, deleteMouseProfile } from './mouseProfiles.ts'
 import { InstanceCliError } from './devices/integration/instanceCli.ts'
 
 export type MouseCliState = ProfileState & { globalProfileId: string; autoSwitching: boolean }
@@ -33,10 +33,20 @@ export async function processMouseCliRequest(
   })
   const target = { device: 'mouse', profile: identity(profile) }
   let result: Record<string, unknown>
+  if (method === 'preset.list') {
+    return { device: 'mouse', instance: null, presets: [] }
+  }
+  if (method === 'preset.apply') {
+    throw new InstanceCliError('invalid_target', '系统鼠标暂不支持预制配置文件')
+  }
   if (method === 'profile.list')
     return {
       device: 'mouse',
-      profiles: mouse.map(item => ({ ...identity(item), applicationIds: item.applicationIds ?? [] })),
+      profiles: mouse.map(item => ({
+        ...identity(item),
+        ...(item.quick ? { trigger: findMouseQuickTrigger(mouse, item.id) } : {}),
+        applicationIds: item.applicationIds ?? [],
+      })),
       applicationProfileSwitching: state.autoSwitching,
     }
   if (method === 'profile.application-list')
@@ -86,6 +96,88 @@ export async function processMouseCliRequest(
       profile: { ...identity(profile), active: true },
       before: state.globalProfileId,
       after: profile.id,
+    }
+  } else if (method === 'profile.rename') {
+    const name = stringParam(params.name, 'name')
+    if (!name || name.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
+    if (mouse.some(item => item.id !== profile.id && item.name === name))
+      throw new InstanceCliError('invalid_target', '配置名称已存在')
+    next.profiles = profiles.map(item => (item.id === profile.id ? { ...item, name } : item))
+    result = {
+      device: 'mouse',
+      before: profile.name,
+      after: name,
+      profile: { ...identity(profile), name },
+    }
+  } else if (method === 'profile.duplicate') {
+    const requestedName = stringParam(params.name, 'name')
+    if (requestedName.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
+    if (requestedName && mouse.some(item => item.name === requestedName))
+      throw new InstanceCliError('invalid_target', '配置名称已存在')
+    const asQuick = booleanParam(params.quick, 'quick') || Boolean(profile.quick)
+    const nextName =
+      requestedName ||
+      nextMouseCopyName(
+        mouse.map(item => item.name),
+        `${profile.name} 副本`,
+      )
+    const cloned = {
+      id: crypto.randomUUID(),
+      name: nextName,
+      deviceId: 'mouse' as const,
+      behaviors: cloneMouseProfileBehaviors(profile.behaviors, asQuick),
+      ...(asQuick ? { quick: true } : {}),
+      ...(asQuick && profile.promptMode ? { promptMode: true } : {}),
+    }
+    next.profiles = [...profiles, cloned]
+    if (!asQuick) next.globalProfileId = cloned.id
+    result = {
+      device: 'mouse',
+      sourceProfileId: profile.id,
+      profile: {
+        id: cloned.id,
+        name: cloned.name,
+        active: !asQuick,
+        ...(cloned.quick ? { quick: true } : {}),
+        ...(cloned.quick && cloned.promptMode ? { promptMode: true } : {}),
+      },
+      previousActiveProfileId: state.globalProfileId,
+    }
+  } else if (method === 'profile.delete') {
+    if (!profileValue) throw new InstanceCliError('invalid_arguments', '删除配置需要 --profile')
+    if (!booleanParam(params.yes, 'yes')) throw new InstanceCliError('invalid_arguments', '删除配置需要 --yes')
+    if (!profile.quick && mouse.filter(item => !item.quick).length <= 1)
+      throw new InstanceCliError('invalid_target', '至少需要保留一个常规配置文件')
+    const deleted = deleteMouseProfile(profiles, profile.id, state.globalProfileId)
+    next.profiles = profile.quick ? removeMouseQuickReferences(deleted.profiles, profile.id) : deleted.profiles
+    next.globalProfileId = deleted.globalProfileId
+    result = {
+      device: 'mouse',
+      deleted: identity(profile),
+      activeProfileId: deleted.globalProfileId,
+    }
+  } else if (method === 'profile.prompt-mode') {
+    if (!profileValue) throw new InstanceCliError('invalid_arguments', '设置纯 Prompt 模式需要 --profile')
+    if (typeof params.enabled !== 'boolean')
+      throw new InstanceCliError('invalid_arguments', '设置纯 Prompt 模式需要 --on 或 --off')
+    if (!profile.quick) throw new InstanceCliError('invalid_target', '纯 Prompt 模式仅适用于快捷交互配置')
+    const promptMode = params.enabled === true
+    next.profiles = profiles.map(item => {
+      if (item.id !== profile.id) return item
+      if (promptMode) return { ...item, promptMode: true }
+      const { promptMode: _removed, ...rest } = item
+      return rest
+    })
+    result = {
+      device: 'mouse',
+      promptMode,
+      profile: {
+        id: profile.id,
+        name: profile.name,
+        active: profile.id === state.globalProfileId,
+        quick: true,
+        ...(promptMode ? { promptMode: true } : {}),
+      },
     }
   } else if (method === 'profile.application-set' || method === 'profile.application-remove') {
     const application = stringParam(params.application, 'application')
@@ -224,4 +316,77 @@ function resolveProfile(value: string, profiles: ProfileState['profiles'], globa
   const matches = profiles.filter(item => item.name === value)
   if (matches.length !== 1) throw new InstanceCliError('invalid_target', '找不到唯一的指定配置文件，请使用配置 ID')
   return matches[0]
+}
+
+function nextMouseCopyName(existingNames: readonly string[], preferred: string): string {
+  const clean = preferred.trim().slice(0, 40) || '配置 副本'
+  const taken = new Set(existingNames)
+  if (!taken.has(clean)) return clean
+  for (let index = 2; index < 1000; index += 1) {
+    const suffix = ` ${index}`
+    const candidate = `${clean.slice(0, 40 - suffix.length)}${suffix}`
+    if (!taken.has(candidate)) return candidate
+  }
+  return clean
+}
+
+function cloneMouseProfileBehaviors(source: ProfileState['profiles'][number]['behaviors'], stripSwitch: boolean) {
+  const cloned = createEmptyBehaviorMap()
+  for (const input of devices.find(device => device.id === 'mouse')!.inputIds) {
+    for (const trigger of triggers) {
+      cloned[input][trigger] = source[input][trigger]
+        .filter(behavior => !stripSwitch || behavior.type !== 'switchProfile')
+        .map(behavior => createBehavior({ ...behavior, id: undefined }))
+    }
+  }
+  return cloned
+}
+
+function findMouseQuickTrigger(mouseProfiles: readonly ProfileState['profiles'][number][], quickProfileId: string) {
+  for (const candidate of mouseProfiles) {
+    if (candidate.quick || candidate.id === quickProfileId) continue
+    for (const [inputId, sequences] of Object.entries(candidate.behaviors)) {
+      if (!sequences || typeof sequences !== 'object') continue
+      for (const trigger of triggers) {
+        if (
+          sequences[trigger]?.some(
+            step => step.enabled && step.type === 'quickOverlay' && step.profileId === quickProfileId,
+          )
+        ) {
+          return { profileId: candidate.id, inputId, trigger }
+        }
+      }
+    }
+  }
+  return null
+}
+
+function removeMouseQuickReferences(
+  profiles: ProfileState['profiles'],
+  quickProfileId: string,
+): ProfileState['profiles'] {
+  return profiles.map(item => {
+    if (item.deviceId !== 'mouse' || item.quick) return item
+    let changed = false
+    const nextBehaviors = { ...item.behaviors }
+    for (const input of devices.find(device => device.id === 'mouse')!.inputIds) {
+      const seq = nextBehaviors[input]
+      let seqChanged = false
+      const updated = { ...seq }
+      for (const trigger of triggers) {
+        const filtered = seq[trigger].filter(
+          step => !(step.type === 'quickOverlay' && step.profileId === quickProfileId),
+        )
+        if (filtered.length !== seq[trigger].length) {
+          updated[trigger] = filtered
+          seqChanged = true
+        }
+      }
+      if (seqChanged) {
+        nextBehaviors[input] = updated
+        changed = true
+      }
+    }
+    return changed ? { ...item, behaviors: nextBehaviors } : item
+  })
 }

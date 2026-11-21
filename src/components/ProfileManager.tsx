@@ -1,4 +1,16 @@
-import { Check, ChevronDown, Copy, Layers, LayoutGrid, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  Layers,
+  LayoutGrid,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { SelectControl } from './SelectControl'
 import type { MappingProfile } from '../appTypes'
@@ -9,6 +21,7 @@ type ProfileManagerProps = {
   onSwitch: (id: string) => void
   onCreate: () => void
   onCreateQuick?: () => void
+  onOpenPresets?: () => void
   onDuplicate: () => void
   onRename: (name: string) => void
   onDelete: () => void
@@ -22,6 +35,7 @@ export function ProfileManager({
   onSwitch,
   onCreate,
   onCreateQuick,
+  onOpenPresets,
   onDuplicate,
   onRename,
   onDelete,
@@ -200,6 +214,11 @@ export function ProfileManager({
               {onCreateQuick && (
                 <button type="button" onClick={() => runAction(onCreateQuick)}>
                   <LayoutGrid size={15} /> 新增快捷交互配置
+                </button>
+              )}
+              {onOpenPresets && (
+                <button type="button" onClick={() => runAction(onOpenPresets)}>
+                  <Sparkles size={15} /> 从预制配置导入
                 </button>
               )}
               <button type="button" onClick={() => runAction(onDuplicate)}>

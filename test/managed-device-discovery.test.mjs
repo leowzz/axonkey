@@ -402,7 +402,7 @@ test('integration saves devices without an input mode on every platform', async 
       controller, native: false, platform, permissions: {},
     })) })
     act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
-    const dialog = view.root.findByProps({ role: 'dialog' })
+    const dialog = view.root.findByType('dialog')
     assert.ok(!text(dialog).includes('输入模式'))
     if (kind === 'cmiotA15' && platform === 'windows') {
       assert.ok(!text(dialog).includes('暂不支持输入监听'))
@@ -412,6 +412,15 @@ test('integration saves devices without an input mode on every platform', async 
     assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.ok(!('capture' in submitted))
+    assert.equal(submitted.profiles.length, 1)
+    assert.equal(submitted.activeProfileId, submitted.profiles[0].id)
+    assert.ok(Object.keys(submitted.profiles[0].behaviors).length > 0, `${kind} integrates with default preset`)
+
+    // Explicitly switching initial preset to "blank" preserves blank default profile
+    act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
+    const presetSelect = view.root.findByProps({ id: 'integration-preset-select' })
+    act(() => presetSelect.props.onChange({ target: { value: 'blank' } }))
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.equal(submitted.activeProfileId, 'default')
     assert.deepEqual(structuredClone(submitted.profiles), [{ id: 'default', name: '默认配置', behaviors: {} }])
     act(() => view.unmount())
@@ -619,6 +628,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -719,16 +729,14 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     const driverNotice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-    assert.equal(driverNotice.props.role, 'dialog')
-    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动', '关闭'])
+    assert.equal(driverNotice.props.role, 'status')
+    assert.equal(driverNotice.props['aria-live'], 'polite')
+    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动'])
     assert.ok(text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes('正在录音'))
     assert.ok(!text(views[0].root.findByProps({ className: 'mapping-device-rail panel-surface' })).includes('正在录音'))
     act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
     assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
-    await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
-    assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
     act(() => views[0].update(React.createElement(InstanceWorkspace, props(0))))
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
@@ -741,7 +749,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
         views[0].update(React.createElement(InstanceWorkspace, props(0)))
       })
       const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(notice.props.role, 'dialog')
+      assert.equal(notice.props.role, 'status')
       assert.ok(text(notice).includes('驱动错误，请重新安装。'))
       assert.equal(text(notice).includes(communicationError), true)
       assert.equal(notice.findByProps({ className: 'managed-driver-notice-details' }).findByType('summary').children[0], '查看错误详情')
@@ -751,11 +759,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[0].root.findAllByProps({ className: 'managed-error' }).length, 0, 'communication errors are shown once')
       act(() => button.props.onClick())
       assert.deepEqual(actions.at(-1), ['install', 'one'])
-      await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-      const banner = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(banner.props.role, 'status')
-      assert.equal(text(banner.findByType('span')), '驱动错误，请重新安装。')
-      assert.equal(text(banner).includes(communicationError), false)
       act(() => views[0].update(React.createElement(InstanceWorkspace, {
         ...props(0), driverAction: { instanceId: 'two', status: 'running' },
       })))
@@ -1122,10 +1125,10 @@ test('migration binding request waits for the saved instance then opens its phys
   const snapshot = { ...model.emptySnapshot(), store: { version: 1, revision: 1, instances: [instance] } }
   act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, controller: { ...props.controller, snapshot } })))
   assert.equal(consumed, 1)
-  assert.match(text(view.root.findByProps({ role: 'dialog' })), /绑定物理设备/)
+  assert.match(text(view.root.findByType('dialog')), /绑定物理设备/)
   act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, bindInstanceId: null, controller: { ...props.controller, snapshot } })))
   act(() => view.root.findByProps({ 'aria-label': '关闭集成' }).props.onClick())
-  assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
+  assert.equal(view.root.findAllByType('dialog').length, 0)
   assert.equal(consumed, 1)
   act(() => view.unmount())
 })
@@ -1161,6 +1164,7 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -1601,6 +1605,7 @@ test('Kivo K18 Lite workspace delegates responsive lanes to the workflow and edi
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -1821,6 +1826,7 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -2079,6 +2085,94 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     assert.equal(view.root.findAll(node => node.props?.className === 'managed-warning').length, 0)
   } finally {
     model.resetRuntimeSupportPackages()
+    act(() => view.unmount())
+  }
+})
+
+test('Windows integration installs the device driver via UAC before entering workspace and handles UAC cancellation', async () => {
+  const remote = { ...device, id: 'xbox-win', kind: 'xboxBluetooth', connected: true }
+  const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+  const savedCalls = []
+  const installCalls = []
+  let finishInstall = null
+  const controller = {
+    snapshot,
+    busy: false,
+    error: '',
+    async put(instance) {
+      savedCalls.push(instance)
+      const persisted = { ...instance, id: instance.id || 'xbox-instance-1' }
+      snapshot.store.instances = [persisted]
+      return snapshot
+    },
+  }
+  let completedId = ''
+  let view
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceDiscoverySection, {
+        controller,
+        native: true,
+        platform: 'windows',
+        permissions: {},
+        onIntegrated: id => {
+          completedId = id
+        },
+        onInstallDriver: instanceId => {
+          installCalls.push(instanceId)
+          return new Promise(resolve => {
+            finishInstall = resolve
+          })
+        },
+      }),
+    )
+  })
+  try {
+    act(() => view.root.find(node => node.type === 'button' && node.props['data-discovered']).props.onClick())
+    const primary = () => view.root.findByProps({ className: 'managed-primary' })
+    assert.equal(text(primary()), '集成并配置驱动')
+
+    let clickPromise
+    act(() => {
+      clickPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1)
+    assert.deepEqual(installCalls, ['xbox-instance-1'])
+    assert.equal(completedId, '', 'does not jump into workspace while UAC prompt is pending')
+    assert.ok(text(view.root.findByProps({ className: 'integration-uac-status' })).includes('Windows UAC'))
+
+    await act(async () => {
+      finishInstall({ ok: false, status: 'error', error: '用户取消了管理员授权' })
+      await clickPromise
+    })
+    assert.equal(completedId, '', 'stays inside integration dialog when UAC is cancelled')
+    assert.ok(
+      text(view.root.findByProps({ className: 'managed-error integration-uac-error' })).includes(
+        '用户取消了管理员授权',
+      ),
+    )
+    const footerButtons = view.root.findByProps({ className: 'managed-dialog-footer' }).findAllByType('button')
+    assert.deepEqual(footerButtons.map(text), ['先进入配键位（稍后安装）', '重新授权安装'])
+
+    let retryPromise
+    act(() => {
+      retryPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1, 'retrying UAC reuses the already persisted instance without duplicating')
+    assert.deepEqual(installCalls, ['xbox-instance-1', 'xbox-instance-1'])
+
+    await act(async () => {
+      finishInstall({ ok: true, status: 'installed', message: '按键驱动已安装' })
+      await retryPromise
+    })
+    assert.equal(completedId, 'xbox-instance-1')
+  } finally {
     act(() => view.unmount())
   }
 })

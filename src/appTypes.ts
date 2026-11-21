@@ -101,6 +101,13 @@ export type ManagedDriverAction = {
   message?: string
 }
 
+export type ManagedDriverInstallOutcome = {
+  ok: boolean
+  status: 'installed' | 'restartRequired' | 'error'
+  message?: string
+  error?: string
+}
+
 export type AudioProbe = {
   driverInstalled: boolean
   state:
@@ -148,6 +155,11 @@ export type CommonBehaviorPreset =
   | 'backspace'
   | 'delete'
   | 'deleteAllText'
+  | 'copy'
+  | 'pasteShortcut'
+  | 'undo'
+  | 'selectAll'
+  | 'closeTab'
   | 'keyHome'
   | 'keyEnd'
   | 'pageUp'
@@ -165,12 +177,25 @@ export type CommonBehaviorPreset =
   | 'mediaStop'
   | 'textAndEnter'
   | 'customKey'
+  | 'copyText'
   | 'typeText'
   | 'openPath'
   | 'openApp'
   | 'openWebsite'
+  | 'runCommand'
+  | 'httpRequest'
 
-export type AdvancedBehaviorType = 'key' | 'paste' | 'typeText' | 'openPath' | 'delay' | 'openApp' | 'openWebsite'
+export type AdvancedBehaviorType =
+  | 'key'
+  | 'paste'
+  | 'typeText'
+  | 'copyText'
+  | 'openPath'
+  | 'delay'
+  | 'openApp'
+  | 'openWebsite'
+  | 'runCommand'
+  | 'httpRequest'
 
 export type DraftBehaviorState = {
   behavior: Behavior

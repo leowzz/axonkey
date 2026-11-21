@@ -209,7 +209,7 @@ test('parseDeviceModelCatalog normalizes legacy and SVG responses, deduplicates 
 })
 
 test('fetchDeviceModelCatalog requests include_svg=1 with optional auth, refresh, and anonymous 401 fallback', async () => {
-  assert.equal(deviceModelCatalogEndpoint, '/v2/device-models?app_id=axonkey&include_svg=1')
+  assert.equal(deviceModelCatalogEndpoint, '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1')
 
   // 1. Signed-in user sends bearer token (including automatic refresh when expired)
   const signedInCalls = []
@@ -238,7 +238,7 @@ test('fetchDeviceModelCatalog requests include_svg=1 with optional auth, refresh
     signedInCalls.map(c => [c.path, c.token]),
     [
       ['/auth/refresh', undefined],
-      ['/v2/device-models?app_id=axonkey&include_svg=1', 'refreshed-access'],
+      ['/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1', 'refreshed-access'],
     ],
   )
 
@@ -255,7 +255,7 @@ test('fetchDeviceModelCatalog requests include_svg=1 with optional auth, refresh
   const anonItems = await fetchDeviceModelCatalog(anonymousClient)
   assert.equal(anonItems.length, 1)
   assert.deepEqual(anonymousCalls, [
-    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: undefined },
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1', token: undefined },
   ])
 
   // 3. Invalidated session (401) clears session and falls back to unauthenticated catalog request
@@ -281,8 +281,8 @@ test('fetchDeviceModelCatalog requests include_svg=1 with optional auth, refresh
   assert.equal(savedSession, null)
   assert.equal(fallbackItems[0].brand_name, 'TCL')
   assert.deepEqual(fallbackCalls, [
-    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: 'access-token-1' },
-    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: undefined },
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1', token: 'access-token-1' },
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1', token: undefined },
   ])
 })
 
@@ -953,7 +953,7 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
       await flush()
     })
     assert.deepEqual(catalogRequests, [
-      { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: 'access-token-1' },
+      { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1', token: 'access-token-1' },
     ])
 
     // 3. Resolve cloud catalog including a brand-new cloud model customRemoteX with axonkey.device/1 SVG
@@ -1519,4 +1519,40 @@ test('local custom-devices overriding cloud SVG emits warn logs and displays act
     h.catalogMod.clearDeviceModelCatalogCache(storage)
     h.useCatalogMod.resetNativeDescriptorSyncCache()
   }
+})
+
+test('parseDeviceModelCatalog and cache round-trip preserve valid model presets', () => {
+  const storage = createStorage()
+  const items = parseDeviceModelCatalog({
+    items: [
+      {
+        id: 'm1',
+        code: 'rc003',
+        name: '小米遥控器',
+        model: 'RC003',
+        presets: [
+          {
+            id: 'p1',
+            model_id: 'm1',
+            slug: 'mouse-control',
+            name: '飞鼠操控',
+            description: '默认',
+            platform: 'all',
+            is_default: true,
+            quick: false,
+            prompt_mode: false,
+            sort_order: 10,
+            behaviors: { confirm: { click: [{ id: 'a1', enabled: true, type: 'mouse', button: 'left' }], doubleClick: [], longPress: [] } },
+          },
+          { id: 'bad', slug: '', name: '' },
+        ],
+      },
+    ],
+  })
+  assert.equal(items.length, 1)
+  assert.equal(items[0].presets?.length, 1)
+  assert.equal(items[0].presets?.[0].slug, 'mouse-control')
+  writeCachedDeviceModelCatalog(items, storage, 1_700_000_000_000, 3600)
+  const cached = readCachedDeviceModelCatalog(storage, 1_700_000_100_000)
+  assert.equal(cached?.items[0].presets?.[0].slug, 'mouse-control')
 })

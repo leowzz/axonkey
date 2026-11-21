@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LayoutGrid } from 'lucide-react'
 import type { Application, ForegroundApplications } from '../applications'
 import type { MappingProfile } from '../appTypes'
 import { AddApplicationDialog, ApplicationSelect } from './ApplicationProfileToolbar'
@@ -20,6 +21,8 @@ export function MouseApplicationProfileToolbar({
   onToggle,
   onCreate,
   onCreateQuick,
+  onOpenQuickOverlay,
+  quickProfileCount,
   onDuplicate,
   onRename,
   onDelete,
@@ -38,6 +41,8 @@ export function MouseApplicationProfileToolbar({
   onToggle: () => void
   onCreate: () => void
   onCreateQuick?: () => void
+  onOpenQuickOverlay?: () => void
+  quickProfileCount?: number
   onDuplicate: () => void
   onRename: (name: string) => void
   onDelete: () => void
@@ -88,6 +93,20 @@ export function MouseApplicationProfileToolbar({
           onDelete={onDelete}
           onRemoveApplication={onRemoveApplication}
         />
+        {onOpenQuickOverlay && (
+          <button
+            type="button"
+            className="application-quick-overlay-button"
+            title="打开或新建快捷交互窗配置"
+            onClick={onOpenQuickOverlay}
+          >
+            <LayoutGrid size={14} aria-hidden="true" />
+            <span>快捷交互窗</span>
+            {Boolean(quickProfileCount && quickProfileCount > 0) && (
+              <span className="application-quick-overlay-count">{quickProfileCount}</span>
+            )}
+          </button>
+        )}
       </div>
       <div className="application-auto-switch">
         <span>自动切换</span>

@@ -1,16 +1,16 @@
 .device-binding-trigger {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   width: 100%;
   min-width: 0;
-  min-height: 60px;
-  padding: 10px 13px;
+  min-height: 40px;
+  padding: 6px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
-  background: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  box-shadow: var(--shadow-xs);
   text-align: left;
   cursor: pointer;
   transition:
@@ -24,15 +24,15 @@
 }
 .device-binding-trigger[aria-expanded='true'] {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgb(0 102 255 / 11%);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 11%);
 }
 .device-binding-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-xs);
   background: var(--surface-subtle);
   color: var(--ink-secondary);
 }
@@ -93,10 +93,10 @@
   box-sizing: border-box;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 5px;
+  padding: 4px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: #fff;
+  border-radius: var(--radius-md);
+  background: var(--surface);
   box-shadow: var(--shadow-popover);
   color: var(--ink);
   font-family: inherit;

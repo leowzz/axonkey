@@ -13,3 +13,5 @@
 | [0003](0003-transport-independent-device-input.md) | 传输无关的设备输入与会话 | `proposed` |
 | [0004](0004-quick-interaction-overlay-profiles.md) | 快捷交互窗复用独立配置文件与非激活顶层浮层 | `accepted` |
 | [0005](0005-native-app-config-storage.md) | 桌面端持久化配置统一存储至软件数据目录 | `accepted` |
+| [0006](0006-cloud-device-preset-profiles.md) | 云端设备预制配置文件下发与实例化边界 | `accepted` |
+| [0007](0007-command-http-clipboard-behaviors-and-library-ia.md) | 命令 / HTTP / 剪贴板行为边界与行为库信息架构 | `accepted` |

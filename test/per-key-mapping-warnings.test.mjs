@@ -183,6 +183,7 @@ test('InstanceWorkspace isolates per-key warnings, renders valid steps safely, a
       './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
       '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
       '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+      '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
       '../../components/SettingsHelp': { SettingsHelp: () => null },
       '../../components/BatteryIndicator': { BatteryIndicator: () => null },
       '../../components/BehaviorHistoryActions': { BehaviorHistoryActions: () => null },
@@ -198,6 +199,7 @@ test('InstanceWorkspace isolates per-key warnings, renders valid steps safely, a
       '../kivo-k18-lite/KivoScreenEditor': { KivoScreenEditor: () => null },
       './IntegrationControls': { DeviceBindingPicker: () => null },
       './model': require('../src/devices/integration/model.ts'),
+      '../bundledPresets.ts': require('../src/devices/bundledPresets.ts'),
     },
     {
       window: { addEventListener() {}, removeEventListener() {} },

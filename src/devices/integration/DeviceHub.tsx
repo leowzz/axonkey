@@ -18,17 +18,26 @@ import {
   ChevronRight,
   Check,
   Clock3,
+  Copy,
   Link2Off,
   Pause,
   Plus,
   Radio,
   RefreshCw,
   Search,
+  Sparkles,
   TriangleAlert,
   X,
 } from 'lucide-react'
+import { buildAgentCliPrompt } from '../../agentPrompt.ts'
 import type { LucideIcon } from 'lucide-react'
-import type { MacPermissions, ManagedDriverAction, MappingEditorStyle, Platform } from '../../appTypes'
+import type {
+  MacPermissions,
+  ManagedDriverAction,
+  ManagedDriverInstallOutcome,
+  MappingEditorStyle,
+  Platform,
+} from '../../appTypes'
 import { BehaviorLibraryContext } from '../../cloud/BehaviorLibraryContext'
 import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog'
 import { useDeviceModelCatalog } from '../../cloud/useDeviceModelCatalog'
@@ -36,6 +45,12 @@ import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { ModelCatalogBody, ModelTagPills } from './ModelMarkdown'
+import {
+  getPresetsForDevice,
+  materializePresetToProfile,
+  pickDefaultPreset,
+  summarizePresetHighlights,
+} from '../bundledPresets.ts'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
   buildWorkspaceDeviceOptions,
@@ -73,6 +88,9 @@ const DeviceCaptureWorkbench = lazy(() =>
 const ConnectionTroubleshootPage = lazy(() =>
   import('./ConnectionTroubleshootPage').then(mod => ({ default: mod.ConnectionTroubleshootPage })),
 )
+const AgentConfigDialog = lazy(() =>
+  import('../../components/AgentConfigDialog').then(mod => ({ default: mod.AgentConfigDialog })),
+)
 
 type Props = {
   mappingStyle: MappingEditorStyle
@@ -93,7 +111,9 @@ type Props = {
   onOpenDeviceManager: () => void
   onOpenLogs?: () => void
   driverAction: ManagedDriverAction | null
-  onInstallDriver: (instanceId: string) => void
+  onInstallDriver: (
+    instanceId: string,
+  ) => Promise<ManagedDriverInstallOutcome | void> | ManagedDriverInstallOutcome | void
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
@@ -115,13 +135,60 @@ export function DeviceHub(props: Props) {
   const { controller, native } = props
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
+  const hubLibraryContext = useContext(BehaviorLibraryContext)
+  const hubRetainedKinds = useMemo(() => snapshot.store.instances.map(item => item.kind), [snapshot.store.instances])
+  const { modelsByCode: hubModelsByCode } = useDeviceModelCatalog(
+    hubLibraryContext?.client,
+    hubLibraryContext?.accountReady ?? true,
+    { native, retainedKinds: hubRetainedKinds },
+  )
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [captureOpen, setCaptureOpen] = useState(false)
   const [troubleshootOpen, setTroubleshootOpen] = useState(false)
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false)
+  const [agentCliPath, setAgentCliPath] = useState<string | null>(null)
+  const [agentCopyState, setAgentCopyState] = useState<'idle' | 'copied'>('idle')
+  const pendingAgentPathRef = useRef<Promise<string | null> | null>(null)
+  const agentCopyTimerRef = useRef<number | null>(null)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
   const didDragRef = useRef(false)
+  useEffect(() => {
+    if (!native || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let cancelled = false
+    const request = invoke<string>('cli_executable_path').then(
+      value => (typeof value === 'string' && value.trim() ? value.trim() : null),
+      () => null,
+    )
+    pendingAgentPathRef.current = request
+    void request.then(resolved => {
+      if (!cancelled && resolved) setAgentCliPath(resolved)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [native])
+  useEffect(
+    () => () => {
+      if (agentCopyTimerRef.current !== null) window.clearTimeout(agentCopyTimerRef.current)
+    },
+    [],
+  )
+  const handleCopyAgentPrompt = async () => {
+    try {
+      const resolved = agentCliPath ?? (await pendingAgentPathRef.current) ?? null
+      const { writeClipboardText } = await import('../../clipboard')
+      await writeClipboardText(buildAgentCliPrompt(resolved))
+      setAgentCopyState('copied')
+      props.onToast?.('已复制 Agent 提示词')
+      if (agentCopyTimerRef.current !== null) window.clearTimeout(agentCopyTimerRef.current)
+      agentCopyTimerRef.current = window.setTimeout(() => setAgentCopyState('idle'), 2200)
+    } catch {
+      setAgentCopyState('idle')
+      props.onToast?.('复制失败，请点「用法与示例」手动复制')
+    }
+  }
   const pointerDragRef = useRef<{
     id: string
     pointerId: number
@@ -254,6 +321,7 @@ export function DeviceHub(props: Props) {
           key={instance.id}
           {...props}
           instance={instance}
+          catalogModel={hubModelsByCode.get(instance.kind) ?? null}
           deviceOptions={buildWorkspaceDeviceOptions(snapshot.store.instances, orderedCardIds)}
           onSelectDevice={id => {
             if (id === systemMouseCardId) props.onLegacy('mouse')
@@ -316,6 +384,43 @@ export function DeviceHub(props: Props) {
               </button>
             </div>
           </header>
+          <aside className="home-ai-entry" aria-label="AI 配置入口">
+            <div className="home-ai-entry-main">
+              <span className="home-ai-entry-badge" aria-hidden="true">
+                <Sparkles size={14} />
+              </span>
+              <div className="home-ai-entry-text">
+                <strong className="home-ai-entry-title">AI 配置</strong>
+                <span className="home-ai-entry-desc">
+                  把提示词发给 Claude Code、Codex、Cursor 等 AI，直接代配按键、预制方案与快捷交互窗
+                </span>
+              </div>
+            </div>
+            <div className="home-ai-entry-actions">
+              <button
+                type="button"
+                className="home-ai-copy-btn"
+                data-copied={agentCopyState === 'copied' || undefined}
+                aria-label="复制 Agent 提示词"
+                onClick={() => void handleCopyAgentPrompt()}
+              >
+                {agentCopyState === 'copied' ? (
+                  <Check size={14} aria-hidden="true" />
+                ) : (
+                  <Copy size={14} aria-hidden="true" />
+                )}
+                <span role="status">{agentCopyState === 'copied' ? '已复制提示词' : '复制提示词'}</span>
+              </button>
+              <button
+                type="button"
+                className="my-devices-integrate"
+                aria-haspopup="dialog"
+                onClick={() => setAgentDialogOpen(true)}
+              >
+                用法与示例
+              </button>
+            </div>
+          </aside>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
               <div className="managed-device-grid">
@@ -405,6 +510,18 @@ export function DeviceHub(props: Props) {
           />,
           document.body,
         )}
+      {agentDialogOpen &&
+        createPortal(
+          <Suspense fallback={null}>
+            <AgentConfigDialog
+              native={native}
+              initialCliPath={agentCliPath}
+              onClose={() => setAgentDialogOpen(false)}
+              onToast={props.onToast}
+            />
+          </Suspense>,
+          document.body,
+        )}
       {busy && (
         <span className="managed-saving" role="status">
           正在保存…
@@ -413,7 +530,9 @@ export function DeviceHub(props: Props) {
     </section>
   )
 }
-type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'>
+type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'> & {
+  onInstallDriver?: Props['onInstallDriver']
+}
 export type DeviceDiscoveryProps = IntegrationProps &
   Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager' | 'onOpenLogs' | 'onToast'> & {
     guide?: boolean
@@ -876,6 +995,7 @@ function IntegrationDialog({
   platform,
   permissions,
   onPermissions,
+  onInstallDriver,
   onClose,
   onOpenCapture,
   onComplete,
@@ -923,8 +1043,15 @@ function IntegrationDialog({
   const [bindingChoice, setBindingChoice] = useState<string | null>(
     initial.device?.id ?? initial.instance?.binding ?? null,
   )
+  const [presetChoice, setPresetChoice] = useState<string | null>(null)
   const [localError, setError] = useState('')
   const [recognizing, setRecognizing] = useState(false)
+  const [pendingInstance, setPendingInstance] = useState<DeviceInstance | null>(null)
+  const [installingDriver, setInstallingDriver] = useState(false)
+  const [driverInstallNotice, setDriverInstallNotice] = useState<{
+    status: 'error' | 'restartRequired'
+    text: string
+  } | null>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   const packageGridRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -973,19 +1100,46 @@ function IntegrationDialog({
   const effectiveOverrides = effectivePackage
     ? localCloudOverrides.filter(item => item.kind === effectivePackage.kind)
     : []
+  const currentInstanceId = pendingInstance?.id ?? initial.instance?.id
   const candidates = controller.snapshot.discovered.filter(
     d =>
       (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : kind && deviceMatchesKind(d, kind)) &&
-      !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
+      !controller.snapshot.store.instances.some(i => i.id !== currentInstanceId && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
   const device = candidates.find(d => d.id === binding)
   const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
   const selectedPackage = kind ? packageFor(kind) : null
+  const needsWindowsDriverInstall = Boolean(
+    native &&
+    platform === 'windows' &&
+    kind &&
+    supportsWindowsDriver(kind) &&
+    binding &&
+    onInstallDriver &&
+    controller.snapshot.runtime[currentInstanceId ?? '']?.driverInstalled !== true,
+  )
   const selectedOverrides = selectedPackage
     ? localCloudOverrides.filter(item => item.kind === selectedPackage.kind)
     : []
   const selectedCatalog = kind ? modelsByCode.get(kind) : undefined
+  const devicePresets = useMemo(
+    () => (!initial.instance && kind ? getPresetsForDevice(kind, selectedCatalog, platform) : []),
+    [initial.instance, kind, platform, selectedCatalog],
+  )
+  const defaultPreset = useMemo(() => pickDefaultPreset(devicePresets), [devicePresets])
+  const effectivePresetSlug = presetChoice ?? defaultPreset?.slug ?? 'blank'
+  const selectedPreset =
+    effectivePresetSlug === 'blank'
+      ? null
+      : (devicePresets.find(item => item.slug === effectivePresetSlug) ?? defaultPreset ?? null)
+  const selectedPresetHighlights = useMemo(
+    () =>
+      selectedPreset && selectedPackage
+        ? summarizePresetHighlights(selectedPreset, selectedPackage.inputs, platform)
+        : [],
+    [platform, selectedPackage, selectedPreset],
+  )
   const hasSelectedCatalogDetails =
     !needsMobileModelSelection &&
     Boolean(
@@ -997,6 +1151,7 @@ function IntegrationDialog({
   function proceedWithPackage(pkg: (typeof packages)[number]) {
     const changed = pkg.kind !== kind || !name.trim()
     setKind(pkg.kind)
+    if (changed) setPresetChoice(null)
     if (changed || !nameCustomized) {
       setName(pkg.name)
       setNameCustomized(false)
@@ -1051,15 +1206,80 @@ function IntegrationDialog({
       setRecognizing(false)
     }
   }
+  async function runWindowsDriverInstall(instanceId: string) {
+    if (!onInstallDriver) {
+      onComplete(instanceId)
+      return
+    }
+    setInstallingDriver(true)
+    setDriverInstallNotice(null)
+    setError('')
+    try {
+      const outcome = await onInstallDriver(instanceId)
+      if (!outcome || outcome.ok) {
+        onComplete(instanceId)
+        return
+      }
+      setDriverInstallNotice({
+        status: outcome.status === 'restartRequired' ? 'restartRequired' : 'error',
+        text: outcome.message || outcome.error || '未完成管理员授权或驱动安装失败。',
+      })
+    } catch (e) {
+      setDriverInstallNotice({
+        status: 'error',
+        text: String(e),
+      })
+    } finally {
+      setInstallingDriver(false)
+    }
+  }
   async function integrate() {
     if (!kind) return
+    if (
+      pendingInstance &&
+      pendingInstance.kind === kind &&
+      pendingInstance.name === name.trim() &&
+      pendingInstance.binding === (binding || null)
+    ) {
+      if (pendingInstance.binding && needsWindowsDriverInstall) {
+        await runWindowsDriverInstall(pendingInstance.id)
+      } else {
+        onComplete(pendingInstance.id)
+      }
+      return
+    }
     try {
-      const instance = { ...(initial.instance ?? newInstance(kind, null)), name: name.trim(), binding: binding || null }
+      setError('')
+      setDriverInstallNotice(null)
+      const base =
+        pendingInstance ??
+        initial.instance ??
+        (() => {
+          const fresh = newInstance(kind, null)
+          if (!selectedPreset) return fresh
+          const initialProfile = materializePresetToProfile(selectedPreset)
+          return { ...fresh, activeProfileId: initialProfile.id, profiles: [initialProfile] }
+        })()
+      const instance = { ...base, kind, name: name.trim(), binding: binding || null }
       const result = await controller.put(instance)
       const saved = instance.id
         ? result.store.instances.find(i => i.id === instance.id)
         : result.store.instances[result.store.instances.length - 1]
-      if (saved) onComplete(saved.id)
+      if (!saved) return
+      setPendingInstance(saved)
+      const driverAlreadyInstalled = result.runtime[saved.id]?.driverInstalled === true
+      if (
+        native &&
+        platform === 'windows' &&
+        supportsWindowsDriver(kind) &&
+        saved.binding &&
+        onInstallDriver &&
+        !driverAlreadyInstalled
+      ) {
+        await runWindowsDriverInstall(saved.id)
+        return
+      }
+      onComplete(saved.id)
     } catch (e) {
       setError(String(e))
     }
@@ -1068,18 +1288,22 @@ function IntegrationDialog({
     <dialog
       ref={dialog}
       className="managed-integration-modal"
-      role="dialog"
-      aria-modal="true"
       aria-labelledby="managed-integration-title"
-      onCancel={onClose}
+      onCancel={event => {
+        if (installingDriver) {
+          event.preventDefault()
+          return
+        }
+        onClose()
+      }}
     >
       <section className="behavior-dialog managed-integration-dialog">
         <header className="behavior-dialog-head">
           <h2 id="managed-integration-title">
             {initial.instance ? '绑定物理设备' : manualAdd ? '添加设备' : '集成设备'}
           </h2>
-          <button aria-label="关闭集成" className="dialog-close" onClick={onClose}>
-            <X size={17} />
+          <button aria-label="关闭集成" className="dialog-close" disabled={installingDriver} onClick={onClose}>
+            <X size={17} aria-hidden="true" />
           </button>
         </header>
         <div className={`behavior-dialog-body managed-integration-body${step === 'kind' ? ' is-catalog-picker' : ''}`}>
@@ -1314,7 +1538,41 @@ function IntegrationDialog({
                     onChange={setBindingChoice}
                   />
                 </div>
+                {!initial.instance && !needsMobileModelSelection && devicePresets.length > 0 && (
+                  <label className="settings-form-row" htmlFor="integration-preset-select">
+                    <span className="settings-form-label">初始配置</span>
+                    <select
+                      id="integration-preset-select"
+                      value={effectivePresetSlug}
+                      onChange={e => setPresetChoice(e.target.value)}
+                    >
+                      {devicePresets.map(preset => (
+                        <option key={preset.slug} value={preset.slug}>
+                          {preset.name}
+                          {preset.isDefault ? '（推荐默认）' : ''}
+                        </option>
+                      ))}
+                      <option value="blank">空白配置（自行录制）</option>
+                    </select>
+                  </label>
+                )}
               </div>
+              {!initial.instance && !needsMobileModelSelection && selectedPreset && (
+                <div className="managed-preset-preview">
+                  <div className="managed-preset-preview-head">
+                    <strong>{selectedPreset.name}</strong>
+                    <span>{selectedPreset.source === 'cloud' ? '云端下发' : '内置开箱方案'}</span>
+                  </div>
+                  {selectedPreset.description && <p>{selectedPreset.description}</p>}
+                  {selectedPresetHighlights.length > 0 && (
+                    <ul className="managed-preset-highlights" aria-label="预制按键说明">
+                      {selectedPresetHighlights.map(item => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {device?.identityQuality === 'session' && (
                 <p className="integration-attention">此设备重新连接后需再次绑定。</p>
               )}
@@ -1345,12 +1603,29 @@ function IntegrationDialog({
               )}
               {platform === 'windows' && supportsWindowsDriver(kind) && (
                 <p className="integration-attention">
-                  添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
+                  {needsWindowsDriverInstall
+                    ? '点击下方按钮将立即唤起 Windows 管理员权限弹窗（UAC）为这台设备安装 Quarbor Universal 按键驱动。'
+                    : '添加完成后，这台设备会单独连接 Quarbor Universal 驱动。'}
                 </p>
               )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
               {renderLocalCloudOverrideWarning(selectedOverrides, native)}
             </>
+          )}
+          {installingDriver && (
+            <p className="integration-uac-status" role="status" aria-live="polite">
+              正在唤起 Windows UAC 管理员授权并安装设备按键驱动，请在系统弹窗中确认…
+            </p>
+          )}
+          {driverInstallNotice && (
+            <p className="managed-error integration-uac-error" role="alert">
+              <strong>
+                {driverInstallNotice.status === 'restartRequired'
+                  ? '需先重启电脑以完成驱动环境初始化'
+                  : '未完成驱动安装'}
+              </strong>
+              <span>{driverInstallNotice.text}</span>
+            </p>
           )}
           {localError && (
             <p className="managed-error" role="alert">
@@ -1359,80 +1634,110 @@ function IntegrationDialog({
           )}
         </div>
         <footer className="managed-dialog-footer">
-          {step === 'kind' && onOpenCapture && (
-            <button type="button" className="managed-integration-adapt-link" onClick={onOpenCapture}>
-              没有找到型号？适配新设备
-            </button>
-          )}
-          <button type="button" onClick={onClose}>
-            取消
-          </button>
-          {step === 'details' && manualAdd && (
-            <button
-              type="button"
-              onClick={() => {
-                setError('')
-                setStep('kind')
-              }}
-            >
-              更换型号
-            </button>
-          )}
-          {step === 'mobile-model' && (
-            <button
-              type="button"
-              disabled={recognizing}
-              onClick={() => {
-                setError('')
-                setStep('details')
-              }}
-            >
-              上一步
-            </button>
-          )}
-          {step === 'kind' ? (
-            <button
-              type="button"
-              className="managed-primary"
-              disabled={!effectivePackage}
-              onClick={() => {
-                if (effectivePackage) proceedWithPackage(effectivePackage)
-              }}
-            >
-              下一步
-            </button>
-          ) : (
-            kind && (
-              <button
-                type="button"
-                className="managed-primary"
-                disabled={
-                  !name.trim() ||
-                  controller.busy ||
-                  recognizing ||
-                  device?.identityQuality === 'ambiguous' ||
-                  Boolean(binding && !device)
-                }
-                onClick={() => {
-                  if (step === 'details' && needsMobileModelSelection) {
-                    setError('')
-                    setStep('mobile-model')
-                  } else {
-                    void integrate()
-                  }
-                }}
-              >
-                {step === 'details' && needsMobileModelSelection
-                  ? '下一步'
-                  : !native
-                    ? '保存预览'
-                    : initial.instance
-                      ? '保存'
-                      : binding
-                        ? '集成设备'
-                        : '添加设备'}
+          {pendingInstance && driverInstallNotice ? (
+            <>
+              <button type="button" disabled={installingDriver} onClick={() => onComplete(pendingInstance.id)}>
+                先进入配键位（稍后安装）
               </button>
-            )
+              {driverInstallNotice.status !== 'restartRequired' && (
+                <button
+                  type="button"
+                  className="managed-primary"
+                  disabled={installingDriver || Boolean(binding && !device) || device?.identityQuality === 'ambiguous'}
+                  onClick={() => void integrate()}
+                >
+                  重新授权安装
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {step === 'kind' && onOpenCapture && (
+                <button type="button" className="managed-integration-adapt-link" onClick={onOpenCapture}>
+                  没有找到型号？适配新设备
+                </button>
+              )}
+              <button type="button" disabled={installingDriver} onClick={onClose}>
+                取消
+              </button>
+              {step === 'details' && manualAdd && (
+                <button
+                  type="button"
+                  disabled={installingDriver}
+                  onClick={() => {
+                    setError('')
+                    setDriverInstallNotice(null)
+                    setStep('kind')
+                  }}
+                >
+                  更换型号
+                </button>
+              )}
+              {step === 'mobile-model' && (
+                <button
+                  type="button"
+                  disabled={recognizing || installingDriver}
+                  onClick={() => {
+                    setError('')
+                    setDriverInstallNotice(null)
+                    setStep('details')
+                  }}
+                >
+                  上一步
+                </button>
+              )}
+              {step === 'kind' ? (
+                <button
+                  type="button"
+                  className="managed-primary"
+                  disabled={!effectivePackage}
+                  onClick={() => {
+                    if (effectivePackage) proceedWithPackage(effectivePackage)
+                  }}
+                >
+                  下一步
+                </button>
+              ) : (
+                kind && (
+                  <button
+                    type="button"
+                    className="managed-primary"
+                    disabled={
+                      !name.trim() ||
+                      controller.busy ||
+                      recognizing ||
+                      installingDriver ||
+                      device?.identityQuality === 'ambiguous' ||
+                      Boolean(binding && !device)
+                    }
+                    onClick={() => {
+                      if (step === 'details' && needsMobileModelSelection) {
+                        setError('')
+                        setStep('mobile-model')
+                      } else {
+                        void integrate()
+                      }
+                    }}
+                  >
+                    {step === 'details' && needsMobileModelSelection
+                      ? '下一步'
+                      : !native
+                        ? '保存预览'
+                        : installingDriver
+                          ? '正在安装驱动…'
+                          : needsWindowsDriverInstall
+                            ? initial.instance
+                              ? '保存并配置驱动'
+                              : '集成并配置驱动'
+                            : initial.instance
+                              ? '保存'
+                              : binding
+                                ? '集成设备'
+                                : '添加设备'}
+                  </button>
+                )
+              )}
+            </>
           )}
         </footer>
       </section>

@@ -32,8 +32,8 @@
 .app-settings-panel-header h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.4;
 }

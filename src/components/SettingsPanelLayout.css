@@ -8,23 +8,26 @@
 .settings-side-panel .settings-layout {
   min-width: 0;
   min-height: 0;
-  grid-template-columns: 170px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr);
 }
 
 .settings-side-panel .settings-panels {
   min-width: 0;
   min-height: 0;
-  padding: 20px 24px 28px;
+  padding: 24px 32px 40px;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
 .settings-side-panel .settings-panels > section {
+  width: 100%;
+  max-width: var(--settings-content-width);
+  margin: 0 auto;
   min-width: 0;
 }
 
 .settings-side-panel .settings-form-row {
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 132px minmax(0, 1fr);
   gap: 12px;
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { AppWindow, Check, ChevronDown, FolderOpen, Globe, Plus, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, FolderOpen, Globe, LayoutGrid, Plus, Sparkles, X } from 'lucide-react'
 import type { Application, ForegroundApplications } from '../applications'
 import type { Platform } from '../appTypes'
 import type { DeviceInstance } from '../devices/integration/model'
@@ -307,6 +307,9 @@ export function ApplicationProfileToolbar({
   onSwitchProfile,
   onCreateProfile,
   onCreateQuickProfile,
+  onOpenQuickOverlay,
+  quickProfileCount,
+  onOpenPresets,
   onDuplicateProfile,
   onRenameProfile,
   onDeleteProfile,
@@ -322,6 +325,9 @@ export function ApplicationProfileToolbar({
   onSwitchProfile: (id: string) => void
   onCreateProfile: () => void
   onCreateQuickProfile?: () => void
+  onOpenQuickOverlay?: () => void
+  quickProfileCount?: number
+  onOpenPresets?: () => void
   onDuplicateProfile: () => void
   onRenameProfile: (name: string) => void
   onDeleteProfile: () => void
@@ -383,6 +389,7 @@ export function ApplicationProfileToolbar({
           onSwitch={onSwitchProfile}
           onCreate={onCreateProfile}
           onCreateQuick={onCreateQuickProfile}
+          onOpenPresets={onOpenPresets}
           onDuplicate={onDuplicateProfile}
           onRename={onRenameProfile}
           onDelete={onDeleteProfile}
@@ -401,6 +408,33 @@ export function ApplicationProfileToolbar({
               : undefined
           }
         />
+        {onOpenPresets && (
+          <button
+            type="button"
+            className="application-preset-button"
+            title="查看并套用云端或内置预制配置"
+            disabled={pending}
+            onClick={onOpenPresets}
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            <span>预制</span>
+          </button>
+        )}
+        {onOpenQuickOverlay && (
+          <button
+            type="button"
+            className="application-quick-overlay-button"
+            title="打开或新建快捷交互窗配置"
+            disabled={pending}
+            onClick={onOpenQuickOverlay}
+          >
+            <LayoutGrid size={14} aria-hidden="true" />
+            <span>快捷交互窗</span>
+            {Boolean(quickProfileCount && quickProfileCount > 0) && (
+              <span className="application-quick-overlay-count">{quickProfileCount}</span>
+            )}
+          </button>
+        )}
       </div>
       <div className="application-auto-switch">
         <span>自动切换</span>
