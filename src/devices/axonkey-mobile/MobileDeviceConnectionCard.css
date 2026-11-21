@@ -62,8 +62,12 @@
   background: rgb(20 120 232 / 16%);
 }
 
+.mobile-pair-backdrop {
+  z-index: 60;
+}
+
 .mobile-pair-dialog {
-  width: 340px;
+  width: 348px;
   max-width: calc(100vw - 32px);
   display: flex;
   flex-direction: column;

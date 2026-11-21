@@ -99,6 +99,15 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
     }
   }
 
+  useEffect(() => {
+    if (!dialogOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDialogOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen])
+
   const connectedName = status?.activeSession?.deviceName
 
   return (
@@ -123,9 +132,9 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
 
       {dialogOpen &&
         createPortal(
-          <div className="dialog-backdrop" role="presentation" onClick={() => setDialogOpen(false)}>
+          <div className="behavior-dialog-backdrop mobile-pair-backdrop" role="presentation" onClick={() => setDialogOpen(false)}>
             <div
-              className="dialog-card mobile-pair-dialog"
+              className="behavior-dialog mobile-pair-dialog"
               role="dialog"
               aria-modal="true"
               aria-label="Axonkey Mobile 扫码配对"
