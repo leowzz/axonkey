@@ -412,6 +412,15 @@ test('integration saves devices without an input mode on every platform', async 
     assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.ok(!('capture' in submitted))
+    assert.equal(submitted.profiles.length, 1)
+    assert.equal(submitted.activeProfileId, submitted.profiles[0].id)
+    assert.ok(Object.keys(submitted.profiles[0].behaviors).length > 0, `${kind} integrates with default preset`)
+
+    // Explicitly switching initial preset to "blank" preserves blank default profile
+    act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
+    const presetSelect = view.root.findByProps({ id: 'integration-preset-select' })
+    act(() => presetSelect.props.onChange({ target: { value: 'blank' } }))
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.equal(submitted.activeProfileId, 'default')
     assert.deepEqual(structuredClone(submitted.profiles), [{ id: 'default', name: '默认配置', behaviors: {} }])
     act(() => view.unmount())
@@ -619,6 +628,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -1154,6 +1164,7 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -1594,6 +1605,7 @@ test('Kivo K18 Lite workspace delegates responsive lanes to the workflow and edi
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
@@ -1814,6 +1826,7 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/PresetProfileDialog': { PresetProfileDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),

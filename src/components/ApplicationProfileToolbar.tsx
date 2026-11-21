@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { AppWindow, Check, ChevronDown, FolderOpen, Globe, Plus, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, FolderOpen, Globe, Plus, Sparkles, X } from 'lucide-react'
 import type { Application, ForegroundApplications } from '../applications'
 import type { Platform } from '../appTypes'
 import type { DeviceInstance } from '../devices/integration/model'
@@ -307,6 +307,7 @@ export function ApplicationProfileToolbar({
   onSwitchProfile,
   onCreateProfile,
   onCreateQuickProfile,
+  onOpenPresets,
   onDuplicateProfile,
   onRenameProfile,
   onDeleteProfile,
@@ -322,6 +323,7 @@ export function ApplicationProfileToolbar({
   onSwitchProfile: (id: string) => void
   onCreateProfile: () => void
   onCreateQuickProfile?: () => void
+  onOpenPresets?: () => void
   onDuplicateProfile: () => void
   onRenameProfile: (name: string) => void
   onDeleteProfile: () => void
@@ -383,6 +385,7 @@ export function ApplicationProfileToolbar({
           onSwitch={onSwitchProfile}
           onCreate={onCreateProfile}
           onCreateQuick={onCreateQuickProfile}
+          onOpenPresets={onOpenPresets}
           onDuplicate={onDuplicateProfile}
           onRename={onRenameProfile}
           onDelete={onDeleteProfile}
@@ -401,6 +404,18 @@ export function ApplicationProfileToolbar({
               : undefined
           }
         />
+        {onOpenPresets && (
+          <button
+            type="button"
+            className="application-preset-button"
+            title="查看并套用云端或内置预制配置"
+            disabled={pending}
+            onClick={onOpenPresets}
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            <span>预制</span>
+          </button>
+        )}
       </div>
       <div className="application-auto-switch">
         <span>自动切换</span>

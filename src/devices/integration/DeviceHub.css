@@ -1312,3 +1312,103 @@ button.managed-package:hover:not(:disabled) {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+
+.managed-preset-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+.managed-preset-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.managed-preset-preview-head strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.managed-preset-preview-head span {
+  color: var(--blue);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.managed-preset-preview p {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.managed-preset-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.managed-preset-highlights li {
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-secondary);
+  font-size: 11.5px;
+}
+
+.preset-blank-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  flex-shrink: 0;
+  margin: 8px 16px;
+  padding: 9px 14px;
+  border: 1px solid rgb(0 102 255 / 20%);
+  border-radius: 8px;
+  background: #f5f9ff;
+  color: var(--ink);
+  font-size: 13px;
+}
+.preset-blank-banner > span {
+  min-width: 0;
+}
+.preset-blank-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.preset-blank-apply,
+.preset-blank-browse {
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.preset-blank-apply {
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+.preset-blank-apply:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+}
+.preset-blank-browse {
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink-secondary);
+}
+.preset-blank-browse:hover {
+  border-color: var(--blue-border);
+  color: var(--blue);
+}

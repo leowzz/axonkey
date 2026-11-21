@@ -27,8 +27,17 @@ import { setApplicationProfile } from './applicationProfiles'
 import { buildRailOverviewItems, railKeyGlyphText, shouldOpenRailSummaryPopover } from './railOverview'
 import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
+import { PresetProfileDialog } from '../../components/PresetProfileDialog'
 import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
+import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog'
+import {
+  clonePresetBehaviors,
+  getPresetsForDevice,
+  materializePresetToProfile,
+  pickDefaultPreset,
+  type DevicePresetOption,
+} from '../bundledPresets.ts'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
@@ -122,6 +131,7 @@ type Props = {
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
   onToast?: (message: string) => void
+  catalogModel?: CatalogDeviceModel | null
   deviceOptions?: WorkspaceDeviceOption[]
   onSelectDevice?: (id: string) => void
 }
@@ -143,6 +153,7 @@ export function InstanceWorkspace({
   driverAction,
   batteryLevel,
   onToast,
+  catalogModel,
   deviceOptions,
   onSelectDevice,
 }: Props) {
@@ -203,9 +214,16 @@ export function InstanceWorkspace({
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
   const recordingRef = useRef({ instanceId: instance.id, recording: false })
   const [editingQuickProfileId, setEditingQuickProfileId] = useState<string | null>(null)
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   useEffect(() => {
     setEditingQuickProfileId(null)
+    setPresetDialogOpen(false)
   }, [instance.id])
+  const devicePresets = useMemo(
+    () => getPresetsForDevice(instance.kind, catalogModel, platform),
+    [catalogModel, instance.kind, platform],
+  )
+  const defaultPreset = useMemo(() => pickDefaultPreset(devicePresets), [devicePresets])
   useEffect(() => {
     if (editingQuickProfileId && !instance.profiles.some(item => item.id === editingQuickProfileId)) {
       setEditingQuickProfileId(null)
@@ -369,6 +387,57 @@ export function InstanceWorkspace({
     },
     [controller, instance.id],
   )
+  const applyPresetAsNew = (preset: DevicePresetOption) => {
+    const nextProfile = materializePresetToProfile(preset, {
+      existingNames: instance.profiles.map(item => item.name),
+    })
+    setPresetDialogOpen(false)
+    pendingSavesRef.current += 1
+    void controller
+      .update(instance.id, item => {
+        const added = { ...item, profiles: [...item.profiles, nextProfile] }
+        if (nextProfile.quick) return added
+        return applicationProfile
+          ? setApplicationProfile(added, applicationProfile.application, nextProfile.id)
+          : { ...added, activeProfileId: nextProfile.id }
+      })
+      .then(() => {
+        if (nextProfile.quick) {
+          setEditingQuickProfileId(nextProfile.id)
+        } else {
+          setEditingQuickProfileId(null)
+        }
+        onToast?.(`已复制预制配置「${nextProfile.name}」`)
+      })
+      .catch(() => {})
+      .finally(() => {
+        pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+      })
+  }
+  const applyPresetToCurrent = (preset: DevicePresetOption) => {
+    const freshBehaviors = clonePresetBehaviors(preset.behaviors, true)
+    setPresetDialogOpen(false)
+    applyHistoryAction({ type: 'replace', profileId: profile.id, present: freshBehaviors })
+    pendingSavesRef.current += 1
+    void controller
+      .update(instance.id, item => {
+        const replaced = replaceInstanceProfileBehaviors(item, profile.id, freshBehaviors)
+        if (!preset.display) return replaced
+        return {
+          ...replaced,
+          profiles: replaced.profiles.map(entry =>
+            entry.id === profile.id ? { ...entry, display: { ...preset.display! } } : entry,
+          ),
+        }
+      })
+      .then(() => {
+        onToast?.(`已套用预制配置「${preset.name}」`)
+      })
+      .catch(() => {})
+      .finally(() => {
+        pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+      })
+  }
   const activeBehaviors = history.profileId === profile.id ? history.present : currentSanitized.behaviors
   const inputWarnings = useMemo(() => {
     const cleanedSet = new Set(cleanedInputs)
@@ -705,6 +774,7 @@ export function InstanceWorkspace({
                   })
                   .catch(() => {})
               }}
+              onOpenPresets={devicePresets.length > 0 ? () => setPresetDialogOpen(true) : undefined}
               onDuplicateProfile={() =>
                 update(item => addInstanceProfile(item, true, applicationProfile?.application.id))
               }
@@ -929,6 +999,26 @@ export function InstanceWorkspace({
               )}
             </div>
           )}
+          {!isScreenSelected &&
+            !profile.quick &&
+            countConfiguredInputs(activeBehaviors, false) === 0 &&
+            defaultPreset && (
+              <div className="preset-blank-banner" role="region" aria-label="预制配置建议">
+                <span>当前配置为空，可直接套用开箱方案快速上手。</span>
+                <div className="preset-blank-banner-actions">
+                  <button
+                    type="button"
+                    className="preset-blank-apply"
+                    onClick={() => applyPresetToCurrent(defaultPreset)}
+                  >
+                    一键套用「{defaultPreset.name}」
+                  </button>
+                  <button type="button" className="preset-blank-browse" onClick={() => setPresetDialogOpen(true)}>
+                    查看全部预制
+                  </button>
+                </div>
+              </div>
+            )}
           {isScreenSelected ? (
             <KivoScreenEditor
               instance={instance}
@@ -1266,6 +1356,21 @@ export function InstanceWorkspace({
                 })
               setPendingDeletion(null)
             }}
+          />,
+          document.body,
+        )}
+      {presetDialogOpen &&
+        createPortal(
+          <PresetProfileDialog
+            deviceName={instance.name}
+            platform={platform}
+            inputs={pkg.inputs}
+            presets={devicePresets}
+            activeProfileName={profile.name}
+            activeProfileIsQuick={Boolean(profile.quick)}
+            onCopyAsNew={applyPresetAsNew}
+            onOverwriteCurrent={applyPresetToCurrent}
+            onClose={() => setPresetDialogOpen(false)}
           />,
           document.body,
         )}

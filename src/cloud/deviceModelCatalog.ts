@@ -13,15 +13,31 @@ import { logWarn } from '../runtimeLogging.ts'
 import type { RelayClient } from './relayClient.ts'
 import { RelayError } from './relayClient.ts'
 
-export const deviceModelCatalogEndpoint = '/v2/device-models?app_id=axonkey&include_svg=1'
-const catalogCacheKey = 'axonkey.device-model-catalog.cache.v2'
-const legacyCatalogCacheKey = 'axonkey.device-model-catalog.cache.v1'
+export const deviceModelCatalogEndpoint = '/v2/device-models?app_id=axonkey&include_svg=1&include_presets=1'
+const catalogCacheKey = 'axonkey.device-model-catalog.cache.v3'
+const legacyCatalogCacheKeys = ['axonkey.device-model-catalog.cache.v2', 'axonkey.device-model-catalog.cache.v1']
 
 export const deviceModelCatalogCacheTtlMs = 15 * 60 * 1000
 export const minDeviceModelCatalogCacheTtlSeconds = 30
 export const maxDeviceModelCatalogCacheTtlSeconds = 7 * 86400
 
 export type DeviceModelLink = { label: string; url: string }
+export type CloudDevicePresetPlatform = 'all' | 'macos' | 'windows'
+
+export type CloudDevicePreset = {
+  id: string
+  model_id?: string
+  slug: string
+  name: string
+  description: string
+  platform: CloudDevicePresetPlatform
+  is_default: boolean
+  quick: boolean
+  prompt_mode: boolean
+  sort_order: number
+  behaviors: Record<string, unknown>
+  display?: Record<string, unknown> | null
+}
 
 export type CloudDeviceModel = {
   id: string
@@ -36,6 +52,7 @@ export type CloudDeviceModel = {
   has_svg?: boolean
   svg_sha256?: string | null
   svg?: string | null
+  presets?: CloudDevicePreset[]
 }
 
 export type CatalogDeviceModel = CloudDeviceModel & {
@@ -225,7 +242,9 @@ export function writeCachedDeviceModelCatalog(
   if (storage) {
     memoryCacheByStorage.set(storage, entry)
     try {
-      storage.removeItem(legacyCatalogCacheKey)
+      for (const legacyKey of legacyCatalogCacheKeys) {
+        storage.removeItem(legacyKey)
+      }
     } catch {
       /* Legacy key cleanup is best-effort. */
     }
@@ -259,7 +278,9 @@ export function clearDeviceModelCatalogCache(storage?: CatalogCacheStorage) {
     memoryCacheByStorage.delete(storage)
     try {
       storage.removeItem(catalogCacheKey)
-      storage.removeItem(legacyCatalogCacheKey)
+      for (const legacyKey of legacyCatalogCacheKeys) {
+        storage.removeItem(legacyKey)
+      }
     } catch {
       /* Ignore storage failure. */
     }
@@ -359,6 +380,42 @@ export async function loadDeviceModelCatalog(
   }
 }
 
+function isPlainObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function normalizeCatalogPreset(raw: unknown): CloudDevicePreset | null {
+  if (!isPlainObjectRecord(raw)) return null
+  const slug = typeof raw.slug === 'string' ? raw.slug.trim() : ''
+  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+  if (!slug || !name) return null
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : slug
+  const quick = Boolean(raw.quick)
+  const platform: CloudDevicePresetPlatform =
+    raw.platform === 'macos' || raw.platform === 'windows' ? raw.platform : 'all'
+  return {
+    id,
+    ...(typeof raw.model_id === 'string' && raw.model_id.trim() ? { model_id: raw.model_id.trim() } : {}),
+    slug,
+    name,
+    description: typeof raw.description === 'string' ? raw.description.replace(/\r\n/g, '\n').trim() : '',
+    platform,
+    is_default: Boolean(raw.is_default) && !quick,
+    quick,
+    prompt_mode: quick && Boolean(raw.prompt_mode),
+    sort_order: typeof raw.sort_order === 'number' && Number.isFinite(raw.sort_order) ? Math.trunc(raw.sort_order) : 0,
+    behaviors: isPlainObjectRecord(raw.behaviors) ? raw.behaviors : {},
+    ...(isPlainObjectRecord(raw.display) ? { display: raw.display } : {}),
+  }
+}
+
+export function getCatalogModelPresets(
+  modelsByCode: ReadonlyMap<string, CatalogDeviceModel>,
+  kind: string,
+): CloudDevicePreset[] {
+  return modelsByCode.get(kind)?.presets ?? []
+}
+
 function normalizeCatalogItem(raw: unknown): CatalogDeviceModel | null {
   if (!raw || typeof raw !== 'object') return null
   const candidate = raw as Record<string, unknown>
@@ -397,7 +454,7 @@ function normalizeCatalogItem(raw: unknown): CatalogDeviceModel | null {
       if (links.length >= 20) break
     }
   }
-  const extra: Partial<Pick<CatalogDeviceModel, 'has_svg' | 'svg_sha256' | 'svg'>> = {}
+  const extra: Partial<Pick<CatalogDeviceModel, 'has_svg' | 'svg_sha256' | 'svg' | 'presets'>> = {}
   if (typeof candidate.has_svg === 'boolean') {
     extra.has_svg = candidate.has_svg
   }
@@ -410,6 +467,14 @@ function normalizeCatalogItem(raw: unknown): CatalogDeviceModel | null {
     extra.svg = null
   } else if (typeof candidate.svg === 'string' && candidate.svg.trim()) {
     extra.svg = candidate.svg
+  }
+  if (Array.isArray(candidate.presets)) {
+    const presets: CloudDevicePreset[] = []
+    for (const entry of candidate.presets) {
+      const normalizedPreset = normalizeCatalogPreset(entry)
+      if (normalizedPreset) presets.push(normalizedPreset)
+    }
+    extra.presets = presets
   }
   return { id, code, name, model, brand_id, brand_name, description, tags, links, ...extra }
 }

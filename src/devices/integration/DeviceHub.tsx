@@ -42,6 +42,12 @@ import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { ModelCatalogBody, ModelTagPills } from './ModelMarkdown'
+import {
+  getPresetsForDevice,
+  materializePresetToProfile,
+  pickDefaultPreset,
+  summarizePresetHighlights,
+} from '../bundledPresets.ts'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
   buildWorkspaceDeviceOptions,
@@ -123,6 +129,13 @@ export function DeviceHub(props: Props) {
   const { controller, native } = props
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
+  const hubLibraryContext = useContext(BehaviorLibraryContext)
+  const hubRetainedKinds = useMemo(() => snapshot.store.instances.map(item => item.kind), [snapshot.store.instances])
+  const { modelsByCode: hubModelsByCode } = useDeviceModelCatalog(
+    hubLibraryContext?.client,
+    hubLibraryContext?.accountReady ?? true,
+    { native, retainedKinds: hubRetainedKinds },
+  )
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [captureOpen, setCaptureOpen] = useState(false)
   const [troubleshootOpen, setTroubleshootOpen] = useState(false)
@@ -262,6 +275,7 @@ export function DeviceHub(props: Props) {
           key={instance.id}
           {...props}
           instance={instance}
+          catalogModel={hubModelsByCode.get(instance.kind) ?? null}
           deviceOptions={buildWorkspaceDeviceOptions(snapshot.store.instances, orderedCardIds)}
           onSelectDevice={id => {
             if (id === systemMouseCardId) props.onLegacy('mouse')
@@ -934,6 +948,7 @@ function IntegrationDialog({
   const [bindingChoice, setBindingChoice] = useState<string | null>(
     initial.device?.id ?? initial.instance?.binding ?? null,
   )
+  const [presetChoice, setPresetChoice] = useState<string | null>(null)
   const [localError, setError] = useState('')
   const [recognizing, setRecognizing] = useState(false)
   const [pendingInstance, setPendingInstance] = useState<DeviceInstance | null>(null)
@@ -1013,6 +1028,23 @@ function IntegrationDialog({
     ? localCloudOverrides.filter(item => item.kind === selectedPackage.kind)
     : []
   const selectedCatalog = kind ? modelsByCode.get(kind) : undefined
+  const devicePresets = useMemo(
+    () => (!initial.instance && kind ? getPresetsForDevice(kind, selectedCatalog, platform) : []),
+    [initial.instance, kind, platform, selectedCatalog],
+  )
+  const defaultPreset = useMemo(() => pickDefaultPreset(devicePresets), [devicePresets])
+  const effectivePresetSlug = presetChoice ?? defaultPreset?.slug ?? 'blank'
+  const selectedPreset =
+    effectivePresetSlug === 'blank'
+      ? null
+      : (devicePresets.find(item => item.slug === effectivePresetSlug) ?? defaultPreset ?? null)
+  const selectedPresetHighlights = useMemo(
+    () =>
+      selectedPreset && selectedPackage
+        ? summarizePresetHighlights(selectedPreset, selectedPackage.inputs, platform)
+        : [],
+    [platform, selectedPackage, selectedPreset],
+  )
   const hasSelectedCatalogDetails =
     !needsMobileModelSelection &&
     Boolean(
@@ -1024,6 +1056,7 @@ function IntegrationDialog({
   function proceedWithPackage(pkg: (typeof packages)[number]) {
     const changed = pkg.kind !== kind || !name.trim()
     setKind(pkg.kind)
+    if (changed) setPresetChoice(null)
     if (changed || !nameCustomized) {
       setName(pkg.name)
       setNameCustomized(false)
@@ -1123,7 +1156,15 @@ function IntegrationDialog({
     try {
       setError('')
       setDriverInstallNotice(null)
-      const base = pendingInstance ?? initial.instance ?? newInstance(kind, null)
+      const base =
+        pendingInstance ??
+        initial.instance ??
+        (() => {
+          const fresh = newInstance(kind, null)
+          if (!selectedPreset) return fresh
+          const initialProfile = materializePresetToProfile(selectedPreset)
+          return { ...fresh, activeProfileId: initialProfile.id, profiles: [initialProfile] }
+        })()
       const instance = { ...base, kind, name: name.trim(), binding: binding || null }
       const result = await controller.put(instance)
       const saved = instance.id
@@ -1404,7 +1445,41 @@ function IntegrationDialog({
                     onChange={setBindingChoice}
                   />
                 </div>
+                {!initial.instance && !needsMobileModelSelection && devicePresets.length > 0 && (
+                  <label className="settings-form-row" htmlFor="integration-preset-select">
+                    <span className="settings-form-label">初始配置</span>
+                    <select
+                      id="integration-preset-select"
+                      value={effectivePresetSlug}
+                      onChange={e => setPresetChoice(e.target.value)}
+                    >
+                      {devicePresets.map(preset => (
+                        <option key={preset.slug} value={preset.slug}>
+                          {preset.name}
+                          {preset.isDefault ? '（推荐默认）' : ''}
+                        </option>
+                      ))}
+                      <option value="blank">空白配置（自行录制）</option>
+                    </select>
+                  </label>
+                )}
               </div>
+              {!initial.instance && !needsMobileModelSelection && selectedPreset && (
+                <div className="managed-preset-preview">
+                  <div className="managed-preset-preview-head">
+                    <strong>{selectedPreset.name}</strong>
+                    <span>{selectedPreset.source === 'cloud' ? '云端下发' : '内置开箱方案'}</span>
+                  </div>
+                  {selectedPreset.description && <p>{selectedPreset.description}</p>}
+                  {selectedPresetHighlights.length > 0 && (
+                    <ul className="managed-preset-highlights" aria-label="预制按键说明">
+                      {selectedPresetHighlights.map(item => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {device?.identityQuality === 'session' && (
                 <p className="integration-attention">此设备重新连接后需再次绑定。</p>
               )}
