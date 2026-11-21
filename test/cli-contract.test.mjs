@@ -91,3 +91,23 @@ test('exposes new text and path behaviors through the public shape', () => {
     { type: 'openPath', path: 'C:\\Users\\name\\file.txt', enabled: false },
   )
 })
+
+test('preserves optional titles on text behaviors and normalizes quickOverlay', () => {
+  assert.deepEqual(
+    normalizeCliBehavior({ type: 'paste', text: '请帮我分析日志', title: '日志排错' }, 'macos'),
+    { type: 'paste', text: '请帮我分析日志', title: '日志排错', enabled: true },
+  )
+  assert.deepEqual(
+    normalizeCliBehavior({ type: 'typeText', text: 'LGTM', title: '快速通过' }, 'windows'),
+    { type: 'typeText', text: 'LGTM', title: '快速通过', enabled: true },
+  )
+  assert.deepEqual(
+    behaviorToCliBehavior({ id: 'p1', enabled: true, type: 'paste', text: 'hello', title: '短标题' }, 'macos'),
+    { type: 'paste', text: 'hello', title: '短标题', enabled: true },
+  )
+  assert.deepEqual(
+    normalizeCliBehavior({ type: 'quickOverlay', profileId: 'quick-1' }, 'macos'),
+    { type: 'quickOverlay', profileId: 'quick-1', enabled: true },
+  )
+  assert.equal(normalizeCliBehavior({ type: 'quickOverlay', profileId: '' }, 'macos'), null)
+})

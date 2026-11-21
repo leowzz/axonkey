@@ -137,3 +137,47 @@ test('mouse CLI rejects ambiguous targets, validates dry run and waits for a suc
   await assert.rejects(pending, /native apply failed/)
   assert.deepEqual(work.state, original)
 })
+
+test('mouse CLI supports profile rename, duplicate, delete, prompt-mode, and preset discovery', async () => {
+  const work = workspace()
+  const listPresets = await work.command('preset.list')
+  assert.deepEqual(listPresets, { device: 'mouse', instance: null, presets: [] })
+  await assert.rejects(work.command('preset.apply', { preset: 'mouse-control' }), error => error.code === 'invalid_target')
+
+  const renamed = await work.command('profile.rename', { profile: work.state.globalProfileId, name: '日常鼠标' })
+  assert.equal(renamed.after, '日常鼠标')
+  const quick = await work.command('profile.create', { name: '鼠标快捷', quick: true, promptMode: true })
+  assert.equal(quick.profile.quick, true)
+  assert.equal(quick.profile.promptMode, true)
+  await work.command('mapping.set', {
+    button: 'mouse.top.up',
+    trigger: 'click',
+    sequence: [{ type: 'quickOverlay', profileId: quick.profile.id }],
+  })
+  const listed = await work.command('profile.list')
+  const listedQuick = listed.profiles.find(item => item.id === quick.profile.id)
+  assert.deepEqual(listedQuick.trigger, {
+    profileId: work.state.globalProfileId,
+    inputId: 'mouse.top.up',
+    trigger: 'click',
+  })
+
+  await work.command('profile.prompt-mode', { profile: quick.profile.id, enabled: false })
+  await assert.rejects(
+    work.command('profile.prompt-mode', { profile: work.state.globalProfileId, enabled: true }),
+    error => error.code === 'invalid_target',
+  )
+
+  const dup = await work.command('profile.duplicate', { profile: work.state.globalProfileId })
+  assert.equal(dup.profile.name, '日常鼠标 副本')
+  assert.equal(work.state.globalProfileId, dup.profile.id)
+
+  await work.command('profile.delete', { profile: dup.profile.id, yes: true })
+  await assert.rejects(
+    work.command('profile.delete', { profile: work.state.globalProfileId, yes: true }),
+    error => error.code === 'invalid_target',
+  )
+
+  await work.command('profile.delete', { profile: quick.profile.id, yes: true })
+  assert.deepEqual((await work.command('mapping.get', { button: 'mouse.top.up' })).actions, [])
+})

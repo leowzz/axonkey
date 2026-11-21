@@ -21,7 +21,9 @@ import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/clo
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
+import type { CatalogDeviceModel } from '../cloud/deviceModelCatalog'
 import { useDeviceModelCatalog } from '../cloud/useDeviceModelCatalog'
+import { getPresetsForDevice } from '../devices/bundledPresets'
 import { recordLibraryAdditions, useLibraryUsage } from '../cloud/libraryUsage'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
@@ -933,6 +935,8 @@ function AppController({
     mouseEdgeWidth,
   }
 
+  const catalogModelsRef = useRef<ReadonlyMap<string, CatalogDeviceModel>>(new Map())
+
   const processCliRequest = useCallback(
     async (request: CliRequest) => {
       const respond = async (response: Record<string, unknown>) => {
@@ -949,7 +953,12 @@ function AppController({
         const params = cliParams(request.params)
         const platformName = cliPlatform(platform)
         const snapshot = await deviceInstances.refresh(true)
-        const instanceContext = { platform: platformName, snapshot, update: deviceInstances.update }
+        const instanceContext = {
+          platform: platformName,
+          snapshot,
+          update: deviceInstances.update,
+          catalogModels: catalogModelsRef.current,
+        }
         const sharedMethod = ['capabilities', 'status', 'keymap.get'].includes(request.method)
         const systemMouseTarget = normalizeCliDeviceSelector(params.device) === 'mouse' && params.instance === undefined
         if (request.method === 'device.list' || (!sharedMethod && !systemMouseTarget)) {
@@ -989,8 +998,8 @@ function AppController({
                 { type: 'wheel', fields: ['direction'] },
                 { type: 'mouse', fields: ['button'] },
                 { type: 'cursorMove', fields: ['direction', 'distance'], distance: { min: 1, max: 500 } },
-                { type: 'paste', fields: ['text'] },
-                { type: 'typeText', fields: ['text'] },
+                { type: 'paste', fields: ['text'], optionalFields: ['title'] },
+                { type: 'typeText', fields: ['text'], optionalFields: ['title'] },
                 { type: 'delay', fields: ['ms'], ms: { min: 0, max: 300000 } },
                 { type: 'openApp', fields: ['path'] },
                 { type: 'openPath', fields: ['path'] },
@@ -1005,6 +1014,7 @@ function AppController({
                 {
                   type: 'quickOverlay',
                   fields: ['profileId'],
+                  description: '按触发方式唤起快捷交互窗；必须为唯一行为',
                   exclusive: true,
                 },
                 { type: 'disabled', fields: [] },
@@ -1014,6 +1024,10 @@ function AppController({
                 name: item.name,
                 model: item.model,
                 inputKind: item.inputKind,
+                presetCount:
+                  item.id === 'mouse'
+                    ? 0
+                    : getPresetsForDevice(item.id, catalogModelsRef.current.get(item.id) ?? null, platformName).length,
                 keymap: item.remoteView
                   ? { method: 'keymap.get', format: 'svg' }
                   : { method: 'keymap.get', format: null, coordinateSystem: 'semantic-inputs' },
@@ -1025,9 +1039,16 @@ function AppController({
               targeting: { instance: '--instance <id>', device: '--device <kind>（必须只有一个匹配实例）' },
               operations: [
                 'device.list',
+                'device.toggle',
+                'preset.list',
+                'preset.apply',
                 'profile.list',
                 'profile.create',
                 'profile.activate',
+                'profile.rename',
+                'profile.duplicate',
+                'profile.delete',
+                'profile.prompt-mode',
                 'profile.application-list',
                 'profile.application-set',
                 'profile.application-remove',
@@ -1050,6 +1071,8 @@ function AppController({
                     id: profile.id,
                     name: profile.name,
                     active: profile.id === instance.activeProfileId,
+                    ...(profile.quick ? { quick: true } : {}),
+                    ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
                   })),
                 ]),
                 [
@@ -1064,6 +1087,8 @@ function AppController({
                       id: profile.id,
                       name: profile.name,
                       active: profile.id === mouseGlobalProfileRef.current,
+                      ...(profile.quick ? { quick: true } : {}),
+                      ...(profile.quick && profile.promptMode ? { promptMode: true } : {}),
                     })),
                 ],
               ]),
@@ -1172,6 +1197,43 @@ function AppController({
           })
           return
         }
+        if (request.method === 'device.toggle') {
+          if (params.dryRun !== undefined && typeof params.dryRun !== 'boolean') {
+            throw new CliOperationError('invalid_arguments', 'dryRun 必须是布尔值')
+          }
+          if (typeof params.enabled !== 'boolean') {
+            throw new CliOperationError('invalid_arguments', '启用或停用鼠标映射需要 --on 或 --off')
+          }
+          const dryRun = params.dryRun === true
+          const nextEnabled = params.enabled === true
+          if (!dryRun) {
+            const storedRaw = appStorage.getItem(settingsStorageKey)
+            if (storedRaw) {
+              try {
+                const parsed = JSON.parse(storedRaw) as Record<string, unknown>
+                appStorage.setItem(settingsStorageKey, JSON.stringify({ ...parsed, mouseEnabled: nextEnabled }))
+              } catch {
+                /* ignore malformed cache; React effect will rewrite */
+              }
+            }
+            await flushAppStorage()
+            inputSettingsRef.current = { ...inputSettingsRef.current, mouseEnabled: nextEnabled }
+            await invoke('update_input_settings', {
+              settings: inputSettingsRef.current,
+            })
+            setMouseEnabled(nextEnabled)
+          }
+          await respond({
+            ok: true,
+            result: {
+              device: 'mouse',
+              before: mouseEnabled,
+              enabled: nextEnabled,
+              ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+            },
+          })
+          return
+        }
         const result = await processMouseCliRequest(
           request.method,
           params,
@@ -1228,6 +1290,7 @@ function AppController({
                 name: profile.name,
                 deviceId: profile.deviceId,
                 deviceName: profile.deviceId === 'mouse' ? '系统鼠标' : (device?.name ?? profile.deviceId),
+                promptMode: Boolean(profile.quick && profile.promptMode),
                 behaviors: scoped,
               }
             })
@@ -1792,11 +1855,12 @@ function AppController({
     () => deviceInstances.snapshot.store.instances.map(item => item.kind),
     [deviceInstances.snapshot.store.instances],
   )
-  useDeviceModelCatalog(cloud.client, cloud.accountReady, {
+  const { modelsByCode } = useDeviceModelCatalog(cloud.client, cloud.accountReady, {
     native: nativeRuntime,
     retainedKinds: retainedCatalogKinds,
     onNativeDescriptorsSynced: () => void deviceInstances.refresh(),
   })
+  catalogModelsRef.current = modelsByCode
   useLibraryUsage(cloud.client, platform, nativeRuntime && platformReady)
 
   const openMappingImport = () => {

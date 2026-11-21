@@ -1,17 +1,30 @@
-import type { Behavior, TriggerType } from '../../behaviorModel.ts'
+import type { Behavior, TriggerBehaviors, TriggerType } from '../../behaviorModel.ts'
 import { behaviorToCliBehavior, cliBehaviorToBehavior } from '../../cliContract.ts'
 import type { CliPlatform } from '../../cliContract.ts'
-import { emptyTriggers, instanceState, packageFor } from './model.ts'
+import type { CatalogDeviceModel } from '../../cloud/deviceModelCatalog.ts'
+import { emptyTriggers, getSupportPackages, instanceState, packageFor } from './model.ts'
 import type { DeviceInstance, DeviceSnapshot, InstanceProfile } from './model.ts'
 import type { Application } from '../../applications.ts'
 import {
   addInstanceProfile,
   addQuickInstanceProfile,
   applyInstanceProfileSwitch,
+  bindQuickOverlayTrigger,
+  deleteInstanceProfile,
+  findQuickOverlayTriggerBinding,
+  nextQuickProfileName,
   removeInstanceProfileSwitch,
+  replaceInstanceProfileBehaviors,
   updateInstanceSequence,
 } from './instanceProfiles.ts'
 import { setApplicationProfile } from './applicationProfiles.ts'
+import {
+  clonePresetBehaviors,
+  countConfiguredInputs,
+  getPresetsForDevice,
+  materializePresetToProfile,
+  summarizePresetHighlights,
+} from '../bundledPresets.ts'
 
 export class InstanceCliError extends Error {
   code: string
@@ -26,17 +39,23 @@ type Context = {
   platform: CliPlatform
   snapshot: DeviceSnapshot
   update: (id: string, change: (instance: DeviceInstance) => DeviceInstance) => Promise<DeviceSnapshot>
+  catalogModels?: ReadonlyMap<string, CatalogDeviceModel>
 }
 
 export function normalizeCliDeviceSelector(value: unknown): string {
   const device = stringParam(value, 'device').toLowerCase()
+  if (!device) return ''
   const aliases: Record<string, string> = {
     remote: 'rc003',
     xiaomi: 'rc003',
     cmiot: 'cmiota15',
+    'cmiot-a15': 'cmiota15',
+    a15: 'cmiota15',
     'xm-bt-29': 'xmbt29',
     'rc-313': 'rc313',
     'rcu-r5': 'obercur5',
+    'obe-rcu-r5': 'obercur5',
+    obe_rcu_r5: 'obercur5',
     xbox: 'xboxbluetooth',
     rc802a: 'tclrc802a',
     'tcl-rc802a': 'tclrc802a',
@@ -44,6 +63,10 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     'tcl-rc902n': 'tclrc902n',
     rc902v: 'tclrc902v',
     'tcl-rc902v': 'tclrc902v',
+    sony: 'rmftx800c',
+    tx800c: 'rmftx800c',
+    'rmf-tx800c': 'rmftx800c',
+    'sony-rmf-tx800c': 'rmftx800c',
     rcf3b65: 'hisensercf3b65',
     'hisense-rcf3b65': 'hisensercf3b65',
     'db1-r': 'phicommdb1r',
@@ -53,8 +76,23 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     rc001a: 'oneplusrc001a',
     'oneplus-rc-001a': 'oneplusrc001a',
     'oneplus-rc': 'oneplusrc001a',
+    kivo: 'kivok18lite',
+    k18: 'kivok18lite',
+    'k18-lite': 'kivok18lite',
+    'kivo-k18-lite': 'kivok18lite',
+    g17: 'g17touch',
+    'g17-touch': 'g17touch',
   }
-  return aliases[device] ?? device
+  if (aliases[device]) return aliases[device]
+  if (device === 'mouse') return 'mouse'
+  const packages = getSupportPackages()
+  const exact = packages.find(pkg => pkg.kind.toLowerCase() === device)
+  if (exact) return exact.kind.toLowerCase()
+  const compact = device.replace(/[-_\s]+/g, '')
+  const matches = packages.filter(pkg =>
+    [pkg.kind, pkg.model, pkg.name].some(candidate => candidate.toLowerCase().replace(/[-_\s]+/g, '') === compact),
+  )
+  return matches.length === 1 ? matches[0].kind.toLowerCase() : device
 }
 
 export function resolveCliInstance(params: Record<string, unknown>, snapshot: DeviceSnapshot): DeviceInstance {
@@ -75,7 +113,7 @@ export function resolveCliInstance(params: Record<string, unknown>, snapshot: De
 export async function processInstanceCliRequest(
   method: string,
   params: Record<string, unknown>,
-  { platform, snapshot, update }: Context,
+  { platform, snapshot, update, catalogModels }: Context,
 ): Promise<Record<string, unknown>> {
   if (snapshot.error) throw new InstanceCliError('app_error', snapshot.error)
   const dryRun = booleanParam(params.dryRun, 'dryRun')
@@ -97,11 +135,57 @@ export async function processInstanceCliRequest(
       })),
     }
   }
+  if (method === 'preset.list') {
+    const selector = normalizeCliDeviceSelector(params.device)
+    let instance: DeviceInstance | null = null
+    let kind: string
+    if (params.instance !== undefined || !selector) {
+      instance = resolveCliInstance(params, snapshot)
+      kind = instance.kind
+    } else if (selector === 'mouse') {
+      return { device: 'mouse', instance: null, presets: [] }
+    } else {
+      const pkg = getSupportPackages().find(item => item.kind.toLowerCase() === selector)
+      if (!pkg) {
+        instance = resolveCliInstance(params, snapshot)
+        kind = instance.kind
+      } else {
+        kind = pkg.kind
+        const matchedInstances = snapshot.store.instances.filter(item => item.kind === kind)
+        if (matchedInstances.length === 1) instance = matchedInstances[0]
+      }
+    }
+    const pkg = packageFor(kind)
+    const presets = getPresetsForDevice(kind, catalogModels?.get(kind) ?? null, platform)
+    return {
+      device: kind,
+      instance: instance ? instanceIdentity(instance) : null,
+      presets: presets.map(preset => ({
+        id: preset.id,
+        slug: preset.slug,
+        name: preset.name,
+        description: preset.description,
+        source: preset.source,
+        platform: preset.platform,
+        isDefault: preset.isDefault,
+        quick: preset.quick,
+        promptMode: preset.promptMode,
+        configuredKeyCount: countConfiguredInputs(preset.behaviors),
+        highlights: summarizePresetHighlights(preset, pkg.inputs, platform),
+      })),
+    }
+  }
   if (
     ![
+      'device.toggle',
+      'preset.apply',
       'profile.list',
       'profile.create',
       'profile.activate',
+      'profile.rename',
+      'profile.duplicate',
+      'profile.delete',
+      'profile.prompt-mode',
       'profile.application-list',
       'profile.application-set',
       'profile.application-remove',
@@ -112,11 +196,20 @@ export async function processInstanceCliRequest(
     throw new InstanceCliError('invalid_arguments', '不支持的 CLI 操作：' + method)
   const instance = resolveCliInstance(params, snapshot)
   const target = { device: instance.kind, instance: instanceIdentity(instance), revision: snapshot.store.revision }
+  if (method === 'device.toggle') {
+    if (typeof params.enabled !== 'boolean')
+      throw new InstanceCliError('invalid_arguments', '启用或停用设备需要 --on 或 --off')
+    const nextEnabled = params.enabled === true
+    if (dryRun) return { ...target, dryRun: true, before: instance.enabled, enabled: nextEnabled }
+    const saved = await update(instance.id, current => ({ ...current, enabled: nextEnabled }))
+    return { ...target, revision: saved.store.revision, applied: true, saved: true, enabled: nextEnabled }
+  }
   if (method === 'profile.list') {
     return {
       ...target,
       profiles: instance.profiles.map(profile => ({
         ...profileIdentity(instance, profile),
+        ...(profile.quick ? { trigger: findQuickOverlayTriggerBinding(instance, profile.id) } : {}),
         applications: (instance.applicationProfiles ?? [])
           .filter(binding => binding.profileId === profile.id)
           .map(binding => binding.application),
@@ -185,7 +278,7 @@ export async function processInstanceCliRequest(
   const profileValue = stringParam(params.profile, 'profile')
   if (method === 'profile.create') {
     const name = stringParam(params.name, 'name')
-    if (!name) throw new InstanceCliError('invalid_arguments', '新建配置需要 --name')
+    if (!name || name.length > 40) throw new InstanceCliError('invalid_arguments', '新建配置需要 1–40 个字符的 --name')
     const quick = booleanParam(params.quick, 'quick')
     const promptMode = booleanParam(params.promptMode, 'promptMode')
     if (promptMode && !quick)
@@ -218,6 +311,100 @@ export async function processInstanceCliRequest(
       previousActiveProfileId: instance.activeProfileId,
     }
   }
+  if (method === 'preset.apply') {
+    const presetSelector = stringParam(params.preset, 'preset')
+    if (!presetSelector) throw new InstanceCliError('invalid_arguments', '套用预制配置需要 --preset')
+    const mode = stringParam(params.mode, 'mode') || 'copy'
+    if (mode !== 'copy' && mode !== 'overwrite')
+      throw new InstanceCliError('invalid_arguments', '--mode 仅支持 copy 或 overwrite')
+    const presets = getPresetsForDevice(instance.kind, catalogModels?.get(instance.kind) ?? null, platform)
+    const nameMatches = presets.filter(item => item.name === presetSelector)
+    const preset =
+      presets.find(item => item.slug.toLowerCase() === presetSelector.toLowerCase()) ??
+      presets.find(item => item.id === presetSelector) ??
+      (nameMatches.length === 1 ? nameMatches[0] : undefined)
+    if (!preset) throw new InstanceCliError('invalid_target', '找不到指定的预制配置，请先运行 preset list')
+
+    if (mode === 'copy') {
+      const customName = stringParam(params.name, 'name')
+      if (customName.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
+      const applyCopy = (current: DeviceInstance) => {
+        if (customName && current.profiles.some(item => item.name === customName))
+          throw new InstanceCliError('invalid_target', '配置名称已存在：' + customName)
+        const nextProfile = materializePresetToProfile(preset, {
+          ...(customName ? { name: customName } : {}),
+          existingNames: current.profiles.map(item => item.name),
+        })
+        if (!nextProfile.quick) {
+          const reference =
+            current.profiles.find(item => item.id === current.activeProfileId && !item.quick) ??
+            current.profiles.find(item => !item.quick)
+          preserveSharedProfileSwitches(nextProfile.behaviors, reference?.behaviors)
+        }
+        return {
+          ...current,
+          profiles: [...current.profiles, nextProfile],
+          ...(nextProfile.quick ? {} : { activeProfileId: nextProfile.id }),
+        }
+      }
+      const saved = dryRun ? null : await update(instance.id, applyCopy)
+      const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : applyCopy(instance)
+      const createdProfile = next.profiles[next.profiles.length - 1]
+      return {
+        ...target,
+        mode,
+        preset: { id: preset.id, slug: preset.slug, name: preset.name, source: preset.source },
+        profile: profileIdentity(next, createdProfile),
+        configuredKeyCount: countConfiguredInputs(preset.behaviors),
+        previousActiveProfileId: instance.activeProfileId,
+        revision: saved?.store.revision ?? snapshot.store.revision,
+        ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+      }
+    }
+
+    const targetProfile = resolveProfile(instance, profileValue)
+    if (Boolean(preset.quick) !== Boolean(targetProfile.quick)) {
+      throw new InstanceCliError(
+        'invalid_target',
+        preset.quick
+          ? '快捷交互预制只能覆盖快捷交互配置'
+          : '常规预制配置不能覆盖快捷交互配置，请改用 --mode copy 或指定常规配置',
+      )
+    }
+    const applyOverwrite = (current: DeviceInstance) => {
+      const selected = resolveProfile(current, targetProfile.id)
+      const freshBehaviors = clonePresetBehaviors(preset.behaviors, true)
+      if (!selected.quick) preserveSharedProfileSwitches(freshBehaviors, selected.behaviors)
+      const replaced = replaceInstanceProfileBehaviors(current, selected.id, freshBehaviors)
+      return {
+        ...replaced,
+        profiles: replaced.profiles.map(entry => {
+          if (entry.id !== selected.id) return entry
+          const nextEntry: InstanceProfile = {
+            ...entry,
+            ...(preset.display ? { display: { ...preset.display } } : {}),
+          }
+          if (selected.quick) {
+            if (preset.promptMode) nextEntry.promptMode = true
+            else delete nextEntry.promptMode
+          }
+          return nextEntry
+        }),
+      }
+    }
+    const saved = dryRun ? null : await update(instance.id, applyOverwrite)
+    const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : applyOverwrite(instance)
+    return {
+      ...target,
+      mode,
+      preset: { id: preset.id, slug: preset.slug, name: preset.name, source: preset.source },
+      profile: profileIdentity(next, resolveProfile(next, targetProfile.id)),
+      beforeConfiguredKeyCount: countConfiguredInputs(targetProfile.behaviors),
+      configuredKeyCount: countConfiguredInputs(preset.behaviors),
+      revision: saved?.store.revision ?? snapshot.store.revision,
+      ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+    }
+  }
   const profile = resolveProfile(instance, profileValue)
   if (method === 'profile.activate') {
     if (!profileValue) throw new InstanceCliError('invalid_arguments', '激活配置需要 --profile')
@@ -242,6 +429,115 @@ export async function processInstanceCliRequest(
       applied: true,
       saved: true,
       profile: profileIdentity(next, resolveProfile(next, profile.id)),
+    }
+  }
+  if (method === 'profile.rename') {
+    const name = stringParam(params.name, 'name')
+    if (!name || name.length > 40)
+      throw new InstanceCliError('invalid_arguments', '重命名配置需要 1–40 个字符的 --name')
+    const rename = (current: DeviceInstance) => {
+      const selected = resolveProfile(current, profile.id)
+      if (current.profiles.some(item => item.id !== selected.id && item.name === name))
+        throw new InstanceCliError('invalid_target', '配置名称已存在：' + name)
+      return {
+        ...current,
+        profiles: current.profiles.map(item => (item.id === selected.id ? { ...item, name } : item)),
+      }
+    }
+    const saved = dryRun ? null : await update(instance.id, rename)
+    const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : rename(instance)
+    return {
+      ...target,
+      before: profile.name,
+      after: name,
+      profile: profileIdentity(next, resolveProfile(next, profile.id)),
+      revision: saved?.store.revision ?? snapshot.store.revision,
+      ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+    }
+  }
+  if (method === 'profile.duplicate') {
+    const requestedName = stringParam(params.name, 'name')
+    if (requestedName.length > 40) throw new InstanceCliError('invalid_arguments', '配置名称需要 1–40 个字符')
+    const asQuick = booleanParam(params.quick, 'quick') || Boolean(profile.quick)
+    const duplicate = (current: DeviceInstance) => {
+      const source = resolveProfile(current, profile.id)
+      if (requestedName && current.profiles.some(item => item.name === requestedName))
+        throw new InstanceCliError('invalid_target', '配置名称已存在：' + requestedName)
+      if (asQuick) {
+        return addQuickInstanceProfile(current, requestedName || undefined, source.id).instance
+      }
+      const nextName =
+        requestedName ||
+        nextQuickProfileName(
+          current.profiles.map(item => item.name),
+          `${source.name} 副本`,
+        )
+      const cloned: InstanceProfile = {
+        id: crypto.randomUUID(),
+        name: nextName,
+        behaviors: clonePresetBehaviors(source.behaviors, true),
+        ...(source.display ? { display: structuredClone(source.display) } : {}),
+      }
+      return {
+        ...current,
+        activeProfileId: cloned.id,
+        profiles: [...current.profiles, cloned],
+      }
+    }
+    const saved = dryRun ? null : await update(instance.id, duplicate)
+    const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : duplicate(instance)
+    const createdProfile = next.profiles[next.profiles.length - 1]
+    return {
+      ...target,
+      sourceProfileId: profile.id,
+      profile: profileIdentity(next, createdProfile),
+      previousActiveProfileId: instance.activeProfileId,
+      revision: saved?.store.revision ?? snapshot.store.revision,
+      ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+    }
+  }
+  if (method === 'profile.delete') {
+    if (!profileValue) throw new InstanceCliError('invalid_arguments', '删除配置需要 --profile')
+    if (!booleanParam(params.yes, 'yes')) throw new InstanceCliError('invalid_arguments', '删除配置需要 --yes')
+    if (!profile.quick && instance.profiles.filter(item => !item.quick).length <= 1)
+      throw new InstanceCliError('invalid_target', '至少需要保留一个常规配置文件')
+    const remove = (current: DeviceInstance) => {
+      const next = deleteInstanceProfile(current, profile.id)
+      return profile.quick ? bindQuickOverlayTrigger(next, profile.id, '', null) : next
+    }
+    const saved = dryRun ? null : await update(instance.id, remove)
+    const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : remove(instance)
+    return {
+      ...target,
+      deleted: profileIdentity(instance, profile),
+      activeProfileId: next.activeProfileId,
+      revision: saved?.store.revision ?? snapshot.store.revision,
+      ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
+    }
+  }
+  if (method === 'profile.prompt-mode') {
+    if (!profileValue) throw new InstanceCliError('invalid_arguments', '设置纯 Prompt 模式需要 --profile')
+    if (typeof params.enabled !== 'boolean')
+      throw new InstanceCliError('invalid_arguments', '设置纯 Prompt 模式需要 --on 或 --off')
+    if (!profile.quick) throw new InstanceCliError('invalid_target', '纯 Prompt 模式仅适用于快捷交互配置')
+    const promptMode = params.enabled === true
+    const toggle = (current: DeviceInstance) => ({
+      ...current,
+      profiles: current.profiles.map(item => {
+        if (item.id !== profile.id) return item
+        if (promptMode) return { ...item, promptMode: true }
+        const { promptMode: _removed, ...rest } = item
+        return rest
+      }),
+    })
+    const saved = dryRun ? null : await update(instance.id, toggle)
+    const next = saved ? saved.store.instances.find(i => i.id === instance.id)! : toggle(instance)
+    return {
+      ...target,
+      promptMode,
+      profile: profileIdentity(next, resolveProfile(next, profile.id)),
+      revision: saved?.store.revision ?? snapshot.store.revision,
+      ...(dryRun ? { dryRun: true } : { applied: true, saved: true }),
     }
   }
   const action = method.split('.')[1]
@@ -319,6 +615,22 @@ export async function processInstanceCliRequest(
     before,
     after: publicSequence(resolveProfile(next, profile.id).behaviors[inputId]?.[trigger] ?? [], platform),
     affectedProfiles,
+  }
+}
+
+function preserveSharedProfileSwitches(
+  targetBehaviors: Record<string, TriggerBehaviors>,
+  referenceBehaviors: Record<string, TriggerBehaviors> | undefined,
+) {
+  if (!referenceBehaviors) return
+  for (const [inputId, refTriggers] of Object.entries(referenceBehaviors)) {
+    if (!refTriggers || typeof refTriggers !== 'object') continue
+    for (const trigger of triggers) {
+      const shared = refTriggers[trigger]?.find(item => item.type === 'switchProfile')
+      if (!shared) continue
+      const existing = targetBehaviors[inputId] ?? emptyTriggers()
+      targetBehaviors[inputId] = { ...existing, [trigger]: [{ ...shared, id: crypto.randomUUID() }] }
+    }
   }
 }
 

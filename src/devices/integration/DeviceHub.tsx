@@ -18,15 +18,18 @@ import {
   ChevronRight,
   Check,
   Clock3,
+  Copy,
   Link2Off,
   Pause,
   Plus,
   Radio,
   RefreshCw,
   Search,
+  Sparkles,
   TriangleAlert,
   X,
 } from 'lucide-react'
+import { buildAgentCliPrompt } from '../../agentPrompt.ts'
 import type { LucideIcon } from 'lucide-react'
 import type {
   MacPermissions,
@@ -85,6 +88,9 @@ const DeviceCaptureWorkbench = lazy(() =>
 const ConnectionTroubleshootPage = lazy(() =>
   import('./ConnectionTroubleshootPage').then(mod => ({ default: mod.ConnectionTroubleshootPage })),
 )
+const AgentConfigDialog = lazy(() =>
+  import('../../components/AgentConfigDialog').then(mod => ({ default: mod.AgentConfigDialog })),
+)
 
 type Props = {
   mappingStyle: MappingEditorStyle
@@ -139,10 +145,50 @@ export function DeviceHub(props: Props) {
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [captureOpen, setCaptureOpen] = useState(false)
   const [troubleshootOpen, setTroubleshootOpen] = useState(false)
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false)
+  const [agentCliPath, setAgentCliPath] = useState<string | null>(null)
+  const [agentCopyState, setAgentCopyState] = useState<'idle' | 'copied'>('idle')
+  const pendingAgentPathRef = useRef<Promise<string | null> | null>(null)
+  const agentCopyTimerRef = useRef<number | null>(null)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
   const didDragRef = useRef(false)
+  useEffect(() => {
+    if (!native || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let cancelled = false
+    const request = invoke<string>('cli_executable_path').then(
+      value => (typeof value === 'string' && value.trim() ? value.trim() : null),
+      () => null,
+    )
+    pendingAgentPathRef.current = request
+    void request.then(resolved => {
+      if (!cancelled && resolved) setAgentCliPath(resolved)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [native])
+  useEffect(
+    () => () => {
+      if (agentCopyTimerRef.current !== null) window.clearTimeout(agentCopyTimerRef.current)
+    },
+    [],
+  )
+  const handleCopyAgentPrompt = async () => {
+    try {
+      const resolved = agentCliPath ?? (await pendingAgentPathRef.current) ?? null
+      const { writeClipboardText } = await import('../../clipboard')
+      await writeClipboardText(buildAgentCliPrompt(resolved))
+      setAgentCopyState('copied')
+      props.onToast?.('已复制 Agent 提示词')
+      if (agentCopyTimerRef.current !== null) window.clearTimeout(agentCopyTimerRef.current)
+      agentCopyTimerRef.current = window.setTimeout(() => setAgentCopyState('idle'), 2200)
+    } catch {
+      setAgentCopyState('idle')
+      props.onToast?.('复制失败，请点「用法与示例」手动复制')
+    }
+  }
   const pointerDragRef = useRef<{
     id: string
     pointerId: number
@@ -338,6 +384,43 @@ export function DeviceHub(props: Props) {
               </button>
             </div>
           </header>
+          <aside className="home-ai-entry" aria-label="AI 配置入口">
+            <div className="home-ai-entry-main">
+              <span className="home-ai-entry-badge" aria-hidden="true">
+                <Sparkles size={14} />
+              </span>
+              <div className="home-ai-entry-text">
+                <strong className="home-ai-entry-title">AI 配置</strong>
+                <span className="home-ai-entry-desc">
+                  把提示词发给 Claude Code、Codex、Cursor 等 AI，直接代配按键、预制方案与快捷交互窗
+                </span>
+              </div>
+            </div>
+            <div className="home-ai-entry-actions">
+              <button
+                type="button"
+                className="home-ai-copy-btn"
+                data-copied={agentCopyState === 'copied' || undefined}
+                aria-label="复制 Agent 提示词"
+                onClick={() => void handleCopyAgentPrompt()}
+              >
+                {agentCopyState === 'copied' ? (
+                  <Check size={14} aria-hidden="true" />
+                ) : (
+                  <Copy size={14} aria-hidden="true" />
+                )}
+                <span role="status">{agentCopyState === 'copied' ? '已复制提示词' : '复制提示词'}</span>
+              </button>
+              <button
+                type="button"
+                className="my-devices-integrate"
+                aria-haspopup="dialog"
+                onClick={() => setAgentDialogOpen(true)}
+              >
+                用法与示例
+              </button>
+            </div>
+          </aside>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
               <div className="managed-device-grid">
@@ -425,6 +508,18 @@ export function DeviceHub(props: Props) {
               setSelected(id)
             }}
           />,
+          document.body,
+        )}
+      {agentDialogOpen &&
+        createPortal(
+          <Suspense fallback={null}>
+            <AgentConfigDialog
+              native={native}
+              initialCliPath={agentCliPath}
+              onClose={() => setAgentDialogOpen(false)}
+              onToast={props.onToast}
+            />
+          </Suspense>,
           document.body,
         )}
       {busy && (

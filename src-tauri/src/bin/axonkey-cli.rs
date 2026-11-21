@@ -22,6 +22,19 @@ fn main() {
         print_help();
         return;
     }
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        if json_output {
+            if let Ok(output) = wrap_cli_ok(serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "protocol": SCHEMA,
+            })) {
+                println!("{output}");
+                return;
+            }
+        }
+        println!("axonkey-cli {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     match run(args) {
         Ok(output) => println!("{output}"),
         Err(error) => {
@@ -138,9 +151,14 @@ fn run(args: Vec<String>) -> Result<String, CliFailure> {
 fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
     let command = args.first().map(String::as_str).unwrap_or_default();
     let standalone = command == "capabilities" || command == "status";
-    if !standalone && !["shortcut", "mapping", "profile", "keymap", "device"].contains(&command) {
+    if !standalone
+        && ![
+            "shortcut", "mapping", "profile", "preset", "keymap", "device",
+        ]
+        .contains(&command)
+    {
         return Err(CliFailure::usage(format!(
-            "未知命令“{command}”，可用命令：capabilities、status、device、keymap、shortcut、mapping、profile、capture"
+            "未知命令“{command}”，可用命令：capabilities、status、device、preset、keymap、shortcut、mapping、profile、capture"
         )));
     }
     let action = if standalone {
@@ -156,14 +174,19 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
             "list",
             "create",
             "activate",
+            "rename",
+            "duplicate",
+            "delete",
+            "prompt-mode",
             "application-list",
             "application-set",
             "application-remove",
             "application-toggle",
         ]
         .contains(&action),
+        "preset" => ["list", "apply"].contains(&action),
         "keymap" => action == "get",
-        "device" => action == "list",
+        "device" => ["list", "toggle"].contains(&action),
         _ => standalone,
     };
     if !valid_action {
@@ -187,7 +210,10 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
         if standalone && name != "json" {
             return Err(CliFailure::usage(format!("{command} 不支持参数“{flag}”")));
         }
-        if name == "yes" || name == "dry-run" || name == "json" || name == "on" || name == "off" {
+        if matches!(
+            name,
+            "yes" | "dry-run" | "json" | "on" | "off" | "quick" | "prompt-mode"
+        ) {
             if name == "on" || name == "off" {
                 if params.contains_key("enabled") {
                     return Err(CliFailure::usage("--on 和 --off 不能重复或同时使用"));
@@ -196,7 +222,11 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
                 index += 1;
                 continue;
             }
-            let key = if name == "dry-run" { "dryRun" } else { name };
+            let key = match name {
+                "dry-run" => "dryRun",
+                "prompt-mode" => "promptMode",
+                _ => name,
+            };
             params.insert(key.into(), Value::Bool(true));
             index += 1;
             continue;
@@ -209,8 +239,8 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
         }
         let key = match name {
             "profile" | "device" | "instance" | "name" | "button" | "input" | "trigger"
-            | "keys" | "sequence" | "actions" | "action" | "file" | "application"
-            | "application-name" | "application-path" => match name {
+            | "keys" | "sequence" | "actions" | "action" | "file" | "preset" | "mode"
+            | "application" | "application-name" | "application-path" => match name {
                 "application-name" => "applicationName",
                 "application-path" => "applicationPath",
                 _ => name,
@@ -395,19 +425,27 @@ fn print_help() {
         r#"Axonkey Agent CLI
 
 用法：
-  axonkey-cli capabilities
+  axonkey-cli --version [--json]
+  axonkey-cli capabilities [--json]
   axonkey-cli status --json
   axonkey-cli device list --json
+  axonkey-cli device toggle --instance <id> --on|--off [--dry-run] [--json]
+  axonkey-cli preset list --device <kind>|--instance <id> --json
+  axonkey-cli preset apply --instance <id> --preset <slug> [--mode copy|overwrite] [--profile <id 或名称>] [--name <新名称>] [--dry-run] [--json]
   axonkey-cli keymap get --device <id> --json
   axonkey-cli shortcut <list|get|set|clear> [参数]
   axonkey-cli mapping <list|get|set|clear> [参数]
   axonkey-cli profile list --instance <id>
-  axonkey-cli profile create --instance <id> --name <名称>
-    axonkey-cli profile activate --instance <id> --profile <配置 ID 或名称>
-    axonkey-cli profile application-list --instance <id>
-    axonkey-cli profile application-set --instance <id> --application <应用 ID> --profile <配置 ID 或名称>
-    axonkey-cli profile application-remove --instance <id> --application <应用 ID>
-    axonkey-cli profile application-toggle --instance <id> --on|--off
+  axonkey-cli profile create --instance <id> --name <名称> [--quick] [--prompt-mode] [--dry-run]
+  axonkey-cli profile activate --instance <id> --profile <配置 ID 或名称>
+  axonkey-cli profile rename --instance <id> --profile <配置 ID 或名称> --name <新名称> [--dry-run]
+  axonkey-cli profile duplicate --instance <id> [--profile <源配置>] [--name <新名称>] [--quick] [--dry-run]
+  axonkey-cli profile delete --instance <id> --profile <配置 ID 或名称> --yes [--dry-run]
+  axonkey-cli profile prompt-mode --instance <id> --profile <快捷配置 ID 或名称> --on|--off [--dry-run]
+  axonkey-cli profile application-list --instance <id>
+  axonkey-cli profile application-set --instance <id> --application <应用 ID> --profile <配置 ID 或名称>
+  axonkey-cli profile application-remove --instance <id> --application <应用 ID>
+  axonkey-cli profile application-toggle --instance <id> --on|--off
   axonkey-cli capture list [--with-gatt] [--json]
   axonkey-cli capture attach --instance-id <ID> [--allow-caution] [--allow-primary-input] [--json]
   axonkey-cli capture detach --instance-id <ID> [--json]
@@ -424,8 +462,22 @@ fn print_help() {
   --keys <Mod+Shift+P>       设置快捷键
   --sequence <json>          设置完整行为序列
   --actions <json>           --sequence 的别名；行为格式见 capabilities
+  --action <json>            设置单个行为对象
+  --quick                    新建或复制为快捷交互配置
+  --prompt-mode              创建快捷交互配置时直接开启纯 Prompt 模式
+  --preset <slug|id|名称>    指定云端或内置预制配置文件
+  --mode <copy|overwrite>    preset apply 模式：复制为新配置（默认）或覆盖指定配置
   --dry-run                  只返回变更预览
-  --yes                      确认清除操作
+  --yes                      确认清除或删除操作
+
+预制配置与快捷交互窗：
+  preset list --device rc003 --json
+  preset apply --instance <id> --preset mouse-control --json
+  profile create --instance <id> --name "AI 提示词" --quick --prompt-mode --json
+  mapping set --instance <id> --profile "AI 提示词" --button up \
+    --sequence '[{"type":"paste","text":"请分析这个报错","title":"代码排错"}]' --json
+  mapping set --instance <id> --button menu --trigger click \
+    --sequence '[{"type":"quickOverlay","profileId":"<快捷配置 ID>"}]' --json
 
 循环配置：
   mapping set --instance <id> --button <TV 按键 ID> \
@@ -1088,8 +1140,13 @@ mod tests {
         for values in [
             vec!["status", "--device", "mouse"],
             vec!["capabilities", "garbage"],
-            vec!["profile", "delete"],
+            vec!["profile", "destroy"],
+            vec!["preset", "remove"],
             vec!["profile", "application-toggle", "--on", "--off"],
+            vec!["device", "toggle", "--on", "--off"],
+            vec!["profile", "prompt-mode", "--on", "--off"],
+            vec!["preset", "apply", "--preset", "--json"],
+            vec!["preset", "apply", "--mode"],
         ] {
             assert_eq!(parse_operation(&args(&values)).unwrap_err().exit_code, 2);
         }
@@ -1097,6 +1154,118 @@ mod tests {
             parse_operation(&args(&["status", "--json"])).unwrap().0,
             "status"
         );
+    }
+
+    #[test]
+    fn parses_quick_profile_lifecycle_preset_and_device_toggle_operations() {
+        let (method, params) = parse_operation(&args(&[
+            "profile",
+            "create",
+            "--instance",
+            "remote-1",
+            "--name",
+            "AI 提示词",
+            "--quick",
+            "--prompt-mode",
+            "--dry-run",
+        ]))
+        .unwrap();
+        assert_eq!(method, "profile.create");
+        assert_eq!(params["quick"], true);
+        assert_eq!(params["promptMode"], true);
+        assert_eq!(params["dryRun"], true);
+
+        let (method, params) = parse_operation(&args(&[
+            "profile",
+            "rename",
+            "--instance",
+            "remote-1",
+            "--profile",
+            "默认配置",
+            "--name",
+            "日常控制",
+        ]))
+        .unwrap();
+        assert_eq!(method, "profile.rename");
+        assert_eq!(params["profile"], "默认配置");
+        assert_eq!(params["name"], "日常控制");
+
+        let (method, params) = parse_operation(&args(&[
+            "profile",
+            "duplicate",
+            "--instance",
+            "remote-1",
+            "--profile",
+            "日常控制",
+            "--quick",
+        ]))
+        .unwrap();
+        assert_eq!(method, "profile.duplicate");
+        assert_eq!(params["quick"], true);
+
+        let (method, params) = parse_operation(&args(&[
+            "profile",
+            "delete",
+            "--instance",
+            "remote-1",
+            "--profile",
+            "旧配置",
+            "--yes",
+        ]))
+        .unwrap();
+        assert_eq!(method, "profile.delete");
+        assert_eq!(params["yes"], true);
+
+        let (method, params) = parse_operation(&args(&[
+            "profile",
+            "prompt-mode",
+            "--instance",
+            "remote-1",
+            "--profile",
+            "AI 提示词",
+            "--off",
+        ]))
+        .unwrap();
+        assert_eq!(method, "profile.prompt-mode");
+        assert_eq!(params["enabled"], false);
+
+        let (method, params) =
+            parse_operation(&args(&["preset", "list", "--device", "rc003", "--json"])).unwrap();
+        assert_eq!(method, "preset.list");
+        assert_eq!(params["device"], "rc003");
+        assert_eq!(params["json"], true);
+
+        let (method, params) = parse_operation(&args(&[
+            "preset",
+            "apply",
+            "--instance",
+            "remote-1",
+            "--preset",
+            "mouse-control",
+            "--mode",
+            "overwrite",
+            "--profile",
+            "默认配置",
+            "--dry-run",
+        ]))
+        .unwrap();
+        assert_eq!(method, "preset.apply");
+        assert_eq!(params["preset"], "mouse-control");
+        assert_eq!(params["mode"], "overwrite");
+        assert_eq!(params["profile"], "默认配置");
+        assert_eq!(params["dryRun"], true);
+
+        let (method, params) = parse_operation(&args(&[
+            "device",
+            "toggle",
+            "--instance",
+            "remote-1",
+            "--off",
+        ]))
+        .unwrap();
+        assert_eq!(method, "device.toggle");
+        assert_eq!(params["instance"], "remote-1");
+        assert_eq!(params["enabled"], false);
     }
 
     #[test]

@@ -5639,7 +5639,8 @@ html.macos-vibrancy,
 }
 .macos-vibrancy .about-cli,
 .macos-vibrancy .about-update,
-.macos-vibrancy .about-wechat {
+.macos-vibrancy .about-wechat,
+.macos-vibrancy .home-ai-entry {
   border-color: rgb(24 28 36 / 10%);
   border-radius: 12px;
   background: rgb(255 255 255 / 34%);

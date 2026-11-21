@@ -13,14 +13,17 @@ const { processInstanceCliRequest, resolveCliInstance, normalizeCliDeviceSelecto
   await import('../src/devices/integration/instanceCli.ts')
 assets.deregister()
 
-test('TCL and projector remote CLI selectors resolve each model and use its descriptor keys', async () => {
+test('resolves newer device aliases and dynamic support package models', async () => {
   for (const [model, alias, kind, key] of [
     ['rc802a', 'TCL-RC802A', 'tclRc802a', 'tcl-rc802a.voice'],
     ['rc902n', 'TCL-RC902N', 'tclRc902n', 'tcl-rc902n.menu'],
     ['rc902v', 'TCL-RC902V', 'tclRc902v', 'tcl-rc902v.mute'],
+    ['tx800c', 'Sony-RMF-TX800C', 'rmfTx800c', 'rmf-tx800c.confirm'],
     ['rcf3b65', 'Hisense-RCF3B65', 'hisenseRcf3b65', 'hisense-rcf3b65.power'],
     ['db1-r', 'PHICOMM-DB1-R', 'phicommDb1R', 'phicomm-db1-r.ottPower'],
     ['rc-001a', 'OnePlus-RC-001A', 'oneplusRc001a', 'oneplus.oneplus'],
+    ['k18-lite', 'Kivo-K18-Lite', 'kivoK18Lite', 'kivo.k18Lite.k01'],
+    ['g17-touch', 'G17 Touch', 'g17Touch', 'g17.touch.num'],
   ]) {
     const app = workspace([initial(model, kind)])
     assert.equal(normalizeCliDeviceSelector(model), kind.toLowerCase())
@@ -29,6 +32,11 @@ test('TCL and projector remote CLI selectors resolve each model and use its desc
     const result = await app.command('mapping.list', { device: model })
     assert.ok(result.mappings.some(mapping => mapping.button === key))
   }
+  assert.equal(normalizeCliDeviceSelector('sony'), 'rmftx800c')
+  assert.equal(normalizeCliDeviceSelector('kivo'), 'kivok18lite')
+  assert.equal(normalizeCliDeviceSelector('g17'), 'g17touch')
+  assert.equal(normalizeCliDeviceSelector('OBE_RCU_R5'), 'obercur5')
+  assert.equal(normalizeCliDeviceSelector('小米蓝牙遥控器2Pro'), 'rc003')
 })
 
 function initial(id = 'remote-one', kind = 'rc003') {
@@ -56,10 +64,11 @@ function workspace(instances = [initial()]) {
     get snapshot() {
       return snapshot
     },
-    command(method, params = {}, update) {
+    command(method, params = {}, update, extra = {}) {
       return processInstanceCliRequest(method, params, {
         snapshot,
         platform: 'macos',
+        ...extra,
         update:
           update ??
           (async (id, change) => {
@@ -365,4 +374,143 @@ test('propagates store read errors instead of returning empty or stale configura
     )
   assert.equal(work.snapshot.store.revision, 7)
   assert.equal(work.snapshot.store.instances[0].profiles.length, 1)
+})
+
+test('supports device toggle and full regular/quick profile lifecycle commands', async () => {
+  const work = workspace()
+
+  const togglePreview = await work.command('device.toggle', { enabled: false, dryRun: true })
+  assert.equal(togglePreview.dryRun, true)
+  assert.equal(togglePreview.before, true)
+  assert.equal(togglePreview.enabled, false)
+  assert.equal(work.snapshot.store.instances[0].enabled, true)
+  await work.command('device.toggle', { enabled: false })
+  assert.equal(work.snapshot.store.instances[0].enabled, false)
+  await assert.rejects(work.command('device.toggle', {}), isError('invalid_arguments'))
+
+  const quick = await work.command('profile.create', { name: 'AI 快捷', quick: true, promptMode: true })
+  assert.equal(quick.profile.quick, true)
+  assert.equal(quick.profile.promptMode, true)
+  assert.equal(quick.profile.active, false)
+
+  await work.command('mapping.set', {
+    button: 'menu',
+    trigger: 'click',
+    sequence: [{ type: 'quickOverlay', profileId: quick.profile.id }],
+  })
+  let list = await work.command('profile.list')
+  let listedQuick = list.profiles.find(item => item.id === quick.profile.id)
+  assert.deepEqual(listedQuick.trigger, { profileId: 'default', inputId: 'menu', trigger: 'click' })
+
+  await work.command('profile.prompt-mode', { profile: quick.profile.id, enabled: false })
+  await assert.rejects(work.command('profile.prompt-mode', { profile: 'default', enabled: true }), isError('invalid_target'))
+
+  const renamed = await work.command('profile.rename', { profile: 'default', name: '日常遥控' })
+  assert.equal(renamed.before, '默认配置')
+  assert.equal(renamed.after, '日常遥控')
+  assert.equal(renamed.profile.name, '日常遥控')
+
+  const dup = await work.command('profile.duplicate', { profile: '日常遥控' })
+  assert.equal(dup.profile.name, '日常遥控 副本')
+  assert.equal(dup.profile.active, true)
+
+  const quickDup = await work.command('profile.duplicate', { profile: quick.profile.id, quick: true, name: 'AI 副本' })
+  assert.equal(quickDup.profile.quick, true)
+
+  // Cannot delete the last remaining regular profile once the duplicate is removed
+  await work.command('profile.delete', { profile: dup.profile.id, yes: true })
+  await assert.rejects(work.command('profile.delete', { profile: 'default', yes: true }), isError('invalid_target'))
+
+  // Deleting a quick profile cleans up its quickOverlay trigger bindings
+  await work.command('profile.delete', { profile: quick.profile.id, yes: true })
+  assert.deepEqual((await work.command('mapping.get', { profile: 'default', button: 'menu' })).actions, [])
+  list = await work.command('profile.list')
+  assert.equal(list.profiles.some(item => item.id === quick.profile.id), false)
+})
+
+test('lists and applies bundled/cloud device presets with copy, overwrite, and switchProfile preservation', async () => {
+  const work = workspace()
+  const deviceOnlyList = await work.command('preset.list', { device: 'sony' })
+  assert.equal(deviceOnlyList.device, 'rmfTx800c')
+  assert.equal(deviceOnlyList.instance, null)
+  assert.ok(deviceOnlyList.presets.length >= 1)
+
+  await work.command('mapping.set', {
+    button: 'tv',
+    trigger: 'click',
+    sequence: [{ type: 'switchProfile', direction: 'next', wrap: true }],
+  })
+
+  const copyPreview = await work.command('preset.apply', {
+    preset: 'mouse-control',
+    name: '飞鼠方案',
+    dryRun: true,
+  })
+  assert.equal(copyPreview.dryRun, true)
+  assert.equal(copyPreview.mode, 'copy')
+  assert.equal(work.snapshot.store.instances[0].profiles.length, 1)
+
+  const copied = await work.command('preset.apply', { preset: 'mouse-control', name: '飞鼠方案' })
+  assert.equal(copied.saved, true)
+  assert.equal(copied.profile.name, '飞鼠方案')
+  assert.equal(copied.profile.active, true)
+  const tvActions = await work.command('mapping.get', { profile: copied.profile.id, button: 'tv' })
+  assert.deepEqual(tvActions.actions, [{ type: 'switchProfile', direction: 'next', wrap: true, enabled: true }])
+
+  const overwrite = await work.command('preset.apply', {
+    preset: 'media-reading',
+    mode: 'overwrite',
+    profile: copied.profile.id,
+  })
+  assert.equal(overwrite.saved, true)
+  assert.equal(overwrite.preset.slug, 'media-reading')
+  const upAfter = await work.command('mapping.get', { profile: copied.profile.id, button: 'up' })
+  assert.deepEqual(upAfter.actions, [{ type: 'wheel', direction: 'up', enabled: true }])
+  const tvAfter = await work.command('mapping.get', { profile: copied.profile.id, button: 'tv' })
+  assert.deepEqual(tvAfter.actions, [{ type: 'switchProfile', direction: 'next', wrap: true, enabled: true }])
+
+  // Quick preset cannot overwrite a regular profile, while cloud preset catalog overrides are respected
+  const catalogModels = new Map([
+    [
+      'rc003',
+      {
+        code: 'rc003',
+        presets: [
+          {
+            id: 'cloud-quick',
+            slug: 'cloud-prompt',
+            name: '云端 Prompt',
+            description: '云端下发快捷交互',
+            platform: 'all',
+            is_default: false,
+            quick: true,
+            prompt_mode: true,
+            sort_order: 5,
+            behaviors: { up: { click: [{ id: 'a1', enabled: true, type: 'paste', text: '总结要点', title: '总结' }], doubleClick: [], longPress: [] } },
+          },
+        ],
+      },
+    ],
+  ])
+  const cloudList = await work.command('preset.list', { device: 'rc003' }, undefined, { catalogModels })
+  assert.equal(cloudList.presets[0].source, 'cloud')
+  assert.equal(cloudList.presets[0].quick, true)
+  assert.equal(cloudList.presets[0].promptMode, true)
+  await assert.rejects(
+    work.command(
+      'preset.apply',
+      { preset: 'cloud-prompt', mode: 'overwrite', profile: copied.profile.id },
+      undefined,
+      { catalogModels },
+    ),
+    isError('invalid_target'),
+  )
+  const appliedQuick = await work.command(
+    'preset.apply',
+    { preset: 'cloud-prompt' },
+    undefined,
+    { catalogModels },
+  )
+  assert.equal(appliedQuick.profile.quick, true)
+  assert.equal(appliedQuick.profile.promptMode, true)
 })

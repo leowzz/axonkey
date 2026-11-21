@@ -127,7 +127,8 @@ cli-mapping-clear: cli-build
 
 test-cli: cli-build
 	cargo test --manifest-path src-tauri/Cargo.toml --bin axonkey-cli
-	node --test test/cli-contract.test.mjs test/instance-cli.test.mjs test/text-path-behavior.test.mjs
+	cargo test --manifest-path src-tauri/Cargo.toml --lib cli_ipc
+	node --test test/cli-contract.test.mjs test/instance-cli.test.mjs test/mouse-cli.test.mjs test/cli-polling.test.mjs test/text-path-behavior.test.mjs
 
 help:
 	@echo "CLI:"

@@ -4,6 +4,7 @@ import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
 import { Check, Copy, Github, Terminal } from 'lucide-react'
+import { buildAgentCliPrompt } from '../agentPrompt.ts'
 import { writeClipboardText } from '../clipboard'
 import appPackage from '../../package.json'
 import { WechatGroupCard } from './WechatGroupCard'
@@ -124,12 +125,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
   )
 }
 
-export function buildAgentCliPrompt(cliPath?: string | null): string {
-  const resolved = typeof cliPath === 'string' ? cliPath.trim() : ''
-  return resolved
-    ? `请先了解 axonkey-cli（${resolved}），再按我的需求查看和调整设备按键设置。`
-    : '请先了解 axonkey-cli，再按我的需求查看和调整设备按键设置。'
-}
+export { buildAgentCliPrompt }
 
 export function AgentConfigurationCard() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
