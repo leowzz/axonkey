@@ -2468,6 +2468,27 @@ function AppController({
     }
   }, [platform])
 
+  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
+    instance => instance.id === selectedInstanceId,
+  )
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const sectionTitle =
+      activePanel === 'settings'
+        ? '设置'
+        : activePanel === 'cloud'
+          ? '云同步'
+          : activePanel === 'about'
+            ? '关于'
+            : workspaceInstance
+              ? workspaceInstance.name
+              : workspacePage === 'mapping'
+                ? selectedDevice.name
+                : '我的设备'
+    document.title = `Axonkey · ${sectionTitle}`
+  }, [activePanel, selectedDevice.name, workspaceInstance, workspacePage])
+
   const editingBehavior = editingBehaviorId
     ? (behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find(
         behavior => behavior.id === editingBehaviorId,
@@ -2558,8 +2579,8 @@ function AppController({
           onClose={() => void closePermissionHelper()}
         />
         {toast && (
-          <div className="toast">
-            <Check size={15} /> {toast}
+          <div className="toast" role="status" aria-live="polite">
+            <Check size={15} aria-hidden="true" /> {toast}
           </div>
         )}
       </>
@@ -2871,9 +2892,6 @@ function AppController({
     </div>
   )
 
-  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
-    instance => instance.id === selectedInstanceId,
-  )
   const managedState = workspaceInstance ? instanceState(workspaceInstance, deviceInstances.snapshot) : undefined
   const workspaceStatus: AppBottomBarProps['workspaceStatus'] = workspaceInstance
     ? {
@@ -2904,12 +2922,15 @@ function AppController({
 
   const appShell = (
     <div className={`app-shell ${workspacePage === 'mapping' ? 'mapping-active' : ''}`}>
+      <a className="skip-link" href="#main-content">
+        跳至主内容
+      </a>
       {nativeRuntime && platform === 'macos' && (
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
       )}
       <div className="app-main">
         <div className="app-workspace">
-          <main ref={mainContentRef} key={workspacePage} className="main-content">
+          <main ref={mainContentRef} id="main-content" tabIndex={-1} key={workspacePage} className="main-content">
             {!enabled && (
               <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
                 <Info size={20} aria-hidden="true" />
@@ -3157,8 +3178,8 @@ function AppController({
         />
       </div>
       {toast && (
-        <div className="toast">
-          <Check size={15} /> {toast}
+        <div className="toast" role="status" aria-live="polite">
+          <Check size={15} aria-hidden="true" /> {toast}
         </div>
       )}
       {pendingProfileSwitch &&

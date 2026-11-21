@@ -1193,8 +1193,6 @@ function IntegrationDialog({
     <dialog
       ref={dialog}
       className="managed-integration-modal"
-      role="dialog"
-      aria-modal="true"
       aria-labelledby="managed-integration-title"
       onCancel={event => {
         if (installingDriver) {
@@ -1210,7 +1208,7 @@ function IntegrationDialog({
             {initial.instance ? '绑定物理设备' : manualAdd ? '添加设备' : '集成设备'}
           </h2>
           <button aria-label="关闭集成" className="dialog-close" disabled={installingDriver} onClick={onClose}>
-            <X size={17} />
+            <X size={17} aria-hidden="true" />
           </button>
         </header>
         <div className={`behavior-dialog-body managed-integration-body${step === 'kind' ? ' is-catalog-picker' : ''}`}>

@@ -163,8 +163,9 @@
   place-items: center;
   min-width: 0;
   padding: 10px 8px;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgb(241 245 249 / 88%) 0%, rgb(248 250 252 / 48%) 100%);
+  background: var(--surface-subtle);
 }
 .my-devices-artwork img {
   display: block;
@@ -172,7 +173,7 @@
   max-width: 96px;
   height: 122px;
   object-fit: contain;
-  filter: drop-shadow(0 6px 10px rgb(15 23 42 / 9%));
+  filter: drop-shadow(0 4px 8px rgb(15 23 42 / 7%));
 }
 .my-devices-identity {
   display: flex;

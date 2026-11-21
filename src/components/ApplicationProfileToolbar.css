@@ -69,11 +69,15 @@
 .application-select-trigger:hover:not(:disabled) {
   border-color: rgb(24 28 36 / 26%);
 }
-.application-select-trigger:focus-visible,
 .application-select-trigger[aria-expanded='true'] {
   outline: none;
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgb(0 102 255 / 10%);
+}
+.application-select-trigger:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+  border-color: var(--blue);
 }
 .application-select-trigger:disabled {
   opacity: 0.5;

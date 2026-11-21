@@ -402,7 +402,7 @@ test('integration saves devices without an input mode on every platform', async 
       controller, native: false, platform, permissions: {},
     })) })
     act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
-    const dialog = view.root.findByProps({ role: 'dialog' })
+    const dialog = view.root.findByType('dialog')
     assert.ok(!text(dialog).includes('输入模式'))
     if (kind === 'cmiotA15' && platform === 'windows') {
       assert.ok(!text(dialog).includes('暂不支持输入监听'))
@@ -1125,10 +1125,10 @@ test('migration binding request waits for the saved instance then opens its phys
   const snapshot = { ...model.emptySnapshot(), store: { version: 1, revision: 1, instances: [instance] } }
   act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, controller: { ...props.controller, snapshot } })))
   assert.equal(consumed, 1)
-  assert.match(text(view.root.findByProps({ role: 'dialog' })), /绑定物理设备/)
+  assert.match(text(view.root.findByType('dialog')), /绑定物理设备/)
   act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, bindInstanceId: null, controller: { ...props.controller, snapshot } })))
   act(() => view.root.findByProps({ 'aria-label': '关闭集成' }).props.onClick())
-  assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
+  assert.equal(view.root.findAllByType('dialog').length, 0)
   assert.equal(consumed, 1)
   act(() => view.unmount())
 })

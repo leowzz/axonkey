@@ -3,7 +3,12 @@ import { isWorkflowStepLocked, workflowBranches } from './workflowBehaviorBridge
 import { scrollWorkflowViewport } from './WorkflowViewport.ts'
 
 // The designer owns the primary selection; keep additional Ctrl selections here.
-export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, notifyChanged: () => void, getWorkspace?: () => WorkspaceApi | undefined) {
+export function bindWorkflowSelection(
+  canvas: HTMLElement,
+  designer: Designer,
+  notifyChanged: () => void,
+  getWorkspace?: () => WorkspaceApi | undefined,
+) {
   const selected = new Set<string>()
   let pendingPrimary: string | null | undefined
   let pressedStepId: string | null = null
@@ -11,19 +16,29 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
   let groupDragStarted = false
   let dragSnapshot: { ids: string[]; primary: string; source: Step[]; index: number } | null = null
   let marquee: {
-    workspace: HTMLElement; overlay: HTMLElement; original: string[]; base: string[]
-    startX: number; startY: number; pointerX: number; pointerY: number; moved: boolean
+    workspace: HTMLElement
+    overlay: HTMLElement
+    original: string[]
+    base: string[]
+    startX: number
+    startY: number
+    pointerX: number
+    pointerY: number
+    moved: boolean
     laneScroll: Map<string, number>
   } | null = null
   let frame = 0
   const branches = () => Object.values(workflowBranches(designer.getDefinition()))
   const find = (id: string) => {
     for (const branch of branches()) {
-      const step = branch.find((step) => step.id === id)
+      const step = branch.find(step => step.id === id)
       if (step) return isWorkflowStepLocked(step, branch) ? undefined : step
     }
   }
-  const orderedSelectedIds = () => branches().flatMap((branch) => branch.map((step) => step.id)).filter((id) => selected.has(id))
+  const orderedSelectedIds = () =>
+    branches()
+      .flatMap(branch => branch.map(step => step.id))
+      .filter(id => selected.has(id))
   const render = () => {
     for (const id of selected) if (!find(id)) selected.delete(id)
     for (const element of canvas.querySelectorAll<SVGElement>('[data-step-id]')) {
@@ -69,23 +84,44 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     const top = Math.max(0, Math.min(originY, y))
     const right = Math.min(bounds.width, Math.max(m.startX, x))
     const bottom = Math.min(bounds.height, Math.max(originY, y))
-    Object.assign(m.overlay.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` })
+    Object.assign(m.overlay.style, {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${right - left}px`,
+      height: `${bottom - top}px`,
+    })
     m.overlay.hidden = !m.moved
     selected.clear()
     for (const id of m.base) selected.add(id)
     if (m.moved) {
-      const enabled = new Set(branches().flatMap((branch) => branch.filter((step) => !isWorkflowStepLocked(step, branch))).map((step) => step.id))
+      const enabled = new Set(
+        branches()
+          .flatMap(branch => branch.filter(step => !isWorkflowStepLocked(step, branch)))
+          .map(step => step.id),
+      )
       for (const element of m.workspace.querySelectorAll<SVGElement>('[data-step-id]')) {
         const id = element.getAttribute('data-step-id')!
         if (!enabled.has(id) || !find(id)) continue
         const rect = element.getBoundingClientRect()
         const lane = element.closest?.('[data-trigger-scroll]')
         const laneBounds = lane?.querySelector('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
-        const scrollDelta = lane ? Number(lane.getAttribute('data-scroll-top')) - (m.laneScroll.get(lane.getAttribute('data-trigger-scroll')!) ?? 0) : 0
-        const selectionStart = laneBounds ? Math.max(bounds.top + originY, laneBounds.top) - scrollDelta : bounds.top + originY
-        const selectionEnd = laneBounds ? Math.max(laneBounds.top, Math.min(laneBounds.bottom, bounds.top + y)) : bounds.top + y
-        if (rect.right > bounds.left + Math.min(m.startX, x) && rect.left < bounds.left + Math.max(m.startX, x)
-          && rect.bottom > Math.min(selectionStart, selectionEnd) && rect.top < Math.max(selectionStart, selectionEnd)) selected.add(id)
+        const scrollDelta = lane
+          ? Number(lane.getAttribute('data-scroll-top')) -
+            (m.laneScroll.get(lane.getAttribute('data-trigger-scroll')!) ?? 0)
+          : 0
+        const selectionStart = laneBounds
+          ? Math.max(bounds.top + originY, laneBounds.top) - scrollDelta
+          : bounds.top + originY
+        const selectionEnd = laneBounds
+          ? Math.max(laneBounds.top, Math.min(laneBounds.bottom, bounds.top + y))
+          : bounds.top + y
+        if (
+          rect.right > bounds.left + Math.min(m.startX, x) &&
+          rect.left < bounds.left + Math.max(m.startX, x) &&
+          rect.bottom > Math.min(selectionStart, selectionEnd) &&
+          rect.top < Math.max(selectionStart, selectionEnd)
+        )
+          selected.add(id)
       }
     }
     render()
@@ -94,7 +130,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     if (!marquee) return
     const workspace = getWorkspace?.()
     const rect = marquee.workspace.getBoundingClientRect()
-    const lane = [...canvas.querySelectorAll<SVGSVGElement>('[data-trigger-scroll]')].find((element) => {
+    const lane = [...canvas.querySelectorAll<SVGSVGElement>('[data-trigger-scroll]')].find(element => {
       const bounds = element.querySelector?.('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
       return bounds && marquee!.pointerX >= bounds.left && marquee!.pointerX <= bounds.right
     })
@@ -135,7 +171,8 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     marquee.pointerY = event.clientY
     const rect = marquee.workspace.getBoundingClientRect()
     const startY = marquee.startY + (getWorkspace?.()?.getViewport().position.y ?? 0)
-    if (Math.hypot(event.clientX - rect.left - marquee.startX, event.clientY - rect.top - startY) > 3) marquee.moved = true
+    if (Math.hypot(event.clientX - rect.left - marquee.startX, event.clientY - rect.top - startY) > 3)
+      marquee.moved = true
     updateMarquee()
   }
   const onMouseDown = (event: MouseEvent) => {
@@ -148,7 +185,12 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     const target = event.target as Element | null
     const workspace = target?.closest<HTMLElement>('.sqd-workspace')
     if (!target || !workspace) return
-    if (target.closest('button, input, textarea, select, [role="button"]:not([data-step-id]), [role="scrollbar"], [contenteditable="true"]')) return
+    if (
+      target.closest(
+        'button, input, textarea, select, [role="button"]:not([data-step-id]), [role="scrollbar"], [contenteditable="true"]',
+      )
+    )
+      return
     canvas.focus({ preventScroll: true })
     const id = target.closest('[data-step-id]')?.getAttribute('data-step-id')
     pressedStepId = id && find(id) ? id : null
@@ -163,11 +205,21 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
       overlay.hidden = true
       workspace.appendChild(overlay)
       marquee = {
-        workspace, overlay, original: [...selected], base: event.ctrlKey || event.metaKey ? [...selected] : [],
-        laneScroll: new Map([...canvas.querySelectorAll('[data-trigger-scroll]')].map((lane) => [lane.getAttribute('data-trigger-scroll')!, Number(lane.getAttribute('data-scroll-top'))])),
+        workspace,
+        overlay,
+        original: [...selected],
+        base: event.ctrlKey || event.metaKey ? [...selected] : [],
+        laneScroll: new Map(
+          [...canvas.querySelectorAll('[data-trigger-scroll]')].map(lane => [
+            lane.getAttribute('data-trigger-scroll')!,
+            Number(lane.getAttribute('data-scroll-top')),
+          ]),
+        ),
         startX: event.clientX - rect.left,
         startY: event.clientY - rect.top - (getWorkspace?.()?.getViewport().position.y ?? 0),
-        pointerX: event.clientX, pointerY: event.clientY, moved: false,
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        moved: false,
       }
       // Live highlights come entirely from our set until the box is committed.
       designer.clearSelectedStep()
@@ -203,8 +255,13 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     if (isDragging) {
       if (pressedStepId && selected.size > 1 && selected.has(pressedStepId)) {
         groupDragStarted = true
-        const source = branches().find((branch) => branch.some((step) => step.id === pressedStepId))!
-        dragSnapshot = { ids: orderedSelectedIds(), primary: pressedStepId, source, index: source.findIndex((step) => step.id === pressedStepId) }
+        const source = branches().find(branch => branch.some(step => step.id === pressedStepId))!
+        dragSnapshot = {
+          ids: orderedSelectedIds(),
+          primary: pressedStepId,
+          source,
+          index: source.findIndex(step => step.id === pressedStepId),
+        }
       }
       return
     }
@@ -239,14 +296,16 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     dragSnapshot = null
     if (!snapshot || interrupt || designer.isReadonly()) return
     const definitionBranches = branches()
-    const primaryBranch = definitionBranches.find((branch) => branch.some((step) => step.id === snapshot.primary))
+    const primaryBranch = definitionBranches.find(branch => branch.some(step => step.id === snapshot.primary))
     if (!primaryBranch) return
-    const primaryIndex = primaryBranch.findIndex((step) => step.id === snapshot.primary)
+    const primaryIndex = primaryBranch.findIndex(step => step.id === snapshot.primary)
     // An invalid/outside drop or an interrupted drag leaves every node intact.
     if (primaryBranch === snapshot.source && primaryIndex === snapshot.index) return
     const ids = new Set(snapshot.ids)
-    const steps = snapshot.ids.map((id) => definitionBranches.flat().find((step) => step.id === id)).filter((step): step is Step => Boolean(step))
-    const selectedBeforeTarget = primaryBranch.slice(0, primaryIndex).filter((step) => ids.has(step.id)).length
+    const steps = snapshot.ids
+      .map(id => definitionBranches.flat().find(step => step.id === id))
+      .filter((step): step is Step => Boolean(step))
+    const selectedBeforeTarget = primaryBranch.slice(0, primaryIndex).filter(step => ids.has(step.id)).length
     for (const branch of definitionBranches) {
       for (let index = branch.length - 1; index >= 0; index--) {
         if (ids.has(branch[index].id)) branch.splice(index, 1)
@@ -264,10 +323,24 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
       }
       return
     }
-    if (event.key !== 'Delete' || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey
-      || designer.isReadonly() || designer.isDragging()) return
+    if (
+      event.key !== 'Delete' ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      designer.isReadonly() ||
+      designer.isDragging()
+    )
+      return
     const target = event.target as Element | null
-    if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return
+    if (
+      target?.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"]',
+      )
+    )
+      return
     const removable = new Set<Step>()
     for (const branch of branches()) {
       for (const step of branch) if (selected.has(step.id) && !isWorkflowStepLocked(step, branch)) removable.add(step)
@@ -317,10 +390,17 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     getDragSteps: (stepId: string) => {
       const all = branches().flat()
       const ids = selected.has(stepId) ? orderedSelectedIds() : [stepId]
-      return ids.map((id) => all.find((step) => step.id === id)).filter((step): step is Step => Boolean(step))
+      return ids.map(id => all.find(step => step.id === id)).filter((step): step is Step => Boolean(step))
     },
-    canDragSelection: () => branches().every((branch) => branch.every((step) => !selected.has(step.id)
-      || (!isWorkflowStepLocked(step, branch) && (selected.size === 1 || (step.type !== 'disabled' && step.type !== 'switchProfile'))))),
+    canDragSelection: () =>
+      branches().every(branch =>
+        branch.every(
+          step =>
+            !selected.has(step.id) ||
+            (!isWorkflowStepLocked(step, branch) &&
+              (selected.size === 1 || (step.type !== 'disabled' && step.type !== 'switchProfile'))),
+        ),
+      ),
     finishDrag,
   })
 }

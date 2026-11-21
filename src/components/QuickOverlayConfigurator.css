@@ -285,12 +285,17 @@
   cursor: pointer;
 }
 
-.quick-overlay-track-clear:hover:not(:disabled),
+.quick-overlay-track-clear:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #dc2626;
+  background: #fef2f2;
+}
 .quick-overlay-track-clear:focus-visible {
   border-color: #ef4444;
   color: #dc2626;
   background: #fef2f2;
-  outline: none;
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
 }
 
 .quick-overlay-track-clear:disabled {
@@ -421,12 +426,17 @@
   opacity: 1;
 }
 
-.quick-overlay-step-remove:hover,
+.quick-overlay-step-remove:hover {
+  opacity: 1;
+  color: #dc2626;
+  background: #fee2e2;
+}
 .quick-overlay-step-remove:focus-visible {
   opacity: 1;
   color: #dc2626;
   background: #fee2e2;
-  outline: none;
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
 }
 
 .quick-overlay-step-add {
