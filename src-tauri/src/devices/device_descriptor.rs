@@ -391,6 +391,7 @@ fn parse_voice(attrs: &BTreeMap<String, String>) -> Result<VoiceDescriptor, Desc
                 | "cmiot-a15.g7221"
                 | "obe-rcu-r5.sbc"
                 | "tcl-rc802a.ico"
+                | "axonkey-mobile.pcm"
         )
     {
         return Err(DescriptorError(format!(

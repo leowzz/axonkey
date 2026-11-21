@@ -16,7 +16,7 @@
         <ak:match transport="network" vendor-usb-hid="true" />
       </ak:identity>
       <ak:reports>
-        <ak:report id="mobile" direction="in" encoding="vendor-state" />
+        <ak:report id="mobile" direction="input" encoding="vendor-state" engine="mobile-wss" />
       </ak:reports>
       <ak:inputs>
         <ak:input id="remote.esc" label="退出 / 中断" short="退出" icon="power" kind="button" target="#key-esc" order="1">
