@@ -5,7 +5,7 @@ use rcgen::{
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -22,21 +22,87 @@ fn ensure_rustls_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+fn is_clash_or_benchmark_ip(ip: Ipv4Addr) -> bool {
+    // 198.18.0.0/15 is used by Clash / Mihomo / Sing-box TUN virtual adapters.
+    let [a, b, _, _] = ip.octets();
+    a == 198 && (b == 18 || b == 19)
+}
+
+fn is_cgnat_vpn_ip(ip: Ipv4Addr) -> bool {
+    // 100.64.0.0/10 (Tailscale / CGNAT)
+    let [a, b, _, _] = ip.octets();
+    a == 100 && (64..=127).contains(&b)
+}
+
+fn is_virtual_interface_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [
+        "vethernet",
+        "wsl",
+        "hyper-v",
+        "vmware",
+        "vmnet",
+        "virtualbox",
+        "vbox",
+        "docker",
+        "meta",
+        "clash",
+        "mihomo",
+        "sing-box",
+        "utun",
+        "loopback",
+    ]
+    .iter()
+    .any(|kw| lower.contains(kw))
+}
+
+fn interface_priority(name: &str, ip: Ipv4Addr) -> Option<u8> {
+    if ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || is_clash_or_benchmark_ip(ip)
+    {
+        return None;
+    }
+    let lower = name.to_ascii_lowercase();
+    if is_virtual_interface_name(name) {
+        return None;
+    }
+    // Prefer physical Wi-Fi / Ethernet RFC1918 LAN interfaces first.
+    if ip.is_private() {
+        if lower.contains("wi-fi")
+            || lower.contains("wlan")
+            || lower.contains("ethernet")
+            || lower.contains("以太网")
+            || lower.starts_with("en")
+        {
+            return Some(0);
+        }
+        return Some(1);
+    }
+    // Tailscale / overlay VPN as secondary reachable address.
+    if is_cgnat_vpn_ip(ip) {
+        return Some(2);
+    }
+    Some(3)
+}
+
 pub fn discover_lan_ipv4s() -> Vec<Ipv4Addr> {
-    let mut ips = Vec::new();
-    // Best-effort primary outbound LAN IP via non-connecting UDP socket.
-    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
-        if sock.connect("8.8.8.8:80").is_ok() {
-            if let Ok(addr) = sock.local_addr() {
-                if let IpAddr::V4(v4) = addr.ip() {
-                    if !v4.is_loopback() && !v4.is_unspecified() {
-                        ips.push(v4);
+    let mut ranked: Vec<(u8, Ipv4Addr)> = Vec::new();
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if let IpAddr::V4(v4) = iface.ip() {
+                if let Some(prio) = interface_priority(&iface.name, v4) {
+                    if !ranked.iter().any(|(_, existing)| *existing == v4) {
+                        ranked.push((prio, v4));
                     }
                 }
             }
         }
     }
-    ips
+    ranked.sort_by_key(|(prio, _)| *prio);
+    ranked.into_iter().map(|(_, ip)| ip).collect()
 }
 
 pub fn host_display_name() -> String {

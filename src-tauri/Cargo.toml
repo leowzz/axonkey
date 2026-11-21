@@ -44,6 +44,7 @@ rcgen = "0.13"
 base64 = "0.22"
 rand = "0.8"
 futures-util = "0.3"
+if-addrs = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 windows-collections = "0.2"
