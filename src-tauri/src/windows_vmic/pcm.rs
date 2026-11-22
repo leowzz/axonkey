@@ -23,7 +23,29 @@ impl AudioSource {
             gain: 1.0,
             converter: None,
             last_pcm_at: None,
+            eof: false,
         })))
+    }
+
+    pub(crate) fn prepare_stream(&self) {
+        let mut source = self.0.lock().unwrap();
+        source.samples.clear();
+        source.converter = None;
+        source.last_pcm_at = None;
+        source.eof = false;
+    }
+
+    pub(crate) fn mark_eof(&self) {
+        self.0.lock().unwrap().eof = true;
+    }
+
+    pub(crate) fn is_drained(&self) -> bool {
+        let source = self.0.lock().unwrap();
+        source.samples.is_empty()
+            && source
+                .converter
+                .as_ref()
+                .is_none_or(|c| c.tail_input_frames == 0)
     }
 
     pub(crate) fn push_pcm(&self, pcm: &[i16]) {
@@ -33,6 +55,7 @@ impl AudioSource {
         source.samples.drain(..remove);
         source.samples.extend(&pcm[overflow - remove..]);
         source.last_pcm_at = Some(Instant::now());
+        source.eof = false;
     }
 
     pub(crate) fn set_gain_db(&self, gain: i16) {
@@ -54,6 +77,7 @@ struct SourceState {
     gain: f32,
     converter: Option<Converter>,
     last_pcm_at: Option<Instant>,
+    eof: bool,
 }
 
 impl SourceState {
@@ -61,12 +85,14 @@ impl SourceState {
         self.samples.clear();
         self.converter = None;
         self.last_pcm_at = None;
+        self.eof = false;
     }
 
     fn mix_into(&mut self, format: PcmFormat, mixed: &mut [f32]) -> bool {
-        let input_idle = self
-            .last_pcm_at
-            .is_some_and(|last| last.elapsed() >= INPUT_IDLE_DELAY);
+        let input_idle = self.eof
+            || self
+                .last_pcm_at
+                .is_some_and(|last| last.elapsed() >= INPUT_IDLE_DELAY);
         if format.sample_rate == SOURCE_SAMPLE_RATE {
             self.converter = None;
             if self.samples.is_empty() || (self.samples.len() < mixed.len() && !input_idle) {
@@ -501,5 +527,58 @@ mod tests {
             mono_samples(&mixer.render(format(16000, 16, 1), 160).unwrap()),
             [2000; 160]
         );
+    }
+
+    #[test]
+    fn mark_eof_flushes_partial_samples_and_resampler_tail_immediately_without_idle_delay() {
+        // 1. Direct 16kHz partial block flushes immediately upon mark_eof()
+        let source = AudioSource::new();
+        let mut mixer = Mixer::default();
+        mixer.add_source(&source);
+        source.prepare_stream();
+        assert!(source.is_drained());
+
+        source.push_pcm(&[3000, -3000, 1500]);
+        assert!(!source.is_drained());
+        // Without mark_eof and before INPUT_IDLE_DELAY (40ms), partial block waits for more samples
+        assert!(mixer.render(format(16000, 16, 1), 8).is_none());
+
+        source.mark_eof();
+        let block = mixer.render(format(16000, 16, 1), 8).unwrap();
+        assert_eq!(mono_samples(&block), [3000, -3000, 1500, 0, 0, 0, 0, 0]);
+        assert!(source.is_drained());
+        assert!(mixer.render(format(16000, 16, 1), 8).is_none());
+
+        // 2. Resampled 48kHz partial block + SincFixedOut filter tail flush immediately upon mark_eof()
+        let out_48k = format(48000, 16, 1);
+        source.prepare_stream();
+        // 210 samples = 1 full 10ms block + partial remainder + sinc filter tail
+        source.push_pcm(&[6000; 210]);
+        assert!(!source.is_drained());
+        assert!(mixer.render(out_48k, 480).is_some());
+        // Remainder < next input requirement and last_pcm_at is fresh -> blocked until mark_eof()
+        assert!(!source.is_drained());
+        assert!(mixer.render(out_48k, 480).is_none());
+
+        source.mark_eof();
+        let mut tail_blocks = 0;
+        let mut non_zero_tail = false;
+        while !source.is_drained() {
+            let rendered = mixer
+                .render(out_48k, 480)
+                .expect("mark_eof must immediately flush remaining partial samples and sinc tail");
+            if mono_samples(&rendered).iter().any(|&s| s != 0) {
+                non_zero_tail = true;
+            }
+            tail_blocks += 1;
+            assert!(
+                tail_blocks <= 4,
+                "resampler tail must drain in bounded blocks"
+            );
+        }
+        assert!(tail_blocks >= 1);
+        assert!(non_zero_tail);
+        assert!(source.is_drained());
+        assert!(mixer.render(out_48k, 480).is_none());
     }
 }

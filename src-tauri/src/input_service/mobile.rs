@@ -17,6 +17,7 @@ struct SessionAccumulators {
 pub trait MobileInputBackend: Send + Sync {
     fn execute_behaviors(&self, behaviors: &[NativeBehavior]) -> Result<(), String>;
     fn inject_relative_motion(&self, dx: i32, dy: i32) -> Result<(), String>;
+    fn inject_absolute_pointer(&self, u: f64, v: f64) -> Result<(), String>;
     fn inject_wheel(&self, delta: i32, horizontal: bool) -> Result<(), String>;
     fn inject_mouse_button(&self, button: MouseButton, down: bool) -> Result<(), String>;
     fn inject_key_edge(&self, key: &str, down: bool) -> Result<(), String>;
@@ -62,6 +63,18 @@ impl MobileInputBackend for SystemMobileBackend {
         {
             let _ = (dx, dy);
             Err("当前平台暂不支持相对触控板移动".into())
+        }
+    }
+
+    fn inject_absolute_pointer(&self, u: f64, v: f64) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            return super::windows::inject_absolute_virtual_desk(u, v);
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (u, v);
+            Err("当前平台暂不支持绝对光标映射".into())
         }
     }
 
@@ -152,6 +165,20 @@ impl<B: MobileInputBackend> MobileInputController<B> {
         acc.ptr_x -= f64::from(step_x);
         acc.ptr_y -= f64::from(step_y);
         self.backend.inject_relative_motion(step_x, step_y)
+    }
+
+    pub fn pointer_absolute(&self, session_id: &str, u: f64, v: f64) -> Result<(), String> {
+        if !u.is_finite() || !v.is_finite() {
+            return Err("绝对坐标包含非有限浮点数".into());
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(acc) = state.accumulators.get_mut(session_id) {
+            acc.ptr_x = 0.0;
+            acc.ptr_y = 0.0;
+        }
+        let u_clamped = u.clamp(0.0, 1.0);
+        let v_clamped = v.clamp(0.0, 1.0);
+        self.backend.inject_absolute_pointer(u_clamped, v_clamped)
     }
 
     pub fn pointer_scroll(

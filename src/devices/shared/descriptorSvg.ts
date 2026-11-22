@@ -323,12 +323,13 @@ export function parseRuntimeDescriptorSvg(
   if (matchTags.length === 0) throw new Error('ak:identity 至少需要包含一条 ak:match')
   let everyIdentityVendorUsbHid = true
   const identities = matchTags.map(identity => {
+    const isNetworkTransport = identity.transport?.trim() === 'network'
     const vendorIds = parseIdentityNumbers(identity.vid)
     const productIds = parseIdentityNumbers(identity.pid)
-    if (vendorIds.length === 0 || productIds.length === 0) {
+    if (!isNetworkTransport && (vendorIds.length === 0 || productIds.length === 0)) {
       throw new Error('ak:match 必须声明有效的 vid 与 pid')
     }
-    if (vendorIds.every(v => v === 0) && productIds.every(p => p === 0)) {
+    if (!isNetworkTransport && vendorIds.every(v => v === 0) && productIds.every(p => p === 0)) {
       throw new Error('ak:match 不能使用 0x0000:0x0000 占位硬件标识')
     }
     const usagePages = parseIdentityNumbers(identity['usage-page'])

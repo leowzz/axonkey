@@ -1,23 +1,26 @@
-use super::deck::{DeckStore, DeckUpdateError};
+use super::deck::{DeckStore, DeckUpdateError, VOICE_KEY_ID};
 use super::pairing::{PairedPeerSummary, PairingStore};
 use super::protocol::{
-    ClientMessage, DeckLayoutPatch, DeckSnapshot, ForegroundContext, HostCapabilities,
-    PointerButtonName, PointerButtonPhase, ServerMessage, TextCommitMode, DEFAULT_LEASE_TTL_MS,
-    DEFAULT_TICK_INTERVAL_MS,
+    Aka1AudioFrame, Akp1PointerFrame, Akp1PointerKind, ClientMessage, DeckLayoutPatch,
+    DeckSnapshot, ForegroundContext, HostCapabilities, PointerButtonName, PointerButtonPhase,
+    ServerMessage, TextCommitMode, DEFAULT_LEASE_TTL_MS, DEFAULT_TICK_INTERVAL_MS,
+    MAX_AUDIO_PCM_BYTES,
 };
 use crate::input_service::mobile::{MobileInputBackend, MobileInputController};
 use crate::input_service::MouseButton;
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+pub const VOICE_DRAIN_POLL_MS: u64 = 5;
+pub const VOICE_DOWNSTREAM_MARGIN_MS: u64 = 45;
+pub const VOICE_DRAIN_HARD_CAP_MS: u64 = 200;
+pub const TILE_ACTIVATE_FLASH_MS: u64 = 120;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionPhase {
-    Disconnected,
-    Authenticating,
-    Synchronizing,
     Active,
     Revoking,
     Closed,
@@ -33,8 +36,9 @@ struct ActiveSession {
     peer_id: String,
     device_name: String,
     input_epoch: u64,
+    input_generation: u64,
     phase: SessionPhase,
-    last_seq: Option<u32>,
+    last_seq: Option<u64>,
     leases: VecDeque<IssuedLease>,
     next_lease_id: u64,
     last_alive_at: Instant,
@@ -61,7 +65,11 @@ impl ActiveSession {
             .any(|l| l.id == lease_id && now <= l.expires_at)
     }
 
-    fn accept_seq(&mut self, seq: u32) -> bool {
+    fn has_unexpired_lease(&self, now: Instant) -> bool {
+        self.leases.iter().any(|l| now <= l.expires_at)
+    }
+
+    fn accept_seq(&mut self, seq: u64) -> bool {
         match self.last_seq {
             None => {
                 self.last_seq = Some(seq);
@@ -76,6 +84,26 @@ impl ActiveSession {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VoicePhase {
+    Streaming,
+    Draining,
+}
+
+struct ActiveVoiceStream {
+    session_id: String,
+    stream_id: u64,
+    phase: VoicePhase,
+    next_sample_index: u64,
+    final_sample_exclusive: Option<u64>,
+}
+
+pub struct SessionOutcome {
+    pub reply: Option<ServerMessage>,
+    pub voice_drain: Option<(String, u64)>,
+    pub ui_flash_release: Option<(String, u64)>,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveSessionInfo {
@@ -83,9 +111,10 @@ pub struct ActiveSessionInfo {
     pub peer_id: String,
     pub device_name: String,
     pub input_epoch: u64,
+    pub input_generation: u64,
 }
 
-/// Serial coordinator owning pairing, deck authority, active session, and revoke barrier.
+/// Serial coordinator owning pairing, deck authority, active session, voice stream, and revoke barrier.
 pub struct MobileCoordinator<B: MobileInputBackend> {
     host_id: String,
     host_name: String,
@@ -95,8 +124,21 @@ pub struct MobileCoordinator<B: MobileInputBackend> {
     input: Arc<MobileInputController<B>>,
     active: Option<ActiveSession>,
     next_epoch: u64,
+    next_generation: u64,
     context: ForegroundContext,
     context_revision: u64,
+    last_managed_keys: HashSet<String>,
+    audio_gain_db: i16,
+    active_voice: Option<ActiveVoiceStream>,
+    legacy_audio_active: bool,
+    #[cfg(windows)]
+    audio_source: crate::windows_vmic::AudioSource,
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
+    audio_diagnostics: crate::audio_service::diagnostics::AudioDiagnostics,
+    received_audio_packets: bool,
+    ui_presses: BTreeMap<String, String>,
+    next_flash_id: u64,
+    ui_tx: Option<mpsc::UnboundedSender<Vec<String>>>,
 }
 
 impl<B: MobileInputBackend> MobileCoordinator<B> {
@@ -108,6 +150,8 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         deck: DeckStore,
         input: Arc<MobileInputController<B>>,
     ) -> Self {
+        #[cfg(windows)]
+        let audio_source = crate::windows_vmic::source();
         Self {
             host_id,
             host_name,
@@ -117,13 +161,45 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             input,
             active: None,
             next_epoch: 1,
+            next_generation: 1,
             context: ForegroundContext {
                 app_id: None,
                 app_name: None,
                 profile_name: "默认配置".into(),
             },
             context_revision: 1,
+            last_managed_keys: HashSet::new(),
+            audio_gain_db: 0,
+            active_voice: None,
+            legacy_audio_active: false,
+            #[cfg(windows)]
+            audio_source,
+            #[cfg(any(target_os = "windows", target_os = "macos", test))]
+            audio_diagnostics: crate::audio_service::diagnostics::AudioDiagnostics::default(),
+            received_audio_packets: false,
+            ui_presses: BTreeMap::new(),
+            next_flash_id: 0,
+            ui_tx: None,
         }
+    }
+
+    #[cfg(all(windows, test))]
+    pub(crate) fn new_with_audio_source(
+        host_id: String,
+        host_name: String,
+        ca_cert_der_b64: String,
+        pairing: PairingStore,
+        deck: DeckStore,
+        input: Arc<MobileInputController<B>>,
+        audio_source: crate::windows_vmic::AudioSource,
+    ) -> Self {
+        let mut coord = Self::new(host_id, host_name, ca_cert_der_b64, pairing, deck, input);
+        coord.audio_source = audio_source;
+        coord
+    }
+
+    pub fn set_ui_event_sender(&mut self, tx: mpsc::UnboundedSender<Vec<String>>) {
+        self.ui_tx = Some(tx);
     }
 
     pub fn host_id(&self) -> &str {
@@ -132,6 +208,134 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
 
     pub fn host_name(&self) -> &str {
         &self.host_name
+    }
+
+    pub fn paired_count(&self) -> usize {
+        self.pairing.list().len()
+    }
+
+    pub fn is_voice_active(&self) -> bool {
+        self.active_voice.is_some() || self.legacy_audio_active
+    }
+
+    pub fn has_received_audio(&self) -> bool {
+        self.received_audio_packets
+    }
+
+    pub fn set_audio_gain_db(&mut self, gain_db: i16) {
+        let clamped = crate::audio_service::clamp_gain_db(gain_db);
+        self.audio_gain_db = clamped;
+        #[cfg(windows)]
+        self.audio_source.set_gain_db(clamped);
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
+    pub fn audio_level(&self) -> crate::audio_service::AudioLevel {
+        self.audio_diagnostics.level()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", test)))]
+    pub fn audio_level(&self) -> crate::audio_service::AudioLevel {
+        crate::audio_service::AudioLevel::default()
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
+    fn record_diagnostics_pcm(&self, samples: &[i16]) {
+        if samples.is_empty() {
+            return;
+        }
+        let gain = 10.0_f32.powf(f32::from(self.audio_gain_db) / 20.0);
+        if (gain - 1.0).abs() < 1e-4 {
+            self.audio_diagnostics.decoded(samples);
+        } else {
+            let scaled: Vec<i16> = samples
+                .iter()
+                .map(|&s| (f32::from(s) * gain).round().clamp(-32768.0, 32767.0) as i16)
+                .collect();
+            self.audio_diagnostics.decoded(&scaled);
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn audio_source(&self) -> &crate::windows_vmic::AudioSource {
+        &self.audio_source
+    }
+
+    pub fn is_voice_draining(&self, session_id: &str, stream_id: u64) -> bool {
+        self.active_voice.as_ref().is_some_and(|v| {
+            v.session_id == session_id
+                && v.stream_id == stream_id
+                && v.phase == VoicePhase::Draining
+        })
+    }
+
+    pub fn complete_voice_drain(&mut self, session_id: &str, stream_id: u64) -> bool {
+        if !self.is_voice_draining(session_id, stream_id) {
+            return false;
+        }
+        self.active_voice = None;
+        let press_id = format!("voice:{stream_id}");
+        let _ = self
+            .input
+            .hold_keys(session_id, &press_id, Vec::new(), false);
+        if self.ui_presses.remove(&press_id).is_some() {
+            self.emit_ui_presses();
+        }
+        true
+    }
+
+    pub fn finish_ui_flash(&mut self, token: &str) {
+        if self.ui_presses.remove(token).is_some() {
+            self.emit_ui_presses();
+        }
+    }
+
+    fn emit_ui_presses(&self) {
+        let Some(tx) = &self.ui_tx else {
+            return;
+        };
+        let mut unique = Vec::with_capacity(self.ui_presses.len());
+        for key in self.ui_presses.values() {
+            if !unique.contains(key) {
+                unique.push(key.clone());
+            }
+        }
+        let _ = tx.send(unique);
+    }
+
+    fn clear_all_ui_presses(&mut self) {
+        if !self.ui_presses.is_empty() {
+            self.ui_presses.clear();
+            self.emit_ui_presses();
+        }
+    }
+
+    fn cancel_voice_internal(&mut self) {
+        let mut ui_changed = false;
+        if let Some(voice) = self.active_voice.take() {
+            let press_id = format!("voice:{}", voice.stream_id);
+            let _ = self
+                .input
+                .hold_keys(&voice.session_id, &press_id, Vec::new(), false);
+            #[cfg(windows)]
+            self.audio_source.clear();
+            ui_changed |= self.ui_presses.remove(&press_id).is_some();
+        }
+        if self.legacy_audio_active {
+            self.legacy_audio_active = false;
+            #[cfg(windows)]
+            self.audio_source.clear();
+            ui_changed |= self.ui_presses.remove("legacy:audio").is_some();
+        }
+        if ui_changed {
+            self.emit_ui_presses();
+        }
+    }
+
+    fn allocate_generation(&mut self) -> u64 {
+        let gen = self.next_generation;
+        self.next_generation += 1;
+        gen
     }
 
     pub fn create_pairing_offer(&mut self, addrs: Vec<String>) -> super::protocol::PairingOfferQr {
@@ -157,28 +361,40 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         binding: super::deck::TileActionBindings,
     ) -> Result<(u64, DeckSnapshot), String> {
         let (rev, snap) = self.deck.set_tile_binding(tile_id, binding)?;
+        self.cancel_voice_internal();
+        self.clear_all_ui_presses();
+        let next_epoch = self.next_epoch;
+        let next_gen = self.allocate_generation();
         if let Some(session) = &mut self.active {
-            // Bump inputEpoch so in-flight presses from old bindings cannot trigger new bindings.
-            let next_epoch = self.next_epoch;
+            // Bump inputEpoch & inputGeneration so in-flight presses from old bindings cannot trigger new bindings.
             self.next_epoch += 1;
             session.input_epoch = next_epoch;
+            session.input_generation = next_gen;
             let _ = self.input.revoke_session(&session.session_id);
             let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
                 deck_snapshot: snap.clone(),
                 deck_revision: rev,
                 input_epoch: next_epoch,
+                input_generation: next_gen,
             });
         }
         Ok((rev, snap))
     }
 
-    /// Syncs key mappings and active profile name from Axonkey's first-class `DeviceManager`
-    /// `axonkeyMobile` instance so edits in the standard MappingPage immediately reflect on phone.
-    pub fn sync_from_managed_instance(
+    /// Syncs key mappings, audio gain, and active profile name from Axonkey's first-class
+    /// `DeviceManager` `axonkeyMobile` instance (including foreground app profile switches).
+    pub fn sync_from_managed_instance_with_gain(
         &mut self,
         profile_name: String,
+        audio_gain_db: i16,
         behaviors: &std::collections::HashMap<String, crate::input_service::TriggerBehaviors>,
     ) {
+        let clamped_gain = crate::audio_service::clamp_gain_db(audio_gain_db);
+        if self.audio_gain_db != clamped_gain {
+            self.audio_gain_db = clamped_gain;
+            #[cfg(windows)]
+            self.audio_source.set_gain_db(clamped_gain);
+        }
         if self.context.profile_name != profile_name {
             self.context.profile_name = profile_name;
             self.context_revision += 1;
@@ -189,16 +405,28 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 });
             }
         }
-        if let Ok(Some((rev, snap))) = self.deck.sync_from_managed_profile(behaviors) {
+        let prev_keys = std::mem::replace(
+            &mut self.last_managed_keys,
+            behaviors.keys().cloned().collect(),
+        );
+        if let Ok(Some((rev, snap))) = self
+            .deck
+            .sync_from_managed_profile_with_previous(behaviors, &prev_keys)
+        {
+            self.cancel_voice_internal();
+            self.clear_all_ui_presses();
+            let next_epoch = self.next_epoch;
+            let next_gen = self.allocate_generation();
             if let Some(session) = &mut self.active {
-                let next_epoch = self.next_epoch;
                 self.next_epoch += 1;
                 session.input_epoch = next_epoch;
+                session.input_generation = next_gen;
                 let _ = self.input.revoke_session(&session.session_id);
                 let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
                     deck_snapshot: snap,
                     deck_revision: rev,
                     input_epoch: next_epoch,
+                    input_generation: next_gen,
                 });
             }
         }
@@ -210,16 +438,13 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             peer_id: s.peer_id.clone(),
             device_name: s.device_name.clone(),
             input_epoch: s.input_epoch,
+            input_generation: s.input_generation,
         })
     }
 
     pub fn revoke_peer(&mut self, peer_id: &str) -> Result<bool, String> {
         let removed = self.pairing.revoke(peer_id)?;
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|s| s.peer_id == peer_id)
-        {
+        if self.active.as_ref().is_some_and(|s| s.peer_id == peer_id) {
             self.revoke_active_session("peer_revoked");
         }
         Ok(removed)
@@ -236,6 +461,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 deck_snapshot: snap.clone(),
                 deck_revision: rev,
                 input_epoch: session.input_epoch,
+                input_generation: session.input_generation,
             });
         }
         Ok((rev, snap))
@@ -298,12 +524,14 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         let session_id = Uuid::new_v4().to_string();
         let input_epoch = self.next_epoch;
         self.next_epoch += 1;
+        let input_generation = self.allocate_generation();
 
         let mut session = ActiveSession {
             session_id: session_id.clone(),
             peer_id: peer.peer_id,
             device_name: peer.device_name,
             input_epoch,
+            input_generation,
             phase: SessionPhase::Active,
             last_seq: None,
             leases: VecDeque::new(),
@@ -317,6 +545,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         let ready = ServerMessage::ServerReady {
             session_id: session_id.clone(),
             input_epoch,
+            input_generation,
             lease_id,
             lease_ttl_ms: DEFAULT_LEASE_TTL_MS,
             tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
@@ -332,21 +561,31 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
     }
 
     pub fn tick(&mut self, now: Instant) {
+        let expired = self.active.as_ref().is_some_and(|session| {
+            session.phase == SessionPhase::Active
+                && now.saturating_duration_since(session.last_alive_at)
+                    > Duration::from_millis(DEFAULT_LEASE_TTL_MS)
+        });
+        if expired {
+            self.cancel_voice_internal();
+            self.clear_all_ui_presses();
+            let next_gen = self.allocate_generation();
+            if let Some(session) = self.active.as_mut() {
+                session.input_generation = next_gen;
+                let _ = self.input.revoke_session(&session.session_id);
+            }
+        }
         let Some(session) = self.active.as_mut() else {
             return;
         };
         if session.phase != SessionPhase::Active {
             return;
         }
-        // If foreground confirmation has exceeded lease TTL, release held inputs immediately.
-        if now.duration_since(session.last_alive_at) > Duration::from_millis(DEFAULT_LEASE_TTL_MS) {
-            let sid = session.session_id.clone();
-            let _ = self.input.revoke_session(&sid);
-        }
         let lease_id = session.issue_lease(now);
         let msg = ServerMessage::ServerTick {
             session_id: session.session_id.clone(),
             input_epoch: session.input_epoch,
+            input_generation: session.input_generation,
             lease_id,
             lease_ttl_ms: DEFAULT_LEASE_TTL_MS,
         };
@@ -363,8 +602,10 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         }
     }
 
-    /// Serial revoke barrier: invalidates epoch, releases only this session's held outputs, clears accumulators.
+    /// Serial revoke barrier: invalidates epoch/voice, releases only this session's held outputs, clears accumulators.
     pub fn revoke_active_session(&mut self, reason: &str) {
+        self.cancel_voice_internal();
+        self.clear_all_ui_presses();
         let Some(mut old) = self.active.take() else {
             return;
         };
@@ -383,13 +624,188 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         old.phase = SessionPhase::Closed;
     }
 
+    /// Constant-time `AKP1` 40-byte binary pointer validation & injection under `coordinator` serial lock.
+    pub fn handle_binary_pointer(
+        &mut self,
+        conn_session_id: &str,
+        frame: Akp1PointerFrame,
+        now: Instant,
+    ) -> bool {
+        if !frame.x.is_finite() || !frame.y.is_finite() || frame.input_generation == 0 {
+            return false;
+        }
+        let session_id = {
+            let Some(session) = self.active.as_mut() else {
+                return false;
+            };
+            if session.phase != SessionPhase::Active
+                || session.session_id != conn_session_id
+                || session.input_generation != frame.input_generation
+                || !session.has_unexpired_lease(now)
+                || !session.accept_seq(frame.seq)
+            {
+                return false;
+            }
+            session.last_alive_at = now;
+            session.session_id.clone()
+        };
+
+        match frame.kind {
+            Akp1PointerKind::TrackpadRelative => {
+                let sens = self.deck.pointer_sensitivity();
+                let _ = self.input.pointer_motion(
+                    &session_id,
+                    f64::from(frame.x),
+                    f64::from(frame.y),
+                    sens,
+                );
+            }
+            Akp1PointerKind::GyroRelative => {
+                let _ = self.input.pointer_motion(
+                    &session_id,
+                    f64::from(frame.x),
+                    f64::from(frame.y),
+                    1.0,
+                );
+            }
+            Akp1PointerKind::GyroAbsolute => {
+                let u = f64::from(frame.x).clamp(0.0, 1.0);
+                let v = f64::from(frame.y).clamp(0.0, 1.0);
+                let _ = self.input.pointer_absolute(&session_id, u, v);
+            }
+        }
+        true
+    }
+
+    /// Validates `AKA1` 32-byte header binary PCM16LE frame and appends samples to `AudioSource`.
+    pub fn handle_binary_audio(
+        &mut self,
+        conn_session_id: &str,
+        frame: Aka1AudioFrame<'_>,
+        now: Instant,
+    ) -> bool {
+        if frame.input_generation == 0 {
+            return false;
+        }
+        {
+            let Some(session) = self.active.as_mut() else {
+                return false;
+            };
+            if session.phase != SessionPhase::Active
+                || session.session_id != conn_session_id
+                || session.input_generation != frame.input_generation
+            {
+                return false;
+            }
+            session.last_alive_at = now;
+        }
+        let skip_samples = {
+            let Some(voice) = self.active_voice.as_mut() else {
+                return false;
+            };
+            if voice.session_id != conn_session_id
+                || voice.stream_id != frame.stream_id
+                || voice.phase != VoicePhase::Streaming
+            {
+                return false;
+            }
+            let total_samples = (frame.pcm_le_bytes.len() / 2) as u64;
+            let skip = if frame.first_sample_index < voice.next_sample_index {
+                let overlap = voice.next_sample_index - frame.first_sample_index;
+                if overlap >= total_samples {
+                    return true;
+                }
+                overlap as usize
+            } else {
+                if frame.first_sample_index > voice.next_sample_index {
+                    log::debug!(
+                        target: "axonkey::mobile",
+                        "AKA1 sample gap on stream {}: expected {}, got {}",
+                        frame.stream_id,
+                        voice.next_sample_index,
+                        frame.first_sample_index
+                    );
+                }
+                0
+            };
+            voice.next_sample_index = frame.first_sample_index + total_samples;
+            skip
+        };
+
+        #[cfg(windows)]
+        {
+            let slice = &frame.pcm_le_bytes[skip_samples * 2..];
+            if !slice.is_empty() {
+                let samples: Vec<i16> = slice
+                    .chunks_exact(2)
+                    .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                    .collect();
+                self.received_audio_packets = true;
+                self.record_diagnostics_pcm(&samples);
+                self.audio_source.push_pcm(&samples);
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = skip_samples;
+        true
+    }
+
+    /// Fallback for legacy `AudioStart` clients sending unframed raw 16kHz PCM16LE binary packets.
+    pub fn handle_legacy_binary_pcm(
+        &mut self,
+        conn_session_id: &str,
+        raw_pcm: &[u8],
+        now: Instant,
+    ) -> bool {
+        if !self.legacy_audio_active
+            || raw_pcm.is_empty()
+            || raw_pcm.len() > MAX_AUDIO_PCM_BYTES
+            || raw_pcm.len() % 2 != 0
+        {
+            return false;
+        }
+        let Some(session) = self.active.as_mut() else {
+            return false;
+        };
+        if session.phase != SessionPhase::Active || session.session_id != conn_session_id {
+            return false;
+        }
+        session.last_alive_at = now;
+        #[cfg(windows)]
+        {
+            let samples: Vec<i16> = raw_pcm
+                .chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            self.received_audio_packets = true;
+            self.record_diagnostics_pcm(&samples);
+            self.audio_source.push_pcm(&samples);
+        }
+        true
+    }
+
     pub fn handle_session_message(
         &mut self,
         conn_session_id: &str,
         msg: ClientMessage,
         now: Instant,
     ) -> Option<ServerMessage> {
-        match msg {
+        self.handle_session_message_with_effects(conn_session_id, msg, now)
+            .reply
+    }
+
+    pub fn handle_session_message_with_effects(
+        &mut self,
+        conn_session_id: &str,
+        msg: ClientMessage,
+        now: Instant,
+    ) -> SessionOutcome {
+        let mut outcome = SessionOutcome {
+            reply: None,
+            voice_drain: None,
+            ui_flash_release: None,
+        };
+        outcome.reply = match msg {
             ClientMessage::ClientAlive {
                 session_id,
                 lease_id,
@@ -409,12 +825,202 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 input_epoch,
                 ..
             } => {
-                if let Some(session) = self.active.as_ref() {
-                    if session.session_id == conn_session_id
+                let matches = self.active.as_ref().is_some_and(|session| {
+                    session.session_id == conn_session_id
                         && session.session_id == session_id
                         && session.input_epoch == input_epoch
+                });
+                if matches {
+                    self.cancel_voice_internal();
+                    self.clear_all_ui_presses();
+                    let _ = self.input.revoke_session(&session_id);
+                }
+                None
+            }
+            ClientMessage::VoiceBegin {
+                session_id,
+                input_epoch,
+                input_generation,
+                seq,
+                lease_id,
+                request_id,
+                stream_id,
+            } => {
+                if stream_id == 0 {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "invalid_stream", "无效的语音流编号")),
+                        ..outcome
+                    };
+                }
+                if input_generation != 0
+                    && !self
+                        .active
+                        .as_ref()
+                        .is_some_and(|s| s.input_generation == input_generation)
+                {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_generation", "输入代际已变更")),
+                        ..outcome
+                    };
+                }
+                if let Err(code) = self.validate_input_gate(
+                    conn_session_id,
+                    &session_id,
+                    input_epoch,
+                    seq,
+                    lease_id,
+                    now,
+                ) {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, code, "输入已过期或会话已变更")),
+                        ..outcome
+                    };
+                }
+
+                // Cleanly finish/cancel any previous streaming or draining voice utterance first.
+                self.cancel_voice_internal();
+
+                #[cfg(windows)]
+                {
+                    self.audio_source.prepare_stream();
+                    self.audio_source.set_gain_db(self.audio_gain_db);
+                }
+                #[cfg(any(target_os = "windows", target_os = "macos", test))]
+                self.audio_diagnostics.control(0x04);
+
+                let keys = self.deck.resolve_voice_hold_keys();
+                let press_id = format!("voice:{stream_id}");
+                if !keys.is_empty() {
+                    if let Err(e) = self.input.hold_keys(&session_id, &press_id, keys, true) {
+                        #[cfg(windows)]
+                        self.audio_source.clear();
+                        return SessionOutcome {
+                            reply: Some(cmd_err(request_id, "injection_failed", &e)),
+                            ..outcome
+                        };
+                    }
+                }
+                self.active_voice = Some(ActiveVoiceStream {
+                    session_id: session_id.clone(),
+                    stream_id,
+                    phase: VoicePhase::Streaming,
+                    next_sample_index: 0,
+                    final_sample_exclusive: None,
+                });
+                self.ui_presses.insert(press_id, VOICE_KEY_ID.to_owned());
+                self.emit_ui_presses();
+                Some(cmd_ok(request_id))
+            }
+            ClientMessage::VoiceEnd {
+                session_id,
+                input_epoch,
+                input_generation,
+                seq,
+                request_id,
+                stream_id,
+                final_sample_exclusive,
+            } => {
+                if input_generation != 0
+                    && !self
+                        .active
+                        .as_ref()
+                        .is_some_and(|s| s.input_generation == input_generation)
+                {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_generation", "输入代际已变更")),
+                        ..outcome
+                    };
+                }
+                if !self.is_matching_session(conn_session_id, &session_id, input_epoch, seq) {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_session", "会话已失效")),
+                        ..outcome
+                    };
+                }
+                let valid_stream = self.active_voice.as_mut().and_then(|voice| {
+                    (voice.session_id == session_id
+                        && voice.stream_id == stream_id
+                        && voice.phase == VoicePhase::Streaming)
+                        .then_some(voice)
+                });
+                let Some(voice) = valid_stream else {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_stream", "语音流不存在或已结束")),
+                        ..outcome
+                    };
+                };
+                if final_sample_exclusive > 0 && voice.next_sample_index != final_sample_exclusive {
+                    log::debug!(
+                        target: "axonkey::mobile",
+                        "VoiceEnd sample count mismatch on stream {stream_id}: received {}, expected {final_sample_exclusive}",
+                        voice.next_sample_index
+                    );
+                }
+                voice.phase = VoicePhase::Draining;
+                voice.final_sample_exclusive = Some(final_sample_exclusive);
+                #[cfg(windows)]
+                self.audio_source.mark_eof();
+                outcome.voice_drain = Some((session_id, stream_id));
+                Some(cmd_ok(request_id))
+            }
+            ClientMessage::VoiceCancel {
+                session_id,
+                input_epoch,
+                stream_id,
+                ..
+            } => {
+                let session_ok = self.active.as_ref().is_some_and(|s| {
+                    s.session_id == conn_session_id
+                        && s.session_id == session_id
+                        && s.input_epoch == input_epoch
+                });
+                if session_ok
+                    && self
+                        .active_voice
+                        .as_ref()
+                        .is_some_and(|v| v.stream_id == stream_id)
+                {
+                    self.cancel_voice_internal();
+                }
+                None
+            }
+            ClientMessage::AudioStart {
+                session_id,
+                sample_rate,
+                channels,
+            } => {
+                if self
+                    .active
+                    .as_ref()
+                    .is_some_and(|s| s.session_id == conn_session_id && s.session_id == session_id)
+                    && sample_rate == 16_000
+                    && channels == 1
+                {
+                    self.cancel_voice_internal();
+                    #[cfg(windows)]
                     {
-                        let _ = self.input.revoke_session(&session.session_id);
+                        self.audio_source.prepare_stream();
+                        self.audio_source.set_gain_db(self.audio_gain_db);
+                    }
+                    self.legacy_audio_active = true;
+                    self.ui_presses
+                        .insert("legacy:audio".into(), VOICE_KEY_ID.to_owned());
+                    self.emit_ui_presses();
+                }
+                None
+            }
+            ClientMessage::AudioStop { session_id } => {
+                if self
+                    .active
+                    .as_ref()
+                    .is_some_and(|s| s.session_id == conn_session_id && s.session_id == session_id)
+                    && self.legacy_audio_active
+                {
+                    self.legacy_audio_active = false;
+                    #[cfg(windows)]
+                    self.audio_source.clear();
+                    if self.ui_presses.remove("legacy:audio").is_some() {
+                        self.emit_ui_presses();
                     }
                 }
                 None
@@ -430,14 +1036,17 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                     .as_ref()
                     .is_some_and(|s| s.session_id == conn_session_id && s.session_id == session_id)
                 {
-                    return Some(ServerMessage::DeckUpdateResult {
-                        request_id,
-                        ok: false,
-                        conflict: None,
-                        deck_revision: self.deck.revision(),
-                        deck_snapshot: None,
-                        error: Some("会话已失效".into()),
-                    });
+                    return SessionOutcome {
+                        reply: Some(ServerMessage::DeckUpdateResult {
+                            request_id,
+                            ok: false,
+                            conflict: None,
+                            deck_revision: self.deck.revision(),
+                            deck_snapshot: None,
+                            error: Some("会话已失效".into()),
+                        }),
+                        ..outcome
+                    };
                 }
                 match self.deck.apply_layout_patch(base_revision, layout_patch) {
                     Ok((rev, snap)) => Some(ServerMessage::DeckUpdateResult {
@@ -479,16 +1088,34 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 tile_id,
                 gesture,
             } => {
-                if let Err(code) =
-                    self.validate_input_gate(conn_session_id, &session_id, input_epoch, seq, lease_id, now)
-                {
-                    return Some(cmd_err(request_id, code, "输入已过期或会话已变更"));
+                if let Err(code) = self.validate_input_gate(
+                    conn_session_id,
+                    &session_id,
+                    input_epoch,
+                    seq,
+                    lease_id,
+                    now,
+                ) {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, code, "输入已过期或会话已变更")),
+                        ..outcome
+                    };
                 }
                 let Some(actions) = self.deck.resolve_gesture(&tile_id, gesture) else {
-                    return Some(cmd_err(request_id, "unbound_tile", "该按键未绑定动作"));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "unbound_tile", "该按键未绑定动作")),
+                        ..outcome
+                    };
                 };
                 match self.input.execute_behaviors(actions) {
-                    Ok(()) => Some(cmd_ok(request_id)),
+                    Ok(()) => {
+                        self.next_flash_id += 1;
+                        let token = format!("flash:{session_id}:{}", self.next_flash_id);
+                        self.ui_presses.insert(token.clone(), tile_id);
+                        self.emit_ui_presses();
+                        outcome.ui_flash_release = Some((token, TILE_ACTIVATE_FLASH_MS));
+                        Some(cmd_ok(request_id))
+                    }
                     Err(e) => Some(cmd_err(request_id, "injection_failed", &e)),
                 }
             }
@@ -501,16 +1128,36 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 tile_id,
                 press_id,
             } => {
-                if let Err(code) =
-                    self.validate_input_gate(conn_session_id, &session_id, input_epoch, seq, lease_id, now)
-                {
-                    return Some(cmd_err(request_id, code, "输入已过期或会话已变更"));
+                if let Err(code) = self.validate_input_gate(
+                    conn_session_id,
+                    &session_id,
+                    input_epoch,
+                    seq,
+                    lease_id,
+                    now,
+                ) {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, code, "输入已过期或会话已变更")),
+                        ..outcome
+                    };
                 }
                 let Some(keys) = self.deck.resolve_hold_keys(&tile_id) else {
-                    return Some(cmd_err(request_id, "unbound_hold", "该按键未配置持续按住键"));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(
+                            request_id,
+                            "unbound_hold",
+                            "该按键未配置持续按住键",
+                        )),
+                        ..outcome
+                    };
                 };
                 match self.input.hold_keys(&session_id, &press_id, keys, true) {
-                    Ok(()) => Some(cmd_ok(request_id)),
+                    Ok(()) => {
+                        self.ui_presses
+                            .insert(format!("hold:{session_id}:{press_id}"), tile_id);
+                        self.emit_ui_presses();
+                        Some(cmd_ok(request_id))
+                    }
                     Err(e) => Some(cmd_err(request_id, "injection_failed", &e)),
                 }
             }
@@ -525,11 +1172,26 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             } => {
                 // Release is allowed even if lease just ticked, as long as session & epoch match.
                 if !self.is_matching_session(conn_session_id, &session_id, input_epoch, seq) {
-                    return Some(cmd_err(request_id, "stale_session", "会话已失效"));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_session", "会话已失效")),
+                        ..outcome
+                    };
                 }
                 let _ = lease_id;
-                match self.input.hold_keys(&session_id, &press_id, Vec::new(), false) {
-                    Ok(()) => Some(cmd_ok(request_id)),
+                match self
+                    .input
+                    .hold_keys(&session_id, &press_id, Vec::new(), false)
+                {
+                    Ok(()) => {
+                        if self
+                            .ui_presses
+                            .remove(&format!("hold:{session_id}:{press_id}"))
+                            .is_some()
+                        {
+                            self.emit_ui_presses();
+                        }
+                        Some(cmd_ok(request_id))
+                    }
                     Err(e) => Some(cmd_err(request_id, "injection_failed", &e)),
                 }
             }
@@ -542,15 +1204,22 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 dy,
             } => {
                 if !dx.is_finite() || !dy.is_finite() {
-                    return None;
+                    return outcome;
                 }
                 if self
-                    .validate_input_gate(conn_session_id, &session_id, input_epoch, seq, lease_id, now)
+                    .validate_input_gate(
+                        conn_session_id,
+                        &session_id,
+                        input_epoch,
+                        seq,
+                        lease_id,
+                        now,
+                    )
                     .is_err()
                 {
-                    return None;
+                    return outcome;
                 }
-                let sens = self.deck.snapshot().pointer_sensitivity;
+                let sens = self.deck.pointer_sensitivity();
                 let _ = self.input.pointer_motion(&session_id, dx, dy, sens);
                 None
             }
@@ -563,15 +1232,22 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 y,
             } => {
                 if !x.is_finite() || !y.is_finite() {
-                    return None;
+                    return outcome;
                 }
                 if self
-                    .validate_input_gate(conn_session_id, &session_id, input_epoch, seq, lease_id, now)
+                    .validate_input_gate(
+                        conn_session_id,
+                        &session_id,
+                        input_epoch,
+                        seq,
+                        lease_id,
+                        now,
+                    )
                     .is_err()
                 {
-                    return None;
+                    return outcome;
                 }
-                let sens = self.deck.snapshot().scroll_sensitivity;
+                let sens = self.deck.scroll_sensitivity();
                 let _ = self.input.pointer_scroll(&session_id, x, y, sens);
                 None
             }
@@ -595,11 +1271,17 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                         lease_id,
                         now,
                     ) {
-                        return Some(cmd_err(request_id, code, "输入已过期或会话已变更"));
+                        return SessionOutcome {
+                            reply: Some(cmd_err(request_id, code, "输入已过期或会话已变更")),
+                            ..outcome
+                        };
                     }
                 } else if !self.is_matching_session(conn_session_id, &session_id, input_epoch, seq)
                 {
-                    return Some(cmd_err(request_id, "stale_session", "会话已失效"));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "stale_session", "会话已失效")),
+                        ..outcome
+                    };
                 }
                 let btn = match button {
                     PointerButtonName::Left => MouseButton::Left,
@@ -622,20 +1304,34 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 submit,
                 context_revision,
             } => {
-                if let Err(code) =
-                    self.validate_input_gate(conn_session_id, &session_id, input_epoch, seq, lease_id, now)
-                {
-                    return Some(cmd_err(request_id, code, "输入已过期或会话已变更"));
+                if let Err(code) = self.validate_input_gate(
+                    conn_session_id,
+                    &session_id,
+                    input_epoch,
+                    seq,
+                    lease_id,
+                    now,
+                ) {
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, code, "输入已过期或会话已变更")),
+                        ..outcome
+                    };
                 }
                 if context_revision != self.context_revision {
-                    return Some(cmd_err(
-                        request_id,
-                        "context_changed",
-                        "桌面当前前台应用已切换，已取消本次文本提交",
-                    ));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(
+                            request_id,
+                            "context_changed",
+                            "桌面当前前台应用已切换，已取消本次文本提交",
+                        )),
+                        ..outcome
+                    };
                 }
                 if text.is_empty() || text.len() > 16_384 {
-                    return Some(cmd_err(request_id, "invalid_text", "文本长度超出限制"));
+                    return SessionOutcome {
+                        reply: Some(cmd_err(request_id, "invalid_text", "文本长度超出限制")),
+                        ..outcome
+                    };
                 }
                 let paste_mode = matches!(mode, TextCommitMode::Paste);
                 match self.input.text_commit(&text, paste_mode, submit) {
@@ -643,14 +1339,14 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                     Err(e) => Some(cmd_err(request_id, "injection_failed", &e)),
                 }
             }
-            ClientMessage::PairRequest { .. }
-            | ClientMessage::ClientAuth { .. }
-            | ClientMessage::AudioStart { .. }
-            | ClientMessage::AudioStop { .. } => Some(ServerMessage::Error {
-                code: "already_authenticated".into(),
-                message: "会话已认证，无需重复握手".into(),
-            }),
-        }
+            ClientMessage::PairRequest { .. } | ClientMessage::ClientAuth { .. } => {
+                Some(ServerMessage::Error {
+                    code: "already_authenticated".into(),
+                    message: "会话已认证，无需重复握手".into(),
+                })
+            }
+        };
+        outcome
     }
 
     fn validate_input_gate(
@@ -658,7 +1354,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         conn_session_id: &str,
         session_id: &str,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         now: Instant,
     ) -> Result<(), &'static str> {
@@ -687,16 +1383,87 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         conn_session_id: &str,
         session_id: &str,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
     ) -> bool {
         let Some(session) = self.active.as_mut() else {
             return false;
         };
-        session.session_id == conn_session_id
+        if session.session_id == conn_session_id
             && session.session_id == session_id
             && session.input_epoch == input_epoch
             && session.accept_seq(seq)
+        {
+            return true;
+        }
+        false
     }
+}
+
+/// Sample-exact normal voice release drain task:
+/// Polls `AudioSource::is_drained()` every 5ms + 45ms WaveRT/ASR downstream margin
+/// (capped at 200ms total deadline) WITHOUT holding `coordinator` lock across sleeps,
+/// then releases `voice:{stream_id}` hold keys if the stream was not cancelled/replaced.
+pub async fn drain_voice_stream<B: MobileInputBackend + 'static>(
+    coordinator: Arc<Mutex<MobileCoordinator<B>>>,
+    session_id: String,
+    stream_id: u64,
+) {
+    let deadline = Instant::now() + Duration::from_millis(VOICE_DRAIN_HARD_CAP_MS);
+    #[cfg(windows)]
+    {
+        let audio_source = {
+            let guard = coordinator.lock().unwrap_or_else(|e| e.into_inner());
+            if !guard.is_voice_draining(&session_id, stream_id) {
+                return;
+            }
+            guard.audio_source().clone()
+        };
+
+        let mut drained = audio_source.is_drained();
+        while !drained && Instant::now() < deadline {
+            let sleep_dur = Duration::from_millis(VOICE_DRAIN_POLL_MS)
+                .min(deadline.saturating_duration_since(Instant::now()));
+            if sleep_dur.is_zero() {
+                break;
+            }
+            tokio::time::sleep(sleep_dur).await;
+            let still_draining = coordinator
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_voice_draining(&session_id, stream_id);
+            if !still_draining {
+                return;
+            }
+            drained = audio_source.is_drained();
+        }
+
+        if drained {
+            let margin = Duration::from_millis(VOICE_DOWNSTREAM_MARGIN_MS)
+                .min(deadline.saturating_duration_since(Instant::now()));
+            if !margin.is_zero() {
+                tokio::time::sleep(margin).await;
+            }
+        } else {
+            log::debug!(
+                target: "axonkey::mobile",
+                "Voice stream {stream_id} reached {VOICE_DRAIN_HARD_CAP_MS}ms drain cap; clearing unplayed buffer before key release"
+            );
+            audio_source.clear();
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let margin = Duration::from_millis(VOICE_DOWNSTREAM_MARGIN_MS)
+            .min(deadline.saturating_duration_since(Instant::now()));
+        if !margin.is_zero() {
+            tokio::time::sleep(margin).await;
+        }
+    }
+
+    coordinator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .complete_voice_drain(&session_id, stream_id);
 }
 
 fn cmd_ok(request_id: String) -> ServerMessage {
@@ -721,7 +1488,6 @@ fn cmd_err(request_id: String, code: &str, message: &str) -> ServerMessage {
 mod tests {
     use super::*;
     use crate::input_service::NativeBehavior;
-    use std::sync::Mutex;
 
     #[derive(Default)]
     struct MockBackend {
@@ -737,10 +1503,14 @@ mod tests {
             Ok(())
         }
         fn inject_relative_motion(&self, dx: i32, dy: i32) -> Result<(), String> {
+            self.events.lock().unwrap().push(format!("move:{dx},{dy}"));
+            Ok(())
+        }
+        fn inject_absolute_pointer(&self, u: f64, v: f64) -> Result<(), String> {
             self.events
                 .lock()
                 .unwrap()
-                .push(format!("move:{dx},{dy}"));
+                .push(format!("abs:{u:.3},{v:.3}"));
             Ok(())
         }
         fn inject_wheel(&self, delta: i32, horizontal: bool) -> Result<(), String> {
@@ -800,15 +1570,17 @@ mod tests {
         let (sid1, ready) = coord
             .claim_control(&peer_id, &peer_token, "Phone A", tx1, t0)
             .unwrap();
-        let (epoch1, lease1, ctx_rev1) = match ready {
+        let (epoch1, gen1, lease1, ctx_rev1) = match ready {
             ServerMessage::ServerReady {
                 input_epoch,
+                input_generation,
                 lease_id,
                 context_revision,
                 ..
-            } => (input_epoch, lease_id, context_revision),
+            } => (input_epoch, input_generation, lease_id, context_revision),
             _ => panic!("Expected ServerReady"),
         };
+        assert_eq!(gen1, 1);
 
         // Hold left mouse button down.
         let down_res = coord
@@ -827,9 +1599,24 @@ mod tests {
                 t0 + Duration::from_millis(50),
             )
             .unwrap();
-        assert!(matches!(down_res, ServerMessage::CommandResult { ok: true, .. }));
+        assert!(matches!(
+            down_res,
+            ServerMessage::CommandResult { ok: true, .. }
+        ));
 
-        // Expired lease (>750ms) must be rejected.
+        // Expired lease (>750ms) must be rejected for both JSON and AKP1 binary frames.
+        let expired_akp1 =
+            super::super::protocol::parse_akp1_frame(&super::super::protocol::encode_akp1_frame(
+                Akp1PointerKind::TrackpadRelative,
+                gen1,
+                2,
+                1000,
+                10.0,
+                5.0,
+            ))
+            .unwrap();
+        assert!(!coord.handle_binary_pointer(&sid1, expired_akp1, t0 + Duration::from_millis(900)));
+
         let expired_res = coord
             .handle_session_message(
                 &sid1,
@@ -874,11 +1661,23 @@ mod tests {
             ServerMessage::CommandResult { ok: false, code: Some(ref c), .. } if c == "context_changed"
         ));
 
-        // New connection replaces old session -> triggers revoke barrier & releases Left button.
+        // New connection replaces old session -> triggers revoke barrier & bumps input_generation.
         let (tx2, _rx2) = mpsc::channel(16);
-        let (_sid2, _ready2) = coord
-            .claim_control(&peer_id, &peer_token, "Phone B", tx2, t0 + Duration::from_millis(200))
+        let (_sid2, ready2) = coord
+            .claim_control(
+                &peer_id,
+                &peer_token,
+                "Phone B",
+                tx2,
+                t0 + Duration::from_millis(200),
+            )
             .unwrap();
+        match ready2 {
+            ServerMessage::ServerReady {
+                input_generation, ..
+            } => assert!(input_generation > gen1),
+            _ => panic!("Expected ServerReady"),
+        }
 
         // Drain rx1 and verify SessionRevoked was sent.
         let mut saw_revoked = false;
@@ -888,6 +1687,328 @@ mod tests {
             }
         }
         assert!(saw_revoked);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn akp1_binary_pointer_applies_trackpad_sensitivity_gyro_unity_and_absolute_clamp() {
+        let dir = std::env::temp_dir().join(format!("axonkey-akp1-test-{}", Uuid::new_v4()));
+        let pairing = PairingStore::load(dir.join("peers.json")).unwrap();
+        let deck = DeckStore::load(dir.join("mobile-deck.json")).unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+
+        struct SharedMock(Arc<Mutex<Vec<String>>>);
+        impl MobileInputBackend for SharedMock {
+            fn execute_behaviors(&self, _: &[NativeBehavior]) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_relative_motion(&self, dx: i32, dy: i32) -> Result<(), String> {
+                self.0.lock().unwrap().push(format!("rel:{dx},{dy}"));
+                Ok(())
+            }
+            fn inject_absolute_pointer(&self, u: f64, v: f64) -> Result<(), String> {
+                self.0.lock().unwrap().push(format!("abs:{u:.2},{v:.2}"));
+                Ok(())
+            }
+            fn inject_wheel(&self, _: i32, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_mouse_button(&self, _: MouseButton, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_key_edge(&self, k: &str, down: bool) -> Result<(), String> {
+                self.0.lock().unwrap().push(format!("key:{k}:{down}"));
+                Ok(())
+            }
+        }
+
+        let input = Arc::new(MobileInputController::new(SharedMock(Arc::clone(&events))));
+        let mut coord = MobileCoordinator::new(
+            "host-akp1".into(),
+            "TestPC".into(),
+            "CA".into(),
+            pairing,
+            deck,
+            input,
+        );
+        let offer = coord.create_pairing_offer(vec!["127.0.0.1:9999".into()]);
+        let (peer_id, peer_token) = match coord.handle_pair_request(&offer.pair_token, "Phone") {
+            ServerMessage::PairResult {
+                peer_id: Some(id),
+                peer_token: Some(tok),
+                ..
+            } => (id, tok),
+            _ => unreachable!(),
+        };
+        let t0 = Instant::now();
+        let (tx, _rx) = mpsc::channel(16);
+        let (sid, ready) = coord
+            .claim_control(&peer_id, &peer_token, "Phone", tx, t0)
+            .unwrap();
+        let gen = match ready {
+            ServerMessage::ServerReady {
+                input_generation, ..
+            } => input_generation,
+            _ => unreachable!(),
+        };
+
+        // 1. Trackpad kind=1 uses deck.pointer_sensitivity() (default 1.4): 10 * 1.4 = 14
+        let f1 =
+            super::super::protocol::parse_akp1_frame(&super::super::protocol::encode_akp1_frame(
+                Akp1PointerKind::TrackpadRelative,
+                gen,
+                10,
+                100,
+                10.0,
+                -5.0,
+            ))
+            .unwrap();
+        assert!(coord.handle_binary_pointer(&sid, f1, t0 + Duration::from_millis(10)));
+
+        // Out-of-order seq <= 10 must be rejected
+        assert!(!coord.handle_binary_pointer(&sid, f1, t0 + Duration::from_millis(12)));
+
+        // Wrong generation must be rejected without consuming seq
+        let wrong_gen =
+            super::super::protocol::parse_akp1_frame(&super::super::protocol::encode_akp1_frame(
+                Akp1PointerKind::GyroRelative,
+                gen + 99,
+                11,
+                200,
+                10.0,
+                5.0,
+            ))
+            .unwrap();
+        assert!(!coord.handle_binary_pointer(&sid, wrong_gen, t0 + Duration::from_millis(15)));
+
+        // 2. Gyro relative kind=2 uses 1.0 sensitivity: 10 * 1.0 = 10
+        let f2 =
+            super::super::protocol::parse_akp1_frame(&super::super::protocol::encode_akp1_frame(
+                Akp1PointerKind::GyroRelative,
+                gen,
+                11,
+                200,
+                10.0,
+                5.0,
+            ))
+            .unwrap();
+        assert!(coord.handle_binary_pointer(&sid, f2, t0 + Duration::from_millis(20)));
+
+        // 3. Gyro absolute kind=3 clamps [0.0, 1.0]
+        let f3 =
+            super::super::protocol::parse_akp1_frame(&super::super::protocol::encode_akp1_frame(
+                Akp1PointerKind::GyroAbsolute,
+                gen,
+                12,
+                300,
+                1.25,
+                -0.2,
+            ))
+            .unwrap();
+        assert!(coord.handle_binary_pointer(&sid, f3, t0 + Duration::from_millis(30)));
+
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec!["rel:14,-7", "rel:10,5", "abs:1.00,0.00"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn voice_end_drains_tail_before_releasing_alt_while_cancel_releases_immediately() {
+        let dir = std::env::temp_dir().join(format!("axonkey-voice-sm-{}", Uuid::new_v4()));
+        let pairing = PairingStore::load(dir.join("peers.json")).unwrap();
+        let deck = DeckStore::load(dir.join("mobile-deck.json")).unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+
+        struct VoiceMock(Arc<Mutex<Vec<String>>>);
+        impl MobileInputBackend for VoiceMock {
+            fn execute_behaviors(&self, _: &[NativeBehavior]) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_relative_motion(&self, _: i32, _: i32) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_absolute_pointer(&self, _: f64, _: f64) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_wheel(&self, _: i32, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_mouse_button(&self, _: MouseButton, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_key_edge(&self, key: &str, down: bool) -> Result<(), String> {
+                self.0.lock().unwrap().push(format!("key:{key}:{down}"));
+                Ok(())
+            }
+        }
+
+        let audio_src = crate::windows_vmic::AudioSource::new();
+        let input = Arc::new(MobileInputController::new(VoiceMock(Arc::clone(&events))));
+        let coord = Arc::new(Mutex::new(MobileCoordinator::new_with_audio_source(
+            "host-voice".into(),
+            "TestPC".into(),
+            "CA".into(),
+            pairing,
+            deck,
+            input,
+            audio_src.clone(),
+        )));
+        let (ui_tx, mut ui_rx) = mpsc::unbounded_channel();
+        coord.lock().unwrap().set_ui_event_sender(ui_tx);
+
+        let offer = coord
+            .lock()
+            .unwrap()
+            .create_pairing_offer(vec!["127.0.0.1:8888".into()]);
+        let (peer_id, peer_token) = match coord
+            .lock()
+            .unwrap()
+            .handle_pair_request(&offer.pair_token, "Phone")
+        {
+            ServerMessage::PairResult {
+                peer_id: Some(id),
+                peer_token: Some(tok),
+                ..
+            } => (id, tok),
+            _ => unreachable!(),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let t0 = Instant::now();
+            let (tx, _rx) = mpsc::channel(16);
+            let (sid, ready) = coord
+                .lock()
+                .unwrap()
+                .claim_control(&peer_id, &peer_token, "Phone", tx, t0)
+                .unwrap();
+            let (epoch, gen, lease) = match ready {
+                ServerMessage::ServerReady {
+                    input_epoch,
+                    input_generation,
+                    lease_id,
+                    ..
+                } => (input_epoch, input_generation, lease_id),
+                _ => unreachable!(),
+            };
+
+            // 1. Normal utterance: VoiceBegin -> AKA1 PCM -> VoiceEnd (must NOT clear or release Alt yet!)
+            let out_begin = coord.lock().unwrap().handle_session_message_with_effects(
+                &sid,
+                ClientMessage::VoiceBegin {
+                    session_id: sid.clone(),
+                    input_epoch: epoch,
+                    input_generation: gen,
+                    seq: 1,
+                    lease_id: lease,
+                    request_id: "vb-1".into(),
+                    stream_id: 1,
+                },
+                Instant::now(),
+            );
+            assert!(matches!(
+                out_begin.reply,
+                Some(ServerMessage::CommandResult { ok: true, .. })
+            ));
+            assert_eq!(*events.lock().unwrap(), vec!["key:Alt:true"]);
+            assert_eq!(ui_rx.try_recv().unwrap(), vec!["mobile.voice".to_owned()]);
+            assert!(coord.lock().unwrap().is_voice_active());
+
+            // Push 160 samples via AKA1
+            let raw_aka1 = super::super::protocol::encode_aka1_frame(gen, 1, 0, &[5000i16; 160]);
+            let parsed_aka1 = super::super::protocol::parse_aka1_frame(&raw_aka1).unwrap();
+            assert!(coord
+                .lock()
+                .unwrap()
+                .handle_binary_audio(&sid, parsed_aka1, Instant::now()));
+            assert_eq!(audio_src.queued_samples(), 160);
+
+            // Send VoiceEnd: samples MUST remain queued (NOT cleared!) and Alt MUST remain held!
+            let out_end = coord.lock().unwrap().handle_session_message_with_effects(
+                &sid,
+                ClientMessage::VoiceEnd {
+                    session_id: sid.clone(),
+                    input_epoch: epoch,
+                    input_generation: gen,
+                    seq: 2,
+                    request_id: "ve-1".into(),
+                    stream_id: 1,
+                    final_sample_exclusive: 160,
+                },
+                Instant::now(),
+            );
+            assert_eq!(audio_src.queued_samples(), 160);
+            assert_eq!(*events.lock().unwrap(), vec!["key:Alt:true"]);
+            assert_eq!(out_end.voice_drain, Some((sid.clone(), 1)));
+
+            let drain_handle = tokio::spawn(drain_voice_stream(Arc::clone(&coord), sid.clone(), 1));
+
+            // Simulate driver consuming the queued samples 12ms later
+            tokio::time::sleep(Duration::from_millis(12)).await;
+            // Alt is STILL held while samples are unconsumed!
+            assert_eq!(*events.lock().unwrap(), vec!["key:Alt:true"]);
+            audio_src.clear(); // simulate mixer draining samples to 0
+
+            // Wait for 5ms poll + 45ms downstream WaveRT/ASR margin
+            drain_handle.await.unwrap();
+            assert_eq!(
+                *events.lock().unwrap(),
+                vec!["key:Alt:true", "key:Alt:false"]
+            );
+            assert!(!coord.lock().unwrap().is_voice_active());
+            assert_eq!(ui_rx.try_recv().unwrap(), Vec::<String>::new());
+
+            // 2. Abnormal cancel: VoiceBegin(stream 2) -> AKA1 -> VoiceCancel releases Alt & clears PCM IMMEDIATELY
+            coord.lock().unwrap().tick(Instant::now());
+            let lease2 = 2;
+            coord.lock().unwrap().handle_session_message_with_effects(
+                &sid,
+                ClientMessage::VoiceBegin {
+                    session_id: sid.clone(),
+                    input_epoch: epoch,
+                    input_generation: gen,
+                    seq: 3,
+                    lease_id: lease2,
+                    request_id: "vb-2".into(),
+                    stream_id: 2,
+                },
+                Instant::now(),
+            );
+            let raw_aka2 = super::super::protocol::encode_aka1_frame(gen, 2, 0, &[7000i16; 160]);
+            let parsed_aka2 = super::super::protocol::parse_aka1_frame(&raw_aka2).unwrap();
+            coord
+                .lock()
+                .unwrap()
+                .handle_binary_audio(&sid, parsed_aka2, Instant::now());
+            assert_eq!(audio_src.queued_samples(), 160);
+
+            coord.lock().unwrap().handle_session_message_with_effects(
+                &sid,
+                ClientMessage::VoiceCancel {
+                    session_id: sid.clone(),
+                    input_epoch: epoch,
+                    stream_id: 2,
+                    reason: "paused".into(),
+                },
+                Instant::now(),
+            );
+            // Immediately cleared & released with zero sleep!
+            assert_eq!(audio_src.queued_samples(), 0);
+            assert!(!coord.lock().unwrap().is_voice_active());
+            assert_eq!(
+                *events.lock().unwrap(),
+                vec![
+                    "key:Alt:true",
+                    "key:Alt:false",
+                    "key:Alt:true",
+                    "key:Alt:false"
+                ]
+            );
+        });
 
         let _ = std::fs::remove_dir_all(&dir);
     }

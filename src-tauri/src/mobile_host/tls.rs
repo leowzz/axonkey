@@ -134,8 +134,8 @@ pub fn load_or_create_identity(dir: &Path) -> Result<HostTlsIdentity, String> {
     };
 
     let (ca_key, ca_cert) = if ca_key_path.exists() && ca_cert_path.exists() {
-        let key_pem = fs::read_to_string(&ca_key_path)
-            .map_err(|e| format!("Failed to read CA key: {e}"))?;
+        let key_pem =
+            fs::read_to_string(&ca_key_path).map_err(|e| format!("Failed to read CA key: {e}"))?;
         let key_pair =
             KeyPair::from_pem(&key_pem).map_err(|e| format!("Invalid persisted CA key: {e}"))?;
         let params = build_ca_params(&host_id)?;

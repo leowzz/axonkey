@@ -1016,18 +1016,20 @@ async fn unbind_device_instance(
         }
 
         let manager = app.state::<DeviceManager>();
-        let snapshot = manager.unbind(&instance_id)?;
+        let mut snapshot = manager.unbind(&instance_id)?;
         app.state::<AudioServiceManager>()
             .sync_instances(&audio_targets(&snapshot));
+        enrich_device_snapshot_with_app(&app, &mut snapshot);
         return Ok(snapshot);
     }
     #[cfg(not(target_os = "windows"))]
     {
         use tauri::Manager;
         let manager = app.state::<DeviceManager>();
-        let snapshot = manager.unbind(&instance_id)?;
+        let mut snapshot = manager.unbind(&instance_id)?;
         app.state::<AudioServiceManager>()
             .sync_instances(&audio_targets(&snapshot));
+        enrich_device_snapshot_with_app(&app, &mut snapshot);
         Ok(snapshot)
     }
 }
@@ -1409,11 +1411,31 @@ fn resolve_installed_quarbor_target(
     .map(|(target, _)| target))
 }
 
+fn is_axonkey_mobile_instance(app: &tauri::AppHandle, instance_id: Option<&str>) -> bool {
+    let Some(id) = instance_id else {
+        return false;
+    };
+    app.try_state::<DeviceManager>().is_some_and(|manager| {
+        manager
+            .snapshot()
+            .store
+            .instances
+            .iter()
+            .any(|inst| inst.id == id && inst.kind == "axonkeyMobile")
+    })
+}
+
 #[tauri::command]
 fn probe_audio_available(
     instance_id: Option<String>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    if is_axonkey_mobile_instance(&app, instance_id.as_deref()) {
+        if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+            return Ok(mobile_host.audio_status_and_level().0.driver_installed);
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         audio_service.refresh(instance_id.as_deref());
@@ -1459,7 +1481,13 @@ async fn probe_windows_audio_driver(app: tauri::AppHandle) -> Result<bool, Strin
 fn probe_audio_state(
     instance_id: Option<String>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> AudioServiceStatus {
+    if is_axonkey_mobile_instance(&app, instance_id.as_deref()) {
+        if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+            return mobile_host.audio_status_and_level().0;
+        }
+    }
     audio_service.refresh(instance_id.as_deref());
     audio_service.status(instance_id.as_deref())
 }
@@ -1632,7 +1660,13 @@ async fn export_signal_monitor(
 fn get_audio_test_state(
     instance_id: Option<String>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> (AudioServiceStatus, audio_service::AudioLevel) {
+    if is_axonkey_mobile_instance(&app, instance_id.as_deref()) {
+        if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+            return mobile_host.audio_status_and_level();
+        }
+    }
     (
         audio_service.status(instance_id.as_deref()),
         audio_service.level(instance_id.as_deref()),
@@ -1643,7 +1677,13 @@ fn get_audio_test_state(
 fn get_audio_level(
     instance_id: Option<String>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> audio_service::AudioLevel {
+    if is_axonkey_mobile_instance(&app, instance_id.as_deref()) {
+        if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+            return mobile_host.audio_status_and_level().1;
+        }
+    }
     audio_service.level(instance_id.as_deref())
 }
 
@@ -1669,7 +1709,14 @@ fn set_audio_gain(
     gain: i16,
     instance_id: Option<String>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if is_axonkey_mobile_instance(&app, instance_id.as_deref()) {
+        if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+            mobile_host.set_audio_gain_db(gain);
+        }
+        return Ok(());
+    }
     audio_service.set_gain_db(instance_id.as_deref(), gain)
 }
 
@@ -1677,8 +1724,11 @@ fn set_audio_gain(
 fn refresh_device_information(
     binding: String,
     manager: tauri::State<'_, DeviceManager>,
+    app: tauri::AppHandle,
 ) -> Result<DeviceSnapshot, String> {
-    manager.refresh_information(&binding)
+    let mut snapshot = manager.refresh_information(&binding)?;
+    enrich_device_snapshot_with_app(&app, &mut snapshot);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -1706,6 +1756,9 @@ async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
 fn shutdown_device_services(app: &tauri::AppHandle) {
     device_capture::set_workbench_active(false);
     let _ = device_capture::stop_session();
+    if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+        mobile_host.shutdown();
+    }
     if let Some(service) = app.try_state::<DeviceManager>() {
         service.shutdown();
     }
@@ -1939,13 +1992,26 @@ fn apply_gatt_recording_status(snapshot: &mut DeviceSnapshot, audio_service: &Au
     }
 }
 
+fn enrich_device_snapshot_with_app(app: &tauri::AppHandle, snapshot: &mut DeviceSnapshot) {
+    if let Some(audio_service) = app.try_state::<AudioServiceManager>() {
+        apply_gatt_recording_status(snapshot, &audio_service);
+    }
+    if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+        mobile_host.enrich_device_snapshot(snapshot);
+    }
+}
+
 #[tauri::command]
 fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> DeviceSnapshot {
     let mut snapshot = manager.snapshot();
     apply_gatt_recording_status(&mut snapshot, &audio_service);
+    if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+        mobile_host.enrich_device_snapshot(&mut snapshot);
+    }
     snapshot
 }
 
@@ -2059,6 +2125,7 @@ fn put_device_instance(
     apply_gatt_recording_status(&mut snapshot, &audio_service);
     if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
         mobile_host.sync_from_device_snapshot(&snapshot);
+        mobile_host.enrich_device_snapshot(&mut snapshot);
     }
     Ok(snapshot)
 }
@@ -2069,9 +2136,11 @@ fn remove_device_instance(
     id: String,
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> Result<DeviceSnapshot, String> {
-    let snapshot = manager.remove(revision, &id)?;
+    let mut snapshot = manager.remove(revision, &id)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
+    enrich_device_snapshot_with_app(&app, &mut snapshot);
     Ok(snapshot)
 }
 
@@ -2086,9 +2155,11 @@ fn reorder_device_instances(
     ids: Vec<String>,
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
+    app: tauri::AppHandle,
 ) -> Result<DeviceSnapshot, String> {
-    let snapshot = manager.reorder(revision, &ids)?;
+    let mut snapshot = manager.reorder(revision, &ids)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
+    enrich_device_snapshot_with_app(&app, &mut snapshot);
     Ok(snapshot)
 }
 
@@ -2226,6 +2297,10 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
     app.manage(device_manager);
     app.state::<AudioServiceManager>()
         .sync_instances(&audio_targets(&initial_snapshot));
+    if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
+        mobile_host.attach_app_handle(app.clone());
+        mobile_host.sync_from_device_snapshot(&initial_snapshot);
+    }
     app.state::<InputService>().set_event_app(app.clone());
     Ok(())
 }
@@ -2286,6 +2361,7 @@ pub fn run() {
             ));
             match mobile_host::MobileHostHandle::start(app_data_dir.clone()) {
                 Ok(handle) => {
+                    handle.attach_app_handle(app.handle().clone());
                     app.manage(handle);
                 }
                 Err(error) => {

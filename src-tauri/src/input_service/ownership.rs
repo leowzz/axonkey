@@ -100,7 +100,11 @@ mod tests {
         let shared_btn = HeldOutput::MouseButton(MouseButton::Left);
         let mobile_only_key = HeldOutput::Key("Shift".into());
 
-        let first = ledger.acquire("session-1", "p1", vec![shared_btn.clone(), mobile_only_key.clone()]);
+        let first = ledger.acquire(
+            "session-1",
+            "p1",
+            vec![shared_btn.clone(), mobile_only_key.clone()],
+        );
         assert_eq!(first.len(), 2);
 
         // Second owner acquires the same mouse button: should NOT re-press down.

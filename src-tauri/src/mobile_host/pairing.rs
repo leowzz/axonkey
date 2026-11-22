@@ -53,8 +53,8 @@ pub struct PairingStore {
 impl PairingStore {
     pub fn load(path: PathBuf) -> Result<Self, String> {
         let peers = if path.exists() {
-            let bytes = fs::read(&path)
-                .map_err(|e| format!("Failed to read mobile peers store: {e}"))?;
+            let bytes =
+                fs::read(&path).map_err(|e| format!("Failed to read mobile peers store: {e}"))?;
             serde_json::from_slice::<Vec<PairedPeerRecord>>(&bytes)
                 .map_err(|e| format!("Corrupt mobile peers store: {e}"))?
         } else {
@@ -236,11 +236,15 @@ mod tests {
         let reloaded = PairingStore::load(path).unwrap();
         assert_eq!(reloaded.list().len(), 1);
         assert!(store.authenticate(&peer_id, &peer_token, "Pixel 9").is_ok());
-        assert!(store.authenticate(&peer_id, "wrong-token", "Pixel 9").is_err());
+        assert!(store
+            .authenticate(&peer_id, "wrong-token", "Pixel 9")
+            .is_err());
 
         // Revoke removes peer and blocks subsequent auth.
         assert!(store.revoke(&peer_id).unwrap());
-        assert!(store.authenticate(&peer_id, &peer_token, "Pixel 9").is_err());
+        assert!(store
+            .authenticate(&peer_id, &peer_token, "Pixel 9")
+            .is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 }

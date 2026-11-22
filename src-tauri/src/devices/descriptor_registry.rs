@@ -720,6 +720,9 @@ pub(crate) fn input_key(input: &super::device_descriptor::InputDescriptor) -> &s
 }
 
 pub(crate) fn profile_key(kind: &str, key: &str) -> Option<&'static str> {
+    if kind == "axonkeyMobile" && key == "mobile.voice" {
+        return Some("mobile.voice");
+    }
     descriptor_for_kind(kind)?
         .inputs
         .iter()

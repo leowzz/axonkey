@@ -3,10 +3,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgb(148 163 184 / 10%);
-  border: 1px solid rgb(148 163 184 / 22%);
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: var(--surface-subtle, rgb(148 163 184 / 10%));
+  border: 1px solid var(--line, rgb(148 163 184 / 22%));
   margin-top: 8px;
 }
 
@@ -15,6 +15,7 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
+  flex: 1;
 }
 
 .mobile-device-dot {
@@ -25,18 +26,23 @@
   flex-shrink: 0;
 }
 
+.mobile-device-dot.waiting {
+  background: #64748b;
+}
+
 .mobile-device-dot.ready {
-  background: #1478e8;
+  background: var(--blue, #1478e8);
 }
 
 .mobile-device-dot.online {
-  background: #24975e;
-  box-shadow: 0 0 0 3px rgb(36 151 94 / 22%);
+  background: var(--green, #24975e);
+  box-shadow: 0 0 0 3px rgb(36 151 94 / 20%);
 }
 
 .mobile-device-bar-text {
   font-size: 12px;
-  color: inherit;
+  font-weight: 500;
+  color: var(--ink-secondary, inherit);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -45,81 +51,127 @@
 .mobile-device-pair-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid rgb(20 120 232 / 30%);
-  background: rgb(20 120 232 / 10%);
-  color: #1478e8;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid rgb(20 120 232 / 28%);
+  background: rgb(20 120 232 / 9%);
+  color: var(--blue, #1478e8);
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
   flex-shrink: 0;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease;
 }
 
 .mobile-device-pair-btn:hover:not(:disabled) {
-  background: rgb(20 120 232 / 16%);
+  background: rgb(20 120 232 / 15%);
+  border-color: rgb(20 120 232 / 42%);
+}
+
+.mobile-device-pair-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .mobile-pair-backdrop {
   z-index: 60;
 }
 
-.mobile-pair-dialog {
-  width: 348px;
-  max-width: calc(100vw - 32px);
+.behavior-dialog.mobile-pair-dialog {
+  width: min(376px, calc(100vw - 32px));
+}
+
+.behavior-dialog-head.mobile-pair-dialog-head {
+  align-items: center;
+  padding: 16px 18px 10px;
+}
+
+.mobile-pair-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.behavior-dialog-head.mobile-pair-dialog-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.behavior-dialog-body.mobile-pair-dialog-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px;
+  padding: 4px 18px 18px;
 }
 
-.mobile-pair-dialog-head {
+.mobile-pair-live-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.mobile-pair-dialog-head h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.mobile-pair-close {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  cursor: pointer;
-  opacity: 0.7;
-}
-
-.mobile-pair-close:hover {
-  opacity: 1;
-  background: rgb(148 163 184 / 16%);
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgb(36 151 94 / 10%);
+  color: var(--green, #24975e);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .mobile-pair-qr-wrap {
   display: flex;
+  align-items: center;
   justify-content: center;
+  min-height: 244px;
   padding: 12px;
   border-radius: 12px;
   background: #ffffff;
-  border: 1px solid rgb(15 23 42 / 10%);
+  border: 1px solid var(--line, rgb(15 23 42 / 10%));
 }
 
-.mobile-pair-meta {
-  text-align: center;
-  font-size: 12px;
-  opacity: 0.72;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.mobile-pair-qr-placeholder {
+  color: var(--muted, #64748b);
+  font-size: 12.5px;
+}
+
+.mobile-pair-network {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.mobile-pair-endpoint-badge,
+.mobile-pair-discovery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-pair-endpoint-badge {
+  background: var(--surface-subtle, rgb(148 163 184 / 12%));
+  color: var(--ink-secondary, #475569);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.mobile-pair-discovery-badge {
+  background: rgb(20 120 232 / 9%);
+  color: var(--blue, #1478e8);
+  font-weight: 500;
 }
 
 .mobile-pair-actions {
@@ -128,30 +180,75 @@
   gap: 8px;
 }
 
-.mobile-pair-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.mobile-pair-actions .dialog-secondary {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
 }
 
 .mobile-pair-peers {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-top: 2px;
+}
+
+.mobile-pair-peers-label {
+  color: var(--muted, #64748b);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mobile-pair-peers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 .mobile-pair-peer-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
   border-radius: 8px;
-  background: rgb(148 163 184 / 10%);
-  font-size: 12px;
+  background: var(--surface-subtle, rgb(148 163 184 / 10%));
+  font-size: 12.5px;
 }
 
-.mobile-pair-peer-name {
+.mobile-pair-peer-info {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  color: var(--ink, inherit);
+}
+
+.mobile-pair-peer-info > svg {
+  flex-shrink: 0;
+  color: var(--ink-secondary, #64748b);
+}
+
+.mobile-pair-peer-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-pair-peer-online {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(36 151 94 / 14%);
+  color: var(--green, #24975e);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dialog-secondary.mobile-pair-revoke-btn {
+  height: 25px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  flex-shrink: 0;
 }

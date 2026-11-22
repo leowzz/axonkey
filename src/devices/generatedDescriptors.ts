@@ -27,7 +27,7 @@ export const deviceDescriptors = {
     },
     "viewBox": {
       "width": 320,
-      "height": 580
+      "height": 600
     },
     "inputs": [
       {
@@ -40,10 +40,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 1,
-        "path": "M 46 54 H 102 Q 114 54 114 66 V 90 Q 114 102 102 102 H 46 Q 34 102 34 90 V 66 Q 34 54 46 54 Z",
+        "path": "M 46 48 H 102 A 12 12 0 0 1 114 60 V 82 A 12 12 0 0 1 102 94 H 46 A 12 12 0 0 1 34 82 V 60 A 12 12 0 0 1 46 48 Z",
         "anchor": {
           "x": 74,
-          "y": 78
+          "y": 71
         }
       },
       {
@@ -56,10 +56,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 2,
-        "path": "M 132 54 H 188 Q 200 54 200 66 V 90 Q 200 102 188 102 H 132 Q 120 102 120 90 V 66 Q 120 54 132 54 Z",
+        "path": "M 132 48 H 188 A 12 12 0 0 1 200 60 V 82 A 12 12 0 0 1 188 94 H 132 A 12 12 0 0 1 120 82 V 60 A 12 12 0 0 1 132 48 Z",
         "anchor": {
           "x": 160,
-          "y": 78
+          "y": 71
         }
       },
       {
@@ -72,10 +72,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 3,
-        "path": "M 218 54 H 274 Q 286 54 286 66 V 90 Q 286 102 274 102 H 218 Q 206 102 206 90 V 66 Q 206 54 218 54 Z",
+        "path": "M 218 48 H 274 A 12 12 0 0 1 286 60 V 82 A 12 12 0 0 1 274 94 H 218 A 12 12 0 0 1 206 82 V 60 A 12 12 0 0 1 218 48 Z",
         "anchor": {
           "x": 246,
-          "y": 78
+          "y": 71
         }
       },
       {
@@ -88,26 +88,26 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 4,
-        "path": "M 54 124 H 102 Q 116 124 116 138 V 186 Q 116 200 102 200 H 54 Q 40 200 40 186 V 138 Q 40 124 54 124 Z",
+        "path": "M 54 114 H 102 A 14 14 0 0 1 116 128 V 176 A 14 14 0 0 1 102 190 H 54 A 14 14 0 0 1 40 176 V 128 A 14 14 0 0 1 54 114 Z",
         "anchor": {
           "x": 78,
-          "y": 162
+          "y": 152
         }
       },
       {
         "id": "remote.up",
         "stableId": "remote.up",
-        "label": "上",
+        "label": "方向上",
         "short": "上",
         "icon": "up",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 5,
-        "path": "M 136 124 H 184 Q 198 124 198 138 V 186 Q 198 200 184 200 H 136 Q 122 200 122 186 V 138 Q 122 124 136 124 Z",
+        "path": "M 136 114 H 184 A 14 14 0 0 1 198 128 V 176 A 14 14 0 0 1 184 190 H 136 A 14 14 0 0 1 122 176 V 128 A 14 14 0 0 1 136 114 Z",
         "anchor": {
           "x": 160,
-          "y": 162
+          "y": 152
         }
       },
       {
@@ -115,31 +115,31 @@ export const deviceDescriptors = {
         "stableId": "remote.vol_up",
         "label": "音量加",
         "short": "音量+",
-        "icon": "vol-up",
+        "icon": "volumeUp",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 6,
-        "path": "M 218 124 H 266 Q 280 124 280 138 V 186 Q 280 200 266 200 H 218 Q 204 200 204 186 V 138 Q 204 124 218 124 Z",
+        "path": "M 218 114 H 266 A 14 14 0 0 1 280 128 V 176 A 14 14 0 0 1 266 190 H 218 A 14 14 0 0 1 204 176 V 128 A 14 14 0 0 1 218 114 Z",
         "anchor": {
           "x": 242,
-          "y": 162
+          "y": 152
         }
       },
       {
         "id": "remote.left",
         "stableId": "remote.left",
-        "label": "左",
+        "label": "方向左",
         "short": "左",
         "icon": "left",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 7,
-        "path": "M 54 206 H 102 Q 116 206 116 220 V 268 Q 116 282 102 282 H 54 Q 40 282 40 268 V 220 Q 40 206 54 206 Z",
+        "path": "M 54 196 H 102 A 14 14 0 0 1 116 210 V 258 A 14 14 0 0 1 102 272 H 54 A 14 14 0 0 1 40 258 V 210 A 14 14 0 0 1 54 196 Z",
         "anchor": {
           "x": 78,
-          "y": 244
+          "y": 234
         }
       },
       {
@@ -147,31 +147,31 @@ export const deviceDescriptors = {
         "stableId": "remote.ok",
         "label": "确认",
         "short": "OK",
-        "icon": "ok",
+        "icon": "center",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 8,
-        "path": "M 136 206 H 184 Q 198 206 198 220 V 268 Q 198 282 184 282 H 136 Q 122 282 122 268 V 220 Q 122 206 136 206 Z",
+        "path": "M 136 196 H 184 A 14 14 0 0 1 198 210 V 258 A 14 14 0 0 1 184 272 H 136 A 14 14 0 0 1 122 258 V 210 A 14 14 0 0 1 136 196 Z",
         "anchor": {
           "x": 160,
-          "y": 244
+          "y": 234
         }
       },
       {
         "id": "remote.right",
         "stableId": "remote.right",
-        "label": "右",
+        "label": "方向右",
         "short": "右",
         "icon": "right",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 9,
-        "path": "M 218 206 H 266 Q 280 206 280 220 V 268 Q 280 282 266 282 H 218 Q 204 282 204 268 V 220 Q 204 206 218 206 Z",
+        "path": "M 218 196 H 266 A 14 14 0 0 1 280 210 V 258 A 14 14 0 0 1 266 272 H 218 A 14 14 0 0 1 204 258 V 210 A 14 14 0 0 1 218 196 Z",
         "anchor": {
           "x": 242,
-          "y": 244
+          "y": 234
         }
       },
       {
@@ -184,26 +184,26 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 10,
-        "path": "M 54 288 H 102 Q 116 288 116 302 V 350 Q 116 364 102 364 H 54 Q 40 364 40 350 V 302 Q 40 288 54 288 Z",
+        "path": "M 54 278 H 102 A 14 14 0 0 1 116 292 V 340 A 14 14 0 0 1 102 354 H 54 A 14 14 0 0 1 40 340 V 292 A 14 14 0 0 1 54 278 Z",
         "anchor": {
           "x": 78,
-          "y": 326
+          "y": 316
         }
       },
       {
         "id": "remote.down",
         "stableId": "remote.down",
-        "label": "下",
+        "label": "方向下",
         "short": "下",
         "icon": "down",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 11,
-        "path": "M 136 288 H 184 Q 198 288 198 302 V 350 Q 198 364 184 364 H 136 Q 122 364 122 350 V 302 Q 122 288 136 288 Z",
+        "path": "M 136 278 H 184 A 14 14 0 0 1 198 292 V 340 A 14 14 0 0 1 184 354 H 136 A 14 14 0 0 1 122 340 V 292 A 14 14 0 0 1 136 278 Z",
         "anchor": {
           "x": 160,
-          "y": 326
+          "y": 316
         }
       },
       {
@@ -211,15 +211,15 @@ export const deviceDescriptors = {
         "stableId": "remote.vol_down",
         "label": "音量减",
         "short": "音量-",
-        "icon": "vol-down",
+        "icon": "volumeDown",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 12,
-        "path": "M 218 288 H 266 Q 280 288 280 302 V 350 Q 280 364 266 364 H 218 Q 204 364 204 350 V 302 Q 204 288 218 288 Z",
+        "path": "M 218 278 H 266 A 14 14 0 0 1 280 292 V 340 A 14 14 0 0 1 266 354 H 218 A 14 14 0 0 1 204 340 V 292 A 14 14 0 0 1 218 278 Z",
         "anchor": {
           "x": 242,
-          "y": 326
+          "y": 316
         }
       },
       {
@@ -227,15 +227,15 @@ export const deviceDescriptors = {
         "stableId": "remote.q1",
         "label": "快捷 1（继续执行）",
         "short": "Q1",
-        "icon": "spark",
+        "icon": "locate",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 13,
-        "path": "M 48 388 H 142 Q 156 388 156 402 V 432 Q 156 446 142 446 H 48 Q 34 446 34 432 V 402 Q 34 388 48 388 Z",
+        "path": "M 47 374 H 143 A 13 13 0 0 1 156 387 V 415 A 13 13 0 0 1 143 428 H 47 A 13 13 0 0 1 34 415 V 387 A 13 13 0 0 1 47 374 Z",
         "anchor": {
           "x": 95,
-          "y": 417
+          "y": 401
         }
       },
       {
@@ -243,15 +243,15 @@ export const deviceDescriptors = {
         "stableId": "remote.q2",
         "label": "快捷 2（接受变更）",
         "short": "Q2",
-        "icon": "check",
+        "icon": "center",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 14,
-        "path": "M 178 388 H 272 Q 286 388 286 402 V 432 Q 286 446 272 446 H 178 Q 164 446 164 432 V 402 Q 164 388 178 388 Z",
+        "path": "M 177 374 H 273 A 13 13 0 0 1 286 387 V 415 A 13 13 0 0 1 273 428 H 177 A 13 13 0 0 1 164 415 V 387 A 13 13 0 0 1 177 374 Z",
         "anchor": {
           "x": 225,
-          "y": 417
+          "y": 401
         }
       },
       {
@@ -264,10 +264,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 15,
-        "path": "M 48 454 H 142 Q 156 454 156 468 V 498 Q 156 512 142 512 H 48 Q 34 512 34 498 V 468 Q 34 454 48 454 Z",
+        "path": "M 47 436 H 143 A 13 13 0 0 1 156 449 V 477 A 13 13 0 0 1 143 490 H 47 A 13 13 0 0 1 34 477 V 449 A 13 13 0 0 1 47 436 Z",
         "anchor": {
           "x": 95,
-          "y": 483
+          "y": 463
         }
       },
       {
@@ -275,15 +275,31 @@ export const deviceDescriptors = {
         "stableId": "remote.q4",
         "label": "快捷 4（播放/暂停）",
         "short": "Q4",
-        "icon": "play",
+        "icon": "tv",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 16,
-        "path": "M 178 454 H 272 Q 286 454 286 468 V 498 Q 286 512 272 512 H 178 Q 164 512 164 498 V 468 Q 164 454 178 454 Z",
+        "path": "M 177 436 H 273 A 13 13 0 0 1 286 449 V 477 A 13 13 0 0 1 273 490 H 177 A 13 13 0 0 1 164 477 V 449 A 13 13 0 0 1 177 436 Z",
         "anchor": {
           "x": 225,
-          "y": 483
+          "y": 463
+        }
+      },
+      {
+        "id": "mobile.voice",
+        "stableId": "mobile.voice",
+        "label": "语音键（按住说话）",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 49 504 H 271 A 15 15 0 0 1 286 519 V 543 A 15 15 0 0 1 271 558 H 49 A 15 15 0 0 1 34 543 V 519 A 15 15 0 0 1 49 504 Z",
+        "anchor": {
+          "x": 160,
+          "y": 531
         }
       }
     ]

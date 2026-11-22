@@ -1,40 +1,111 @@
 use super::protocol::{
-    ClientMessage, ServerMessage, DEFAULT_IDLE_DISCONNECT_MS, DEFAULT_TICK_INTERVAL_MS,
-    MAX_WS_FRAME_BYTES, MOBILE_SUBPROTOCOL,
+    parse_aka1_frame, parse_akp1_frame, ClientMessage, ServerMessage, AKA1_MAGIC, AKP1_MAGIC,
+    DEFAULT_IDLE_DISCONNECT_MS, DEFAULT_TICK_INTERVAL_MS, MAX_WS_FRAME_BYTES, MOBILE_SUBPROTOCOL,
 };
-use super::session::MobileCoordinator;
+use super::session::{drain_voice_stream, MobileCoordinator};
 use crate::input_service::mobile::MobileInputBackend;
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, watch};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 
+pub type SnapshotProvider =
+    Arc<dyn Fn() -> Option<crate::input_service::managed::Snapshot> + Send + Sync>;
+
 pub async fn run_wss_server<B: MobileInputBackend + 'static>(
     listener: TcpListener,
     acceptor: TlsAcceptor,
     coordinator: Arc<Mutex<MobileCoordinator<B>>>,
-    mut shutdown_rx: oneshot::Receiver<()>,
+    snapshot_provider: Arc<Mutex<Option<SnapshotProvider>>>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) {
     let mut tick_interval = tokio::time::interval(Duration::from_millis(DEFAULT_TICK_INTERVAL_MS));
     let mut last_fg_gen: u64 = 0;
+    let mut last_synced_sig: Option<(String, u64, String, i16)> = None;
 
     loop {
+        if *shutdown_rx.borrow() {
+            if let Ok(mut guard) = coordinator.lock() {
+                guard.revoke_active_session("host_shutdown");
+            }
+            break;
+        }
         tokio::select! {
-            _ = &mut shutdown_rx => {
-                if let Ok(mut guard) = coordinator.lock() {
-                    guard.revoke_active_session("host_shutdown");
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    if let Ok(mut guard) = coordinator.lock() {
+                        guard.revoke_active_session("host_shutdown");
+                    }
+                    break;
                 }
-                break;
             }
             _ = tick_interval.tick() => {
                 let fg = crate::foreground::foreground_applications();
+                let provider = snapshot_provider
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let maybe_dev_snapshot = provider.and_then(|f| f());
+
+                let mut parsed_sync = None;
+                if let Some(ref snap) = maybe_dev_snapshot {
+                    if let Some(instance) = snap
+                        .store
+                        .instances
+                        .iter()
+                        .find(|i| i.kind == "axonkeyMobile" && i.enabled)
+                    {
+                        let active_id = snap
+                            .runtime
+                            .get(&instance.id)
+                            .and_then(|r| r.effective_profile_id.as_deref())
+                            .unwrap_or(&instance.active_profile_id)
+                            .to_owned();
+                        let sig = (
+                            instance.id.clone(),
+                            snap.store.revision,
+                            active_id.clone(),
+                            instance.audio_gain_db,
+                        );
+                        if last_synced_sig.as_ref() != Some(&sig) {
+                            if let Some(profile) = instance
+                                .profiles
+                                .iter()
+                                .find(|p| p.id == active_id)
+                                .or_else(|| instance.profiles.first())
+                            {
+                                let raw_map: std::collections::HashMap<String, serde_json::Value> =
+                                    profile
+                                        .behaviors
+                                        .as_object()
+                                        .map(|obj| {
+                                            obj.iter()
+                                                .map(|(k, v)| (k.clone(), v.clone()))
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                let behaviors =
+                                    crate::input_service::parse_tolerant_behavior_map(&raw_map);
+                                parsed_sync = Some((
+                                    profile.name.clone(),
+                                    instance.audio_gain_db,
+                                    behaviors,
+                                ));
+                                last_synced_sig = Some(sig);
+                            }
+                        }
+                    } else {
+                        last_synced_sig = None;
+                    }
+                }
+
                 if let Ok(mut guard) = coordinator.lock() {
                     if fg.generation != last_fg_gen {
                         last_fg_gen = fg.generation;
@@ -43,6 +114,13 @@ pub async fn run_wss_server<B: MobileInputBackend + 'static>(
                             None => (None, None),
                         };
                         guard.update_foreground_context(app_id, app_name);
+                    }
+                    if let Some((profile_name, gain_db, behaviors)) = parsed_sync {
+                        guard.sync_from_managed_instance_with_gain(
+                            profile_name,
+                            gain_db,
+                            &behaviors,
+                        );
                     }
                     guard.tick(Instant::now());
                 }
@@ -131,10 +209,6 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
 
     let mut authenticated_session: Option<String> = None;
     let idle_limit = Duration::from_millis(DEFAULT_IDLE_DISCONNECT_MS);
-    #[cfg(windows)]
-    let mut audio_source: Option<crate::windows_vmic::AudioSource> = None;
-    #[cfg(windows)]
-    let mut audio_active = false;
 
     loop {
         let next_frame = tokio::time::timeout(idle_limit, source.next()).await;
@@ -148,23 +222,30 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
             Message::Close(_) => break,
             Message::Ping(_) | Message::Pong(_) => continue,
             Message::Binary(bin) => {
-                #[cfg(windows)]
-                if authenticated_session.is_some()
-                    && audio_active
-                    && !bin.is_empty()
-                    && bin.len() <= 2560
-                    && bin.len() % 2 == 0
-                {
-                    if let Some(src) = &audio_source {
-                        let samples: Vec<i16> = bin
-                            .chunks_exact(2)
-                            .map(|c| i16::from_le_bytes([c[0], c[1]]))
-                            .collect();
-                        src.push_pcm(&samples);
+                let Some(sid) = authenticated_session.as_deref() else {
+                    continue;
+                };
+                let now = Instant::now();
+                if bin.starts_with(AKP1_MAGIC) {
+                    if let Some(ptr) = parse_akp1_frame(&bin) {
+                        coordinator
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .handle_binary_pointer(sid, ptr, now);
                     }
+                } else if bin.starts_with(AKA1_MAGIC) {
+                    if let Some(audio) = parse_aka1_frame(&bin) {
+                        coordinator
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .handle_binary_audio(sid, audio, now);
+                    }
+                } else {
+                    coordinator
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .handle_legacy_binary_pcm(sid, &bin, now);
                 }
-                #[cfg(not(windows))]
-                let _ = bin;
                 continue;
             }
             _ => continue,
@@ -224,59 +305,36 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
                     break;
                 }
             },
-            Some(sid) => match parsed {
-                ClientMessage::AudioStart {
-                    session_id,
-                    sample_rate,
-                    channels,
-                } if session_id == *sid && sample_rate == 16_000 && channels == 1 => {
-                    #[cfg(windows)]
-                    {
-                        if audio_source.is_none() {
-                            audio_source = Some(crate::windows_vmic::source());
-                        }
-                        if let Some(src) = &audio_source {
-                            src.clear();
-                        }
-                        audio_active = true;
-                        log::info!(target: "axonkey::mobile", "Mobile voice stream started (16kHz mono PCM -> Quarbor Virtual Microphone)");
-                    }
-                }
-                ClientMessage::AudioStop { session_id } if session_id == *sid => {
-                    #[cfg(windows)]
-                    {
-                        audio_active = false;
-                        if let Some(src) = &audio_source {
-                            src.clear();
-                        }
-                        log::info!(target: "axonkey::mobile", "Mobile voice stream stopped");
-                    }
-                }
-                other => {
-                    #[cfg(windows)]
-                    if matches!(other, ClientMessage::InputCancel { .. }) {
-                        audio_active = false;
-                        if let Some(src) = &audio_source {
-                            src.clear();
-                        }
-                    }
-                    let reply = coordinator
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .handle_session_message(sid, other, now);
-                    if let Some(msg) = reply {
-                        if out_tx.send(msg).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            },
-        }
-    }
+            Some(sid) => {
+                let outcome = coordinator
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .handle_session_message_with_effects(sid, parsed, now);
 
-    #[cfg(windows)]
-    if let Some(src) = &audio_source {
-        src.clear();
+                if let Some((drain_sid, stream_id)) = outcome.voice_drain {
+                    tokio::spawn(drain_voice_stream(
+                        Arc::clone(&coordinator),
+                        drain_sid,
+                        stream_id,
+                    ));
+                }
+                if let Some((flash_token, delay_ms)) = outcome.ui_flash_release {
+                    let coord_flash = Arc::clone(&coordinator);
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        coord_flash
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .finish_ui_flash(&flash_token);
+                    });
+                }
+                if let Some(msg) = outcome.reply {
+                    if out_tx.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     if let Some(sid) = authenticated_session {

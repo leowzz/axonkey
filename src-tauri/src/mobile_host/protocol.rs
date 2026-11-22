@@ -5,6 +5,13 @@ pub const DEFAULT_TICK_INTERVAL_MS: u64 = 250;
 pub const DEFAULT_LEASE_TTL_MS: u64 = 750;
 pub const DEFAULT_IDLE_DISCONNECT_MS: u64 = 4_500;
 pub const MAX_WS_FRAME_BYTES: usize = 128 * 1024;
+pub const UDP_DISCOVERY_PORT: u16 = 49_671;
+
+pub const AKP1_MAGIC: &[u8; 4] = b"AKP1";
+pub const AKP1_FRAME_BYTES: usize = 40;
+pub const AKA1_MAGIC: &[u8; 4] = b"AKA1";
+pub const AKA1_HEADER_BYTES: usize = 32;
+pub const MAX_AUDIO_PCM_BYTES: usize = 2_560;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -22,8 +29,16 @@ pub struct PairingOfferQr {
 #[serde(rename_all = "camelCase")]
 pub struct HostCapabilities {
     pub relative_pointer: bool,
+    #[serde(default)]
+    pub absolute_pointer: bool,
+    #[serde(default)]
+    pub binary_pointer_v1: bool,
+    #[serde(default)]
+    pub binary_audio_v1: bool,
     pub text_commit: bool,
     pub audio_pcm16: bool,
+    #[serde(default)]
+    pub udp_discovery_port: u16,
     pub platform: String,
 }
 
@@ -40,11 +55,157 @@ impl HostCapabilities {
         };
         Self {
             relative_pointer: cfg!(windows),
+            absolute_pointer: cfg!(windows),
+            binary_pointer_v1: cfg!(windows),
+            binary_audio_v1: cfg!(windows),
             text_commit: cfg!(any(windows, target_os = "macos")),
             audio_pcm16: cfg!(windows),
+            udp_discovery_port: UDP_DISCOVERY_PORT,
             platform: platform.into(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Akp1PointerKind {
+    TrackpadRelative = 1,
+    GyroRelative = 2,
+    GyroAbsolute = 3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Akp1PointerFrame {
+    pub kind: Akp1PointerKind,
+    pub flags: u8,
+    pub input_generation: u64,
+    pub seq: u64,
+    pub sample_time_us: u64,
+    pub x: f32,
+    pub y: f32,
+}
+
+pub fn parse_akp1_frame(bytes: &[u8]) -> Option<Akp1PointerFrame> {
+    if bytes.len() != AKP1_FRAME_BYTES || &bytes[0..4] != AKP1_MAGIC {
+        return None;
+    }
+    let kind = match bytes[4] {
+        1 => Akp1PointerKind::TrackpadRelative,
+        2 => Akp1PointerKind::GyroRelative,
+        3 => Akp1PointerKind::GyroAbsolute,
+        _ => return None,
+    };
+    let flags = bytes[5];
+    let frame_bytes = u16::from_le_bytes([bytes[6], bytes[7]]);
+    if usize::from(frame_bytes) != AKP1_FRAME_BYTES {
+        return None;
+    }
+    let input_generation = u64::from_le_bytes(bytes[8..16].try_into().ok()?);
+    let seq = u64::from_le_bytes(bytes[16..24].try_into().ok()?);
+    let sample_time_us = u64::from_le_bytes(bytes[24..32].try_into().ok()?);
+    let x = f32::from_le_bytes(bytes[32..36].try_into().ok()?);
+    let y = f32::from_le_bytes(bytes[36..40].try_into().ok()?);
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(Akp1PointerFrame {
+        kind,
+        flags,
+        input_generation,
+        seq,
+        sample_time_us,
+        x,
+        y,
+    })
+}
+
+#[cfg(test)]
+pub fn encode_akp1_frame(
+    kind: Akp1PointerKind,
+    input_generation: u64,
+    seq: u64,
+    sample_time_us: u64,
+    x: f32,
+    y: f32,
+) -> [u8; AKP1_FRAME_BYTES] {
+    let mut buf = [0u8; AKP1_FRAME_BYTES];
+    buf[0..4].copy_from_slice(AKP1_MAGIC);
+    buf[4] = kind as u8;
+    buf[5] = 0;
+    buf[6..8].copy_from_slice(&(AKP1_FRAME_BYTES as u16).to_le_bytes());
+    buf[8..16].copy_from_slice(&input_generation.to_le_bytes());
+    buf[16..24].copy_from_slice(&seq.to_le_bytes());
+    buf[24..32].copy_from_slice(&sample_time_us.to_le_bytes());
+    buf[32..36].copy_from_slice(&x.to_le_bytes());
+    buf[36..40].copy_from_slice(&y.to_le_bytes());
+    buf
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Aka1AudioFrame<'a> {
+    pub format: u8,
+    pub flags: u8,
+    pub input_generation: u64,
+    pub stream_id: u64,
+    pub first_sample_index: u64,
+    pub pcm_le_bytes: &'a [u8],
+}
+
+pub fn parse_aka1_frame(bytes: &[u8]) -> Option<Aka1AudioFrame<'_>> {
+    if bytes.len() <= AKA1_HEADER_BYTES || &bytes[0..4] != AKA1_MAGIC {
+        return None;
+    }
+    let format = bytes[4];
+    if format != 1 {
+        return None;
+    }
+    let flags = bytes[5];
+    let header_bytes = u16::from_le_bytes([bytes[6], bytes[7]]);
+    if usize::from(header_bytes) != AKA1_HEADER_BYTES {
+        return None;
+    }
+    let input_generation = u64::from_le_bytes(bytes[8..16].try_into().ok()?);
+    let stream_id = u64::from_le_bytes(bytes[16..24].try_into().ok()?);
+    if stream_id == 0 {
+        return None;
+    }
+    let first_sample_index = u64::from_le_bytes(bytes[24..32].try_into().ok()?);
+    let pcm_le_bytes = &bytes[AKA1_HEADER_BYTES..];
+    if pcm_le_bytes.is_empty()
+        || pcm_le_bytes.len() > MAX_AUDIO_PCM_BYTES
+        || pcm_le_bytes.len() % 2 != 0
+    {
+        return None;
+    }
+    Some(Aka1AudioFrame {
+        format,
+        flags,
+        input_generation,
+        stream_id,
+        first_sample_index,
+        pcm_le_bytes,
+    })
+}
+
+#[cfg(test)]
+pub fn encode_aka1_frame(
+    input_generation: u64,
+    stream_id: u64,
+    first_sample_index: u64,
+    samples: &[i16],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(AKA1_HEADER_BYTES + samples.len() * 2);
+    buf.extend_from_slice(AKA1_MAGIC);
+    buf.push(1);
+    buf.push(0);
+    buf.extend_from_slice(&(AKA1_HEADER_BYTES as u16).to_le_bytes());
+    buf.extend_from_slice(&input_generation.to_le_bytes());
+    buf.extend_from_slice(&stream_id.to_le_bytes());
+    buf.extend_from_slice(&first_sample_index.to_le_bytes());
+    for &sample in samples {
+        buf.extend_from_slice(&sample.to_le_bytes());
+    }
+    buf
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -152,6 +313,8 @@ pub struct DeckSnapshot {
     pub scroll_sensitivity: f64,
     pub double_click_window_ms: u64,
     pub long_press_window_ms: u64,
+    #[serde(default)]
+    pub voice_binding_summary: Option<String>,
     pub pages: Vec<MobileDeckPage>,
 }
 
@@ -185,7 +348,7 @@ pub enum ClientMessage {
     TileActivate {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         request_id: String,
         tile_id: String,
@@ -195,7 +358,7 @@ pub enum ClientMessage {
     TileHoldBegin {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         request_id: String,
         tile_id: String,
@@ -205,7 +368,7 @@ pub enum ClientMessage {
     TileHoldEnd {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         request_id: String,
         tile_id: String,
@@ -215,7 +378,7 @@ pub enum ClientMessage {
     PointerMotion {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         dx: f64,
         dy: f64,
@@ -224,7 +387,7 @@ pub enum ClientMessage {
     PointerScroll {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         x: f64,
         y: f64,
@@ -233,7 +396,7 @@ pub enum ClientMessage {
     PointerButton {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         request_id: String,
         button: PointerButtonName,
@@ -244,13 +407,44 @@ pub enum ClientMessage {
     TextCommit {
         session_id: String,
         input_epoch: u64,
-        seq: u32,
+        seq: u64,
         lease_id: u64,
         request_id: String,
         text: String,
         mode: TextCommitMode,
         submit: bool,
         context_revision: u64,
+    },
+    #[serde(rename = "voice.begin", rename_all = "camelCase")]
+    VoiceBegin {
+        session_id: String,
+        input_epoch: u64,
+        #[serde(default)]
+        input_generation: u64,
+        seq: u64,
+        lease_id: u64,
+        request_id: String,
+        stream_id: u64,
+    },
+    #[serde(rename = "voice.end", rename_all = "camelCase")]
+    VoiceEnd {
+        session_id: String,
+        input_epoch: u64,
+        #[serde(default)]
+        input_generation: u64,
+        seq: u64,
+        request_id: String,
+        stream_id: u64,
+        #[serde(default)]
+        final_sample_exclusive: u64,
+    },
+    #[serde(rename = "voice.cancel", rename_all = "camelCase")]
+    VoiceCancel {
+        session_id: String,
+        input_epoch: u64,
+        stream_id: u64,
+        #[serde(default)]
+        reason: String,
     },
     #[serde(rename = "deck.update", rename_all = "camelCase")]
     DeckUpdate {
@@ -292,6 +486,8 @@ pub enum ServerMessage {
     ServerReady {
         session_id: String,
         input_epoch: u64,
+        #[serde(default)]
+        input_generation: u64,
         lease_id: u64,
         lease_ttl_ms: u64,
         tick_interval_ms: u64,
@@ -307,6 +503,8 @@ pub enum ServerMessage {
     ServerTick {
         session_id: String,
         input_epoch: u64,
+        #[serde(default)]
+        input_generation: u64,
         lease_id: u64,
         lease_ttl_ms: u64,
     },
@@ -315,6 +513,8 @@ pub enum ServerMessage {
         deck_snapshot: DeckSnapshot,
         deck_revision: u64,
         input_epoch: u64,
+        #[serde(default)]
+        input_generation: u64,
     },
     #[serde(rename = "context.changed", rename_all = "camelCase")]
     ContextChanged {

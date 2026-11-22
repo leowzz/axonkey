@@ -3,6 +3,7 @@ import { createBehavior, normalizeBehavior } from '../behaviorModel.ts'
 import type { Behavior, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
 import { behaviorSummary } from '../behaviorSummary.ts'
 import type { CatalogDeviceModel, CloudDevicePreset, CloudDevicePresetPlatform } from '../cloud/deviceModelCatalog.ts'
+import { createDefaultAxonkeyMobileBehaviors } from './axonkey-mobile/defaultBehaviors.ts'
 import type { InstanceProfile, ProfileDisplayConfig } from './integration/model.ts'
 
 export type DevicePresetOption = {
@@ -619,6 +620,64 @@ const BUNDLED_PRESETS_BY_KIND: Record<string, DevicePresetOption[]> = {
         'g17.touch.sub': makeTrigger([keyAct('VolumeDown')]),
         'g17.touch.dot': makeTrigger([keyAct('Esc')]),
       },
+    ),
+  ],
+  axonkeyMobile: [
+    bundledPreset(
+      'axonkeyMobile',
+      'vibe-remote',
+      'AI 编程与全能遥控',
+      '经典 16 键配齐方向、确认、返回、菜单与 AI 快捷指令，语音键默认按住保持 Alt（开箱适配豆包语音输入，亦可改为 Win+H 或清空仅用虚拟麦克风）。',
+      createDefaultAxonkeyMobileBehaviors(),
+      { isDefault: true, sortOrder: 10 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'media-reading',
+      '影音与阅读',
+      '上下滚屏、左右快进后退、OK 播放暂停，底部语音键按住说话录入。',
+      {
+        'remote.esc': makeTrigger([keyAct('Esc')]),
+        'remote.menu': makeTrigger([mouseAct('right')]),
+        'remote.home': makeTrigger([keyAct('MediaPlayPause')]),
+        'remote.back': makeTrigger([mouseAct('back')], [], [keyAct('Esc')]),
+        'remote.up': makeTrigger([wheelAct('up')]),
+        'remote.down': makeTrigger([wheelAct('down')]),
+        'remote.left': makeTrigger([keyAct('Left')]),
+        'remote.right': makeTrigger([keyAct('Right')]),
+        'remote.ok': makeTrigger([keyAct('Space')], [keyAct('Enter')]),
+        'remote.vol_up': makeTrigger([keyAct('VolumeUp')]),
+        'remote.vol_down': makeTrigger([keyAct('VolumeDown')]),
+        'remote.mute': makeTrigger([keyAct('VolumeMute')]),
+        'remote.q1': makeTrigger([keyAct('MediaPrevious')]),
+        'remote.q2': makeTrigger([keyAct('MediaNext')]),
+        'remote.q3': makeTrigger([keyAct('PageUp')]),
+        'remote.q4': makeTrigger([keyAct('PageDown')]),
+        'mobile.voice': makeTrigger([keyAct('Alt')]),
+      },
+      { isDefault: false, sortOrder: 20 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'presentation',
+      '演示翻页',
+      '适合 PPT / Keynote 演讲：方向键与 OK 翻页、主页键 F5 放映、菜单键黑屏，并保留语音键输入。',
+      {
+        'remote.esc': makeTrigger([keyAct('Esc')]),
+        'remote.menu': makeTrigger([keyAct('B')]),
+        'remote.home': makeTrigger([keyAct('F5')], [], [keyAct('Esc')]),
+        'remote.back': makeTrigger([keyAct('PageUp')]),
+        'remote.up': makeTrigger([keyAct('PageUp')]),
+        'remote.left': makeTrigger([keyAct('PageUp')]),
+        'remote.down': makeTrigger([keyAct('PageDown')]),
+        'remote.right': makeTrigger([keyAct('PageDown')]),
+        'remote.ok': makeTrigger([keyAct('PageDown')]),
+        'remote.vol_up': makeTrigger([keyAct('VolumeUp')]),
+        'remote.vol_down': makeTrigger([keyAct('VolumeDown')]),
+        'remote.mute': makeTrigger([keyAct('VolumeMute')]),
+        'mobile.voice': makeTrigger([keyAct('Alt')]),
+      },
+      { isDefault: false, sortOrder: 30 },
     ),
   ],
 }

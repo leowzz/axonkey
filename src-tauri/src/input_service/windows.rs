@@ -2261,10 +2261,31 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct WinPoint {
     x: i32,
     y: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+#[allow(dead_code)]
+struct WinRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct WinMonitorInfo {
+    size: u32,
+    monitor: WinRect,
+    work: WinRect,
+    flags: u32,
 }
 
 #[repr(C)]
@@ -2584,6 +2605,117 @@ pub(super) fn inject_virtual_key_edge(key: &str, down: bool) -> Result<(), Strin
     }
 }
 
+pub(super) fn normalize_primary_to_virtual_desk(
+    u: f64,
+    v: f64,
+    primary: (i32, i32, i32, i32),
+    virtual_desk: (i32, i32, i32, i32),
+) -> (i32, i32) {
+    let u = u.clamp(0.0, 1.0);
+    let v = v.clamp(0.0, 1.0);
+    let (lm, tm, wm, hm) = primary;
+    let (vx, vy, vw, vh) = virtual_desk;
+    let wm = wm.max(1);
+    let hm = hm.max(1);
+    let vw = vw.max(1);
+    let vh = vh.max(1);
+
+    let px = f64::from(lm) + u * f64::from(wm - 1);
+    let py = f64::from(tm) + v * f64::from(hm - 1);
+    let clamped_px = px.clamp(f64::from(vx), f64::from(vx + vw - 1));
+    let clamped_py = py.clamp(f64::from(vy), f64::from(vy + vh - 1));
+
+    let denom_x = f64::from((vw - 1).max(1));
+    let denom_y = f64::from((vh - 1).max(1));
+    let abs_x = (65535.0 * (clamped_px - f64::from(vx)) / denom_x)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
+    let abs_y = (65535.0 * (clamped_py - f64::from(vy)) / denom_y)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
+    (abs_x, abs_y)
+}
+
+#[cfg(all(target_os = "windows", not(test)))]
+fn primary_monitor_physical_rect() -> (i32, i32, i32, i32) {
+    const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
+    let monitor = unsafe { MonitorFromPoint(WinPoint { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+    let mut info = WinMonitorInfo {
+        size: std::mem::size_of::<WinMonitorInfo>() as u32,
+        monitor: WinRect::default(),
+        work: WinRect::default(),
+        flags: 0,
+    };
+    if monitor != 0 && unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+        let w = (info.monitor.right - info.monitor.left).max(1);
+        let h = (info.monitor.bottom - info.monitor.top).max(1);
+        return (info.monitor.left, info.monitor.top, w, h);
+    }
+    let w = unsafe { GetSystemMetrics(0) }.max(1);
+    let h = unsafe { GetSystemMetrics(1) }.max(1);
+    (0, 0, w, h)
+}
+
+/// Maps normalized `[0, 1]` coordinates onto the primary monitor's physical pixel rectangle,
+/// then normalizes across the full virtual desktop (`SM_XVIRTUALSCREEN..SM_CXVIRTUALSCREEN`,
+/// `SM_YVIRTUALSCREEN..SM_CYVIRTUALSCREEN`) with `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`.
+pub(super) fn inject_absolute_virtual_desk(u: f64, v: f64) -> Result<(), String> {
+    if !u.is_finite() || !v.is_finite() {
+        return Err("Absolute pointer coordinates must be finite".into());
+    }
+    const MOUSEEVENTF_MOVE: u32 = 0x0001;
+    const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
+    const MOUSEEVENTF_VIRTUALDESK: u32 = 0x4000;
+    const FLAGS: u32 = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+
+    #[cfg(test)]
+    {
+        let (abs_x, abs_y) =
+            normalize_primary_to_virtual_desk(u, v, (0, 0, 1920, 1080), (0, 0, 1920, 1080));
+        ABSOLUTE_MOUSE_MOVES.with(|events| {
+            events.borrow_mut().push((abs_x, abs_y, FLAGS));
+        });
+        return Ok(());
+    }
+
+    #[cfg(all(target_os = "windows", not(test)))]
+    {
+        let primary = primary_monitor_physical_rect();
+        let vx = unsafe { GetSystemMetrics(76) };
+        let vy = unsafe { GetSystemMetrics(77) };
+        let vw = unsafe { GetSystemMetrics(78) }.max(1);
+        let vh = unsafe { GetSystemMetrics(79) }.max(1);
+        let (abs_x, abs_y) = normalize_primary_to_virtual_desk(u, v, primary, (vx, vy, vw, vh));
+        let input = Input {
+            kind: 0,
+            value: InputValue {
+                mouse: MouseInput {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouse_data: 0,
+                    flags: FLAGS,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Absolute virtual desk pointer injection failed (u={u:.4}, v={v:.4}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(test)))]
+    {
+        let _ = (u, v, FLAGS);
+        Err("Absolute virtual desk pointer injection is only supported on Windows".into())
+    }
+}
+
 pub(super) fn send_absolute_mouse_move(abs_x: u16, abs_y: u16) {
     const MOUSEEVENTF_MOVE: u32 = 0x0001;
     const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
@@ -2689,6 +2821,8 @@ extern "system" {
     fn SendInput(input_count: u32, inputs: *const Input, input_size: i32) -> u32;
     fn GetCursorPos(point: *mut WinPoint) -> i32;
     fn GetSystemMetrics(index: i32) -> i32;
+    fn MonitorFromPoint(point: WinPoint, flags: u32) -> isize;
+    fn GetMonitorInfoW(monitor: isize, info: *mut WinMonitorInfo) -> i32;
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -4895,5 +5029,33 @@ mod tests {
         );
         assert!(monitor.take_disconnect());
         assert!(!monitor.take_disconnect());
+    }
+
+    #[test]
+    fn absolute_virtual_desk_maps_primary_monitor_into_negative_origin_multimonitor_space() {
+        // Left secondary (-1920..0), Primary (0..2560 x 0..1440), Right secondary (2560..4480)
+        // Full virtual screen: L_v = -1920, T_v = 0, W_v = 6400, H_v = 1440
+        let primary = (0, 0, 2560, 1440);
+        let vdesk = (-1920, 0, 6400, 1440);
+
+        // Top-left of primary (px = 0, py = 0) -> (0 - (-1920)) / 6399 * 65535
+        let (tl_x, tl_y) = normalize_primary_to_virtual_desk(0.0, 0.0, primary, vdesk);
+        assert_eq!(tl_x, (65535.0 * 1920.0 / 6399.0_f64).round() as i32);
+        assert_eq!(tl_y, 0);
+
+        // Bottom-right of primary (px = 2559, py = 1439) -> (2559 - (-1920)) / 6399 * 65535
+        let (br_x, br_y) = normalize_primary_to_virtual_desk(1.0, 1.0, primary, vdesk);
+        assert_eq!(br_x, (65535.0 * 4479.0 / 6399.0_f64).round() as i32);
+        assert_eq!(br_y, 65535);
+
+        // Out-of-bounds u/v clamp cleanly to primary monitor edges, and NaN is rejected
+        assert!(inject_absolute_virtual_desk(f64::NAN, 0.5).is_err());
+        ABSOLUTE_MOUSE_MOVES.with(|events| events.borrow_mut().clear());
+        inject_absolute_virtual_desk(0.5, 0.5).unwrap();
+        ABSOLUTE_MOUSE_MOVES.with(|events| {
+            let moves = events.borrow();
+            assert_eq!(moves.len(), 1);
+            assert_eq!(moves[0].2, 0x0001 | 0x8000 | 0x4000);
+        });
     }
 }

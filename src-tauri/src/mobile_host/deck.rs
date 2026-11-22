@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 const MAX_PAGES: usize = 8;
 const MAX_TILES_PER_PAGE: usize = 24;
+pub const VOICE_KEY_ID: &str = "mobile.voice";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +66,20 @@ impl DeckStore {
                 snapshot: persisted.snapshot,
                 bindings: persisted.bindings,
             };
+            let inserted_default_voice = !store.bindings.contains_key(VOICE_KEY_ID);
+            if inserted_default_voice {
+                store.bindings.insert(
+                    VOICE_KEY_ID.into(),
+                    TileActionBindings {
+                        tap: vec![key("Alt")],
+                        ..Default::default()
+                    },
+                );
+            }
             store.rehydrate_tile_metadata();
+            if inserted_default_voice {
+                let _ = store.save();
+            }
             return Ok(store);
         }
         let (snapshot, bindings) = default_mobile_deck();
@@ -84,12 +98,44 @@ impl DeckStore {
         self.revision
     }
 
+    pub fn pointer_sensitivity(&self) -> f64 {
+        self.snapshot.pointer_sensitivity
+    }
+
+    pub fn scroll_sensitivity(&self) -> f64 {
+        self.snapshot.scroll_sensitivity
+    }
+
     pub fn snapshot(&self) -> DeckSnapshot {
         self.snapshot.clone()
     }
 
     pub fn bindings(&self) -> HashMap<String, TileActionBindings> {
         self.bindings.clone()
+    }
+
+    pub fn resolve_voice_hold_keys(&self) -> Vec<String> {
+        let Some(binding) = self.bindings.get(VOICE_KEY_ID) else {
+            return Vec::new();
+        };
+        if !binding.hold_keys.is_empty() {
+            return binding.hold_keys.clone();
+        }
+        let has_double = binding.double.iter().any(|b| b.enabled());
+        let has_long = binding.long.iter().any(|b| b.enabled());
+        if !has_double && !has_long {
+            let mut enabled_tap = binding.tap.iter().filter(|b| b.enabled());
+            if let (Some(only), None) = (enabled_tap.next(), enabled_tap.next()) {
+                return match only {
+                    NativeBehavior::Key { key, .. } if !key.trim().is_empty() => {
+                        vec![key.clone()]
+                    }
+                    NativeBehavior::Shortcut { keys, .. } if !keys.is_empty() => keys.clone(),
+                    _ => Vec::new(),
+                };
+            }
+        }
+        Vec::new()
     }
 
     pub fn resolve_gesture(
@@ -151,12 +197,31 @@ impl DeckStore {
     }
 
     /// Replaces bindings for keys present in the managed Axonkey `axonkeyMobile` device instance's
-    /// active profile, re-derives `action_summary`, and bumps revision if anything changed.
-    pub fn sync_from_managed_profile(
+    /// active profile (and restores defaults for keys removed since the previous managed profile),
+    /// re-derives `action_summary` + `voice_binding_summary`, and bumps revision if anything changed.
+    pub fn sync_from_managed_profile_with_previous(
         &mut self,
         behaviors: &HashMap<String, crate::input_service::TriggerBehaviors>,
+        previous_managed_keys: &std::collections::HashSet<String>,
     ) -> Result<Option<(u64, DeckSnapshot)>, String> {
         let mut changed = false;
+        let defaults = default_mobile_deck().1;
+        for removed_key in previous_managed_keys {
+            if behaviors.contains_key(removed_key) {
+                continue;
+            }
+            let fallback = defaults.get(removed_key).cloned().unwrap_or_default();
+            let same = self.bindings.get(removed_key).is_some_and(|p| {
+                p.tap == fallback.tap
+                    && p.double == fallback.double
+                    && p.long == fallback.long
+                    && p.hold_keys == fallback.hold_keys
+            });
+            if !same {
+                self.bindings.insert(removed_key.clone(), fallback);
+                changed = true;
+            }
+        }
         for (key, trig) in behaviors {
             let next = TileActionBindings {
                 tap: trig.click.clone(),
@@ -166,7 +231,10 @@ impl DeckStore {
             };
             let prev = self.bindings.get(key);
             let same = prev.is_some_and(|p| {
-                p.tap == next.tap && p.double == next.double && p.long == next.long
+                p.tap == next.tap
+                    && p.double == next.double
+                    && p.long == next.long
+                    && p.hold_keys.is_empty()
             });
             if !same {
                 self.bindings.insert(key.clone(), next);
@@ -200,7 +268,9 @@ impl DeckStore {
         let mut next = self.snapshot.clone();
         if let Some(split) = patch.trackpad_split {
             if !split.is_finite() || !(0.0..=1.0).contains(&split) {
-                return Err(DeckUpdateError::Invalid("trackpadSplit 必须在 0..=1 之间".into()));
+                return Err(DeckUpdateError::Invalid(
+                    "trackpadSplit 必须在 0..=1 之间".into(),
+                ));
             }
             next.trackpad_split = split;
         }
@@ -263,7 +333,9 @@ impl DeckStore {
         }
         if let Some(active) = patch.active_page_id {
             if !next.pages.iter().any(|p| p.id == active) {
-                return Err(DeckUpdateError::Invalid("activePageId 不存在于当前页面列表".into()));
+                return Err(DeckUpdateError::Invalid(
+                    "activePageId 不存在于当前页面列表".into(),
+                ));
             }
             next.active_page_id = active;
         } else if !next.pages.iter().any(|p| p.id == next.active_page_id) {
@@ -284,6 +356,18 @@ impl DeckStore {
     }
 
     fn rehydrate_tile_metadata(&mut self) {
+        let voice_keys = self.resolve_voice_hold_keys();
+        self.snapshot.voice_binding_summary = if voice_keys.is_empty() {
+            None
+        } else {
+            Some(
+                voice_keys
+                    .iter()
+                    .map(|k| pretty_key(k))
+                    .collect::<Vec<_>>()
+                    .join("+"),
+            )
+        };
         for page in &mut self.snapshot.pages {
             for tile in &mut page.tiles {
                 if let Some(b) = self.bindings.get(&tile.id) {
@@ -426,13 +510,7 @@ fn paste(text: &str) -> NativeBehavior {
     }
 }
 
-fn tile(
-    id: &str,
-    label: &str,
-    icon: &str,
-    accent: TileAccent,
-    col_span: u8,
-) -> MobileTile {
+fn tile(id: &str, label: &str, icon: &str, accent: TileAccent, col_span: u8) -> MobileTile {
     MobileTile {
         id: id.into(),
         label: label.into(),
@@ -566,13 +644,23 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
             ..Default::default()
         },
     );
+    bindings.insert(
+        VOICE_KEY_ID.into(),
+        TileActionBindings {
+            tap: vec![key("Alt")],
+            ..Default::default()
+        },
+    );
 
     // Vibe Coding Grid default PC-side bindings
     bindings.insert(
         "tile.continue".into(),
         TileActionBindings {
             tap: vec![paste("继续执行，完成后汇报验证结果。"), key("Enter")],
-            long: vec![paste("先停下来检查当前改动是否有边界问题，再继续。"), key("Enter")],
+            long: vec![
+                paste("先停下来检查当前改动是否有边界问题，再继续。"),
+                key("Enter"),
+            ],
             ..Default::default()
         },
     );
@@ -635,6 +723,7 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
         scroll_sensitivity: 1.0,
         double_click_window_ms: 300,
         long_press_window_ms: 600,
+        voice_binding_summary: None,
         pages: vec![
             MobileDeckPage {
                 id: "classic-remote".into(),
@@ -652,7 +741,13 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
                     tile("remote.back", "返回", "undo", TileAccent::Slate, 1),
                     tile("remote.home", "主页/对话", "command", TileAccent::Slate, 1),
                     tile("remote.vol_up", "音量+", "volume-up", TileAccent::Slate, 1),
-                    tile("remote.vol_down", "音量-", "volume-mute", TileAccent::Slate, 1),
+                    tile(
+                        "remote.vol_down",
+                        "音量-",
+                        "volume-mute",
+                        TileAccent::Slate,
+                        1,
+                    ),
                     tile("remote.mute", "静音", "volume-mute", TileAccent::Slate, 1),
                     tile("remote.q1", "继续执行", "sparkles", TileAccent::Blue, 1),
                     tile("remote.q2", "接受变更", "check", TileAccent::Emerald, 1),
@@ -755,6 +850,68 @@ mod tests {
 
         let reloaded = DeckStore::load(path).unwrap();
         assert_eq!(reloaded.revision(), 3);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn voice_binding_seeds_alt_auto_migrates_legacy_deck_and_supports_pure_vmic() {
+        let dir = std::env::temp_dir().join(format!("axonkey-deck-voice-{}", Uuid::new_v4()));
+        let path = dir.join("mobile-deck.json");
+        let mut store = DeckStore::load(path.clone()).unwrap();
+        assert!((store.pointer_sensitivity() - 1.4).abs() < f64::EPSILON);
+        assert!((store.scroll_sensitivity() - 1.0).abs() < f64::EPSILON);
+        assert_eq!(store.resolve_voice_hold_keys(), vec!["Alt".to_owned()]);
+        assert_eq!(
+            store.snapshot().voice_binding_summary.as_deref(),
+            Some("Alt")
+        );
+
+        // Simulate a v1 persisted deck missing "mobile.voice": DeckStore::load must auto-insert Alt
+        let mut raw: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        raw["bindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove(VOICE_KEY_ID);
+        raw["snapshot"]
+            .as_object_mut()
+            .unwrap()
+            .remove("voiceBindingSummary");
+        fs::write(&path, serde_json::to_vec_pretty(&raw).unwrap()).unwrap();
+
+        let migrated = DeckStore::load(path.clone()).unwrap();
+        assert_eq!(migrated.resolve_voice_hold_keys(), vec!["Alt".to_owned()]);
+        assert_eq!(
+            migrated.snapshot().voice_binding_summary.as_deref(),
+            Some("Alt")
+        );
+
+        // Shortcut Win+H -> hold keys ["Win", "H"] and summary "Win+H"
+        let (_, snap_win_h) = store
+            .set_tile_binding(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Win", "H"])],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.resolve_voice_hold_keys(),
+            vec!["Win".to_owned(), "H".to_owned()]
+        );
+        assert_eq!(snap_win_h.voice_binding_summary.as_deref(), Some("Win+H"));
+
+        // Explicit empty binding -> Pure Virtual Microphone mode (no hold keys, summary None),
+        // and reloading must preserve explicit empty binding (not overwrite with Alt).
+        let (_, snap_pure) = store
+            .set_tile_binding(VOICE_KEY_ID.into(), TileActionBindings::default())
+            .unwrap();
+        assert!(store.resolve_voice_hold_keys().is_empty());
+        assert_eq!(snap_pure.voice_binding_summary, None);
+
+        let reloaded_pure = DeckStore::load(path).unwrap();
+        assert!(reloaded_pure.resolve_voice_hold_keys().is_empty());
+        assert_eq!(reloaded_pure.snapshot().voice_binding_summary, None);
         let _ = fs::remove_dir_all(&dir);
     }
 }

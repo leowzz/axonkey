@@ -18,6 +18,7 @@ import { oneplusRc001aSupportPackage } from '../oneplus-rc-001a-remote/definitio
 import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 import { g17TouchSupportPackage } from '../g17-touch/definition.ts'
 import { axonkeyMobileSupportPackage } from '../axonkey-mobile/definition.ts'
+import { createDefaultAxonkeyMobileBehaviors } from '../axonkey-mobile/defaultBehaviors.ts'
 
 export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
 export const deviceScreenSelectionId = '__screen__'
@@ -295,6 +296,7 @@ const bundledDeviceIdAliases: Readonly<Record<string, BuiltinDeviceKind>> = {
   'xiaomi.rc003': 'rc003',
   'xbox.bluetooth': 'xboxBluetooth',
   'xbox-bluetooth-045e-02e0': 'xboxBluetooth',
+  'axonkey.mobile': 'axonkeyMobile',
 }
 
 export function deriveDeviceKindFromId(deviceId: string): string {
@@ -399,21 +401,27 @@ export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
       ].every(([marker, value]) => !marker || Boolean(value && marker.split('|').some(part => value.includes(part)))),
   )
 }
+export function isNetworkManagedKind(kind: DeviceKind | undefined): boolean {
+  if (!kind) return false
+  return kind === 'axonkeyMobile' || packageFor(kind).remoteView?.voice?.transport === 'network'
+}
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
-  if (kind === undefined || kind === 'mouse') return false
+  if (kind === undefined || kind === 'mouse' || isNetworkManagedKind(kind)) return false
   const view = packageFor(kind).remoteView
   if (!view || view.identities.length === 0) return false
   if (view.usesVendorUsbHid !== undefined) return !view.usesVendorUsbHid
   return view.identities.some(identity => Boolean(identity.windowsPrefix))
 }
 export function supportsDeviceInformation(kind: DeviceKind) {
+  if (isNetworkManagedKind(kind)) return false
   const view = packageFor(kind).remoteView
   return Boolean(
-    view?.voice ||
+    (view?.voice && view.voice.transport !== 'network') ||
     view?.identities.some(identity => identity.informationRequired || identity.windowsPrefix === 'BTHLEDEVICE'),
   )
 }
 export function defaultRecordingMode(kind: DeviceKind): 'hold' | 'click' {
+  if (kind === 'axonkeyMobile') return 'hold'
   const modes = packageFor(kind).remoteView?.voice?.triggerModes ?? []
   return modes.length && !modes.includes('click') ? 'hold' : 'click'
 }
@@ -428,7 +436,13 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     cmiotA15RecordingMode: defaultRecordingMode(kind),
     enabled: true,
     activeProfileId: 'default',
-    profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],
+    profiles: [
+      {
+        id: 'default',
+        name: '默认配置',
+        behaviors: kind === 'axonkeyMobile' ? createDefaultAxonkeyMobileBehaviors() : {},
+      },
+    ],
   }
 }
 export function batteryForDevice(binding: string | null, discovered: DiscoveredDevice[]): number | null {
@@ -453,10 +467,23 @@ export function stateLabel(state?: string): string {
   )
 }
 export function instanceStatusLabel(instance: DeviceInstance, snapshot: DeviceSnapshot): string {
-  return stateLabel(instanceState(instance, snapshot))
+  const state = instanceState(instance, snapshot)
+  if (isNetworkManagedKind(instance.kind)) {
+    if (state === 'exclusive') return '已连接'
+    if (state === 'unbound') return '等待配对'
+    if (state === 'disconnected') return '未连接'
+    if (state === 'paused') return '已暂停'
+    if (state === 'error') return '需要处理'
+    return state ? stateLabel(state) : '等待配对'
+  }
+  return stateLabel(state)
 }
 export function instanceState(instance: DeviceInstance, snapshot: DeviceSnapshot): string | undefined {
   const state = snapshot.runtime[instance.id]?.state
+  if (isNetworkManagedKind(instance.kind)) {
+    if (!instance.enabled) return 'paused'
+    return state ?? 'unbound'
+  }
   if (
     instance.binding &&
     !snapshot.scanning &&
