@@ -213,6 +213,62 @@ fn tcl_identity_requires_hardware_and_every_information_marker() {
 }
 
 #[test]
+fn tcl_rc902v_matches_045e_0040_ble_revision_without_rc902v_software_marker() {
+    assert!(matches_information(
+        "tclRc902v",
+        0x045e,
+        0x0040,
+        None,
+        None,
+        None
+    ));
+    assert!(matches_information(
+        "tclRc902v",
+        0x045e,
+        0x0040,
+        None,
+        None,
+        Some("v1.5.8_20230825")
+    ));
+    assert!(!matches_information(
+        "tclRc902n",
+        0x045e,
+        0x0040,
+        None,
+        None,
+        Some("v1.5.8_20230825")
+    ));
+    assert!(!matches_information(
+        "tclRc902v",
+        0x0417,
+        0x0304,
+        None,
+        None,
+        Some("v1.5.8_20230825")
+    ));
+
+    for vid_token in ["01045E", "02045E"] {
+        let ble_id = format!(
+            r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&{vid_token}_PID&0040_AABBCCDDEEFF\instance"
+        );
+        assert!(matches_instance("tclRc902v", &ble_id));
+        assert!(!matches_instance("tclRc902n", &ble_id));
+        assert!(!matches_instance(
+            "tclRc902v",
+            &ble_id.replace("00001812", "0000180A")
+        ));
+    }
+    assert!(!matches_instance(
+        "tclRc902v",
+        r"USB\VID_045E&PID_0040\instance"
+    ));
+    assert!(!matches_instance(
+        "tclRc902v",
+        r"HID\VID_045E&PID_0040\instance"
+    ));
+}
+
+#[test]
 fn rc802a_hold_mode_sends_eb_commands_with_independent_key_edges() {
     let mut session = HidSession::for_kind("tclRc802a");
     session.start(RecordingMode::Hold);

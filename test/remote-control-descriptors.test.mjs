@@ -103,6 +103,31 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
       triggerModes: ['hold'],
     })
   }
+  assert.deepEqual(
+    deviceDescriptors['tcl-rc902v'].identities.map(identity => ({
+      vendorIds: identity.vendorIds,
+      productIds: identity.productIds,
+      informationRequired: identity.informationRequired,
+      softwareContains: identity.softwareContains,
+      windowsPrefix: identity.windowsPrefix,
+    })),
+    [
+      {
+        vendorIds: [0x0417],
+        productIds: [0x0304],
+        informationRequired: true,
+        softwareContains: 'RC902V',
+        windowsPrefix: 'BTHLEDEVICE',
+      },
+      {
+        vendorIds: [0x045e, 0x045e, 0x045e],
+        productIds: [0x0040],
+        informationRequired: false,
+        softwareContains: '',
+        windowsPrefix: 'BTHLEDEVICE',
+      },
+    ],
+  )
   assert.equal(deviceDescriptors.rc003.voice.transport, 'gatt')
   assert.equal(deviceDescriptors.xbox.voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].voice, null)

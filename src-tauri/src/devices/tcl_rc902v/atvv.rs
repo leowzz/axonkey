@@ -1788,5 +1788,26 @@ mod tests {
                 Some("a1:b2:c3:d4:e5:f6")
             ));
         }
+
+        for vid_token in ["01045E", "02045E"] {
+            let pnp_045e = format!(
+                r"\\?\BTHLEDevice#{{ab5e0001-5a21-4f05-bc7d-af01f617b664}}_Dev_VID&{vid_token}_PID&0040_REV&0001_A1B2C3D4E5F6#device"
+            );
+            assert!(approved_rc902_service_id(
+                "tclRc902v",
+                &pnp_045e,
+                Some("A1:B2:C3:D4:E5:F6")
+            ));
+            assert!(!approved_rc902_service_id(
+                "tclRc902v",
+                &pnp_045e,
+                Some("00:11:22:33:44:55")
+            ));
+            assert!(!approved_rc902_service_id(
+                "tclRc902n",
+                &pnp_045e,
+                Some("A1:B2:C3:D4:E5:F6")
+            ));
+        }
     }
 }

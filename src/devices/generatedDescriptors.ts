@@ -3729,6 +3729,22 @@ export const deviceDescriptors = {
         "informationRequired": true,
         "modelContains": "",
         "manufacturerContains": ""
+      },
+      {
+        "vendorIds": [
+          1118,
+          1118,
+          1118
+        ],
+        "productIds": [
+          64
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {

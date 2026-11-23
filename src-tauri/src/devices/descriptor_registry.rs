@@ -829,12 +829,58 @@ pub(crate) fn matches_hardware(
     usage_page: Option<u16>,
     usage: Option<u16>,
 ) -> bool {
+    matches_hardware_for_transport(kind, vid, pid, usage_page, usage, None)
+}
+
+pub(crate) fn matches_hardware_for_transport(
+    kind: &str,
+    vid: u16,
+    pid: u16,
+    usage_page: Option<u16>,
+    usage: Option<u16>,
+    transport: Option<&str>,
+) -> bool {
     descriptor_for_kind(kind).is_some_and(|descriptor| {
         descriptor.identities.iter().any(|identity| {
-            matches_identity_number(identity, "vid", Some(vid))
+            matches_identity_transport(identity, transport)
+                && matches_identity_number(identity, "vid", Some(vid))
                 && matches_identity_number(identity, "pid", Some(pid))
                 && matches_identity_number(identity, "usage-page", usage_page)
                 && matches_identity_number(identity, "usage", usage)
+        })
+    })
+}
+
+fn matches_identity_transport(
+    identity: &super::device_descriptor::IdentityDescriptor,
+    actual: Option<&str>,
+) -> bool {
+    let Some(actual) = actual else {
+        return true;
+    };
+    match identity.attributes.get("transport").map(String::as_str) {
+        Some("bluetooth-hid") => actual != "usb-hid",
+        Some("usb-hid") => actual != "bluetooth-hid",
+        _ => true,
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn matches_bluetooth_vendor_source(
+    kind: &str,
+    vendor: u16,
+    product: u16,
+    source: Option<u16>,
+) -> bool {
+    let Some(source) = source else {
+        return false;
+    };
+    let qualified_vid = ((source as u32) << 16) | (vendor as u32);
+    descriptor_for_kind(kind).is_some_and(|descriptor| {
+        descriptor.identities.iter().any(|identity| {
+            identity.attributes.get("vid").is_some_and(|expected| {
+                identity_numbers(expected).any(|value| value == qualified_vid)
+            }) && matches_identity_number(identity, "pid", Some(product))
         })
     })
 }
@@ -866,10 +912,13 @@ pub(crate) fn matches_hardware_id(kind: &str, id: &str) -> bool {
     })
 }
 
-fn identity_matches_hardware_id(
-    identity: &super::device_descriptor::IdentityDescriptor,
-    id: &str,
-) -> bool {
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn hardware_vid_pid(id: &str) -> Option<(u16, u16)> {
+    let (vid, pid) = parse_hardware_id_vid_pid(&id.to_ascii_uppercase())?;
+    Some((vid as u16, pid as u16))
+}
+
+fn parse_hardware_id_vid_pid(id: &str) -> Option<(u32, u32)> {
     let tokens = id
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty())
@@ -881,7 +930,14 @@ fn identity_matches_hardware_id(
                 .flatten()
         })
     };
-    let (Some(vid), Some(pid)) = (number("VID"), number("PID")) else {
+    Some((number("VID")?, number("PID")?))
+}
+
+fn identity_matches_hardware_id(
+    identity: &super::device_descriptor::IdentityDescriptor,
+    id: &str,
+) -> bool {
+    let Some((vid, pid)) = parse_hardware_id_vid_pid(id) else {
         return false;
     };
     identity
@@ -1076,6 +1132,107 @@ mod tests {
         assert!(!uses_vendor_usb_hid("xboxBluetooth"));
         assert!(!uses_vendor_usb_hid("rc003"));
         assert!(!uses_vendor_usb_hid("unknown"));
+
+        assert!(matches_hardware_for_transport(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(1),
+            Some(2),
+            None
+        ));
+        assert!(matches_hardware_for_transport(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(1),
+            Some(2),
+            Some("bluetooth-hid")
+        ));
+        assert!(!matches_hardware_for_transport(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(1),
+            Some(2),
+            Some("usb-hid")
+        ));
+        assert!(matches_hardware_for_transport(
+            "kivoK18Lite",
+            0x2e8a,
+            0xa018,
+            Some(0xff60),
+            Some(0x01),
+            Some("usb-hid")
+        ));
+        assert!(!matches_hardware_for_transport(
+            "kivoK18Lite",
+            0x2e8a,
+            0xa018,
+            Some(0xff60),
+            Some(0x01),
+            Some("bluetooth-hid")
+        ));
+    }
+
+    #[test]
+    fn hardware_vid_pid_extracts_low_16_bit_ids_from_pnp_strings() {
+        assert_eq!(
+            hardware_vid_pid(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02045E_PID&0040_REV&0001_AABBCCDDEEFF\instance"
+            ),
+            Some((0x045e, 0x0040))
+        );
+        assert_eq!(
+            hardware_vid_pid(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&01045E_PID&0040_REV&0001_AABBCCDDEEFF\instance"
+            ),
+            Some((0x045e, 0x0040))
+        );
+        assert_eq!(
+            hardware_vid_pid(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010417_PID&0304\instance"
+            ),
+            Some((0x0417, 0x0304))
+        );
+        assert_eq!(
+            hardware_vid_pid(r"BTHLEDEVICE\DEV_AABBCCDDEEFF\instance"),
+            None
+        );
+    }
+
+    #[test]
+    fn bluetooth_vendor_source_checks_qualified_vid_and_pid() {
+        assert!(matches_bluetooth_vendor_source(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(1)
+        ));
+        assert!(matches_bluetooth_vendor_source(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(2)
+        ));
+        assert!(!matches_bluetooth_vendor_source(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            Some(5)
+        ));
+        assert!(!matches_bluetooth_vendor_source(
+            "tclRc902v",
+            0x045e,
+            0x0040,
+            None
+        ));
+        assert!(!matches_bluetooth_vendor_source(
+            "xboxBluetooth",
+            0x045e,
+            0x02e0,
+            Some(1)
+        ));
     }
 
     #[test]
