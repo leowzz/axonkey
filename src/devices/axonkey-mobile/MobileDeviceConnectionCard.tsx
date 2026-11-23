@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { Check, Copy, Pencil, QrCode, Radio, RefreshCw, Smartphone, Trash2, Wifi, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { SettingsHelp } from '../../components/SettingsHelp'
+import { setDynamicSupportPackageOverride } from '../integration/model'
+import { buildDynamicMobileSupportPackage, type DeckSnapshot } from './dynamicSvg'
 import './MobileDeviceConnectionCard.css'
 
 const UDP_DISCOVERY_PORT = 49671
@@ -36,6 +39,11 @@ type PairedPeerSummary = {
   remark?: string | null
 }
 
+type MobileDeckResponse = {
+  revision: number
+  snapshot: DeckSnapshot
+}
+
 type MobileDeviceConnectionCardProps = {
   native: boolean
 }
@@ -43,6 +51,10 @@ type MobileDeviceConnectionCardProps = {
 export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCardProps) {
   const [status, setStatus] = useState<MobileHostStatus | null>(null)
   const [peers, setPeers] = useState<PairedPeerSummary[]>([])
+  const [deckSnapshot, setDeckSnapshot] = useState<DeckSnapshot | null>(null)
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null)
+  const lastDeckRevisionRef = useRef(0)
+  const lastPhoneActivePageIdRef = useRef<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [pairing, setPairing] = useState<PairingOfferResponse | null>(null)
   const [loadingOffer, setLoadingOffer] = useState(false)
@@ -50,6 +62,23 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
   const [editingPeerId, setEditingPeerId] = useState<string | null>(null)
   const [remarkDraft, setRemarkDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  const applyDeckPayload = useCallback((payload: MobileDeckResponse | null | undefined) => {
+    if (!payload?.snapshot) return
+    if (payload.revision < lastDeckRevisionRef.current) return
+    lastDeckRevisionRef.current = payload.revision
+    const nextSnapshot = payload.snapshot
+    setDeckSnapshot(nextSnapshot)
+
+    if (nextSnapshot.activePageId !== lastPhoneActivePageIdRef.current) {
+      lastPhoneActivePageIdRef.current = nextSnapshot.activePageId
+      setSelectedPageId(nextSnapshot.activePageId)
+    } else {
+      setSelectedPageId(prev =>
+        prev && nextSnapshot.pages.some(page => page.id === prev) ? prev : nextSnapshot.activePageId,
+      )
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     if (!native) return
@@ -61,10 +90,50 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
       setStatus(nextStatus)
       setPeers(nextPeers)
       setError(null)
+      if (lastDeckRevisionRef.current === 0) {
+        const initialDeck = await invoke<MobileDeckResponse>('mobile_host_get_deck').catch(() => null)
+        applyDeckPayload(initialDeck)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [native])
+  }, [applyDeckPayload, native])
+
+  useEffect(() => {
+    if (!native) return
+    let alive = true
+    void invoke<MobileDeckResponse>('mobile_host_get_deck')
+      .then(res => {
+        if (alive) applyDeckPayload(res)
+      })
+      .catch(() => {})
+
+    const unlistenPromise = listen<MobileDeckResponse>('axonkey-mobile-deck-changed', event => {
+      if (alive) applyDeckPayload(event.payload)
+    })
+
+    return () => {
+      alive = false
+      void unlistenPromise.then(unlisten => unlisten())
+    }
+  }, [applyDeckPayload, native])
+
+  const effectivePageId =
+    (selectedPageId && deckSnapshot?.pages.some(page => page.id === selectedPageId)
+      ? selectedPageId
+      : deckSnapshot?.activePageId) ??
+    deckSnapshot?.pages[0]?.id ??
+    null
+
+  useEffect(() => {
+    if (!deckSnapshot) return
+    try {
+      const pkg = buildDynamicMobileSupportPackage(deckSnapshot, effectivePageId ?? undefined)
+      setDynamicSupportPackageOverride('axonkeyMobile', pkg)
+    } catch {
+      /* Fallback to previous or bundled package if malformed snapshot */
+    }
+  }, [deckSnapshot, effectivePageId])
 
   useEffect(() => {
     void refresh()
@@ -163,23 +232,50 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
   const dotTone = connectedName ? 'online' : status?.running ? (pairedTotal > 0 ? 'ready' : 'waiting') : ''
   const lanSummary = status?.addrs?.length ? status.addrs.join(' · ') : null
 
+  const pages = deckSnapshot?.pages ?? []
+
   return (
     <>
       <div className="mobile-device-bar" role="region" aria-label="手机连接状态">
-        <div className="mobile-device-bar-status" title={barText}>
-          <span className={`mobile-device-dot ${dotTone}`.trim()} aria-hidden="true" />
-          <span className="mobile-device-bar-text">{barText}</span>
+        <div className="mobile-device-bar-main">
+          <div className="mobile-device-bar-status" title={barText}>
+            <span className={`mobile-device-dot ${dotTone}`.trim()} aria-hidden="true" />
+            <span className="mobile-device-bar-text">{barText}</span>
+          </div>
+          <button
+            type="button"
+            className="mobile-device-pair-btn"
+            disabled={!native}
+            title={!native ? '请在桌面应用中扫码配对手机' : '扫码配对或管理已配对手机'}
+            onClick={openPairingDialog}
+          >
+            <QrCode size={13} aria-hidden="true" />
+            <span>配对</span>
+          </button>
         </div>
-        <button
-          type="button"
-          className="mobile-device-pair-btn"
-          disabled={!native}
-          title={!native ? '请在桌面应用中扫码配对手机' : '扫码配对或管理已配对手机'}
-          onClick={openPairingDialog}
-        >
-          <QrCode size={13} aria-hidden="true" />
-          <span>配对</span>
-        </button>
+        {pages.length > 1 && (
+          <div className="mobile-device-pages" role="tablist" aria-label="手机页面视图">
+            {pages.map(page => {
+              const isSelected = page.id === effectivePageId
+              const isPhoneActive = page.id === deckSnapshot?.activePageId
+              const pageLabel = page.name?.trim() || page.id
+              return (
+                <button
+                  key={page.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isSelected}
+                  className={`mobile-device-page-pill${isSelected ? ' active' : ''}`}
+                  title={isPhoneActive ? `${pageLabel}（手机当前页）` : `切换视图：${pageLabel}`}
+                  onClick={() => setSelectedPageId(page.id)}
+                >
+                  {isPhoneActive && <span className="mobile-device-page-live-dot" aria-hidden="true" />}
+                  <span className="mobile-device-page-name">{pageLabel}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {dialogOpen &&

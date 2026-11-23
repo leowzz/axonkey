@@ -139,6 +139,7 @@ pub struct MobileCoordinator<B: MobileInputBackend> {
     ui_presses: BTreeMap<String, String>,
     next_flash_id: u64,
     ui_tx: Option<mpsc::UnboundedSender<Vec<String>>>,
+    deck_event_tx: Option<mpsc::UnboundedSender<super::MobileDeckResponse>>,
 }
 
 impl<B: MobileInputBackend> MobileCoordinator<B> {
@@ -180,6 +181,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             ui_presses: BTreeMap::new(),
             next_flash_id: 0,
             ui_tx: None,
+            deck_event_tx: None,
         }
     }
 
@@ -200,6 +202,16 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
 
     pub fn set_ui_event_sender(&mut self, tx: mpsc::UnboundedSender<Vec<String>>) {
         self.ui_tx = Some(tx);
+    }
+
+    pub fn set_deck_event_sender(&mut self, tx: mpsc::UnboundedSender<super::MobileDeckResponse>) {
+        self.deck_event_tx = Some(tx);
+    }
+
+    fn emit_deck_changed(&self, revision: u64, snapshot: DeckSnapshot) {
+        if let Some(tx) = &self.deck_event_tx {
+            let _ = tx.send(super::MobileDeckResponse { revision, snapshot });
+        }
     }
 
     pub fn host_id(&self) -> &str {
@@ -378,6 +390,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 input_generation: next_gen,
             });
         }
+        self.emit_deck_changed(rev, snap.clone());
         Ok((rev, snap))
     }
 
@@ -423,12 +436,13 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 session.input_generation = next_gen;
                 let _ = self.input.revoke_session(&session.session_id);
                 let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
-                    deck_snapshot: snap,
+                    deck_snapshot: snap.clone(),
                     deck_revision: rev,
                     input_epoch: next_epoch,
                     input_generation: next_gen,
                 });
             }
+            self.emit_deck_changed(rev, snap);
         }
     }
 
@@ -478,6 +492,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 input_generation: session.input_generation,
             });
         }
+        self.emit_deck_changed(rev, snap.clone());
         Ok((rev, snap))
     }
 
@@ -1083,14 +1098,17 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                     };
                 }
                 match self.deck.apply_layout_patch(base_revision, layout_patch) {
-                    Ok((rev, snap)) => Some(ServerMessage::DeckUpdateResult {
-                        request_id,
-                        ok: true,
-                        conflict: Some(false),
-                        deck_revision: rev,
-                        deck_snapshot: Some(snap),
-                        error: None,
-                    }),
+                    Ok((rev, snap)) => {
+                        self.emit_deck_changed(rev, snap.clone());
+                        Some(ServerMessage::DeckUpdateResult {
+                            request_id,
+                            ok: true,
+                            conflict: Some(false),
+                            deck_revision: rev,
+                            deck_snapshot: Some(snap),
+                            error: None,
+                        })
+                    }
                     Err(DeckUpdateError::Conflict(conflict)) => {
                         Some(ServerMessage::DeckUpdateResult {
                             request_id,

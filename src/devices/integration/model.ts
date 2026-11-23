@@ -182,6 +182,7 @@ export type LocalCloudDescriptorOverride = {
 
 let cloudOverlayPackages: readonly DeviceSupportPackage[] = []
 let localCustomOverlayPackages: readonly DeviceSupportPackage[] = []
+const dynamicSupportOverlayByKind = new Map<BuiltinDeviceKind, DeviceSupportPackage>()
 let localCloudOverridesSnapshot: readonly LocalCloudDescriptorOverride[] = Object.freeze([])
 
 export function getLocalCloudDescriptorOverrides(): readonly LocalCloudDescriptorOverride[] {
@@ -221,6 +222,10 @@ function rebuildSupportPackages(): boolean {
       })
     }
   }
+  for (const [kind, pkg] of dynamicSupportOverlayByKind) {
+    if (!kind) continue
+    overlayByKind.set(kind, pkg)
+  }
 
   const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => {
     const overlay = overlayByKind.get(pkg.kind)
@@ -248,6 +253,12 @@ function rebuildSupportPackages(): boolean {
         prev.model === pkg.model &&
         prev.artwork === pkg.artwork &&
         prev.inputs.length === pkg.inputs.length &&
+        prev.inputs.every(
+          (inp, idx) =>
+            inp.id === pkg.inputs[idx]?.id &&
+            inp.label === pkg.inputs[idx]?.label &&
+            inp.icon === pkg.inputs[idx]?.icon,
+        ) &&
         prev.remoteView?.usesVendorUsbHid === pkg.remoteView?.usesVendorUsbHid &&
         prev.workspaceLayout === pkg.workspaceLayout &&
         prev.screenRegion?.label === pkg.screenRegion?.label &&
@@ -286,9 +297,21 @@ export function setLocalCustomSupportPackages(overlays: readonly DeviceSupportPa
   return rebuildSupportPackages()
 }
 
+export function setDynamicSupportPackageOverride(kind: BuiltinDeviceKind, pkg: DeviceSupportPackage | null): boolean {
+  if (!kind) return false
+  if (pkg === null) {
+    if (!dynamicSupportOverlayByKind.has(kind)) return false
+    dynamicSupportOverlayByKind.delete(kind)
+    return rebuildSupportPackages()
+  }
+  dynamicSupportOverlayByKind.set(kind, { ...pkg, kind })
+  return rebuildSupportPackages()
+}
+
 export function resetRuntimeSupportPackages(): boolean {
   cloudOverlayPackages = []
   localCustomOverlayPackages = []
+  dynamicSupportOverlayByKind.clear()
   return rebuildSupportPackages()
 }
 

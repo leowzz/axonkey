@@ -9,7 +9,8 @@ use std::fs;
 use std::path::PathBuf;
 
 const MAX_PAGES: usize = 8;
-const MAX_TILES_PER_PAGE: usize = 24;
+const MAX_TILES_PER_PAGE: usize = 32;
+const MAX_ZONES_PER_PAGE: usize = 6;
 pub const VOICE_KEY_ID: &str = "mobile.voice";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -158,11 +159,7 @@ impl DeckStore {
 
     pub fn resolve_hold_keys(&self, tile_id: &str) -> Option<Vec<String>> {
         let binding = self.bindings.get(tile_id)?;
-        if binding.hold_keys.is_empty() {
-            None
-        } else {
-            Some(binding.hold_keys.clone())
-        }
+        resolve_hold_keys_from_binding(binding)
     }
 
     /// PC-side authoritative mapping update: updates `tile_id -> NativeBehavior` bindings,
@@ -309,6 +306,11 @@ impl DeckStore {
                         "单页卡片数量不能超过 {MAX_TILES_PER_PAGE}"
                     )));
                 }
+                if page.zones.len() > MAX_ZONES_PER_PAGE {
+                    return Err(DeckUpdateError::Invalid(format!(
+                        "单页区块数量不能超过 {MAX_ZONES_PER_PAGE}"
+                    )));
+                }
                 for tile in &mut page.tiles {
                     if tile.id.trim().is_empty() || tile.label.trim().is_empty() {
                         return Err(DeckUpdateError::Invalid("卡片 ID 和标题不能为空".into()));
@@ -326,6 +328,21 @@ impl DeckStore {
                         .map(|s| s.trim().chars().take(24).collect::<String>())
                         .filter(|s| !s.is_empty());
                     tile.col_span = tile.col_span.clamp(1, 2);
+                    tile.row_span = tile.row_span.clamp(1, 2);
+                }
+                for zone in &mut page.zones {
+                    zone.id = zone.id.trim().to_owned();
+                    if zone.id.is_empty() {
+                        return Err(DeckUpdateError::Invalid("区块 ID 不能为空".into()));
+                    }
+                    if let Some(cols) = zone.columns {
+                        if !(2..=4).contains(&cols) {
+                            return Err(DeckUpdateError::Invalid("区块列数仅支持 2、3、4".into()));
+                        }
+                    }
+                    for slot_id in &mut zone.tile_ids {
+                        *slot_id = slot_id.trim().to_owned();
+                    }
                 }
                 sanitized_pages.push(page);
             }
@@ -370,10 +387,25 @@ impl DeckStore {
         };
         for page in &mut self.snapshot.pages {
             for tile in &mut page.tiles {
+                tile.col_span = tile.col_span.clamp(1, 2);
+                tile.row_span = tile.row_span.clamp(1, 2);
                 if let Some(b) = self.bindings.get(&tile.id) {
                     tile.has_double_click = !b.double.is_empty();
                     tile.has_long_press = !b.long.is_empty();
-                    tile.action_summary = summarize_binding(b);
+                    tile.action_summary = if tile.mode == TileMode::Hold {
+                        if let Some(keys) = resolve_hold_keys_from_binding(b) {
+                            let keys_pretty = keys
+                                .iter()
+                                .map(|k| pretty_key(k))
+                                .collect::<Vec<_>>()
+                                .join("+");
+                            Some(format!("按住 {keys_pretty}"))
+                        } else {
+                            summarize_binding(b)
+                        }
+                    } else {
+                        summarize_binding(b)
+                    };
                 } else {
                     tile.has_double_click = false;
                     tile.has_long_press = false;
@@ -404,9 +436,38 @@ impl DeckStore {
     }
 }
 
+fn resolve_hold_keys_from_binding(binding: &TileActionBindings) -> Option<Vec<String>> {
+    if !binding.hold_keys.is_empty() {
+        return Some(binding.hold_keys.clone());
+    }
+    binding.tap.iter().find_map(|behavior| match behavior {
+        NativeBehavior::Key { enabled: true, key } if !key.trim().is_empty() => {
+            Some(vec![key.clone()])
+        }
+        NativeBehavior::Shortcut {
+            enabled: true,
+            keys,
+        } if !keys.is_empty() => {
+            let non_empty: Vec<String> = keys
+                .iter()
+                .filter(|k| !k.trim().is_empty())
+                .cloned()
+                .collect();
+            (!non_empty.is_empty()).then_some(non_empty)
+        }
+        _ => None,
+    })
+}
+
 pub fn summarize_binding(binding: &TileActionBindings) -> Option<String> {
     if !binding.hold_keys.is_empty() {
-        return Some(format!("按住 {}", binding.hold_keys.join("+")));
+        let keys_pretty = binding
+            .hold_keys
+            .iter()
+            .map(|k| pretty_key(k))
+            .collect::<Vec<_>>()
+            .join("+");
+        return Some(format!("按住 {keys_pretty}"));
     }
     summarize_behaviors(&binding.tap)
         .or_else(|| summarize_behaviors(&binding.double).map(|s| format!("2× {s}")))
@@ -519,6 +580,7 @@ fn tile(id: &str, label: &str, icon: &str, accent: TileAccent, col_span: u8) -> 
         icon: icon.into(),
         accent,
         col_span,
+        row_span: 1,
         mode: TileMode::Gesture,
         has_double_click: false,
         has_long_press: false,
@@ -754,6 +816,7 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
                     tile("remote.q3", "撤销", "undo", TileAccent::Amber, 1),
                     tile("remote.q4", "播放/暂停", "play", TileAccent::Violet, 1),
                 ],
+                zones: Vec::new(),
             },
             MobileDeckPage {
                 id: "vibe-coding".into(),
@@ -770,6 +833,7 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
                     tile("tile.paste", "粘贴", "clipboard", TileAccent::Slate, 1),
                     tile("tile.terminal", "终端", "terminal", TileAccent::Violet, 1),
                 ],
+                zones: Vec::new(),
             },
         ],
     };
@@ -912,6 +976,331 @@ mod tests {
         let reloaded_pure = DeckStore::load(path).unwrap();
         assert!(reloaded_pure.resolve_voice_hold_keys().is_empty());
         assert_eq!(reloaded_pure.snapshot().voice_binding_summary, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bento_row_span_and_zones_persist_clamp_and_validate() {
+        use super::super::protocol::{DeckZoneKind, EmbeddedPointerMode, MobileDeckZone};
+
+        let dir = std::env::temp_dir().join(format!("axonkey-deck-v3-zones-{}", Uuid::new_v4()));
+        let path = dir.join("mobile-deck.json");
+        let mut store = DeckStore::load(path.clone()).unwrap();
+
+        // Default pages have empty zones, which must be omitted in serialized JSON
+        let default_json = serde_json::to_value(store.snapshot()).unwrap();
+        assert!(default_json["pages"][0].get("zones").is_none());
+        assert_eq!(default_json["pages"][0]["tiles"][0]["rowSpan"], 1);
+
+        // Legacy tile JSON omitting rowSpan must deserialize with row_span == 1
+        let legacy_tile: MobileTile = serde_json::from_value(serde_json::json!({
+            "id": "legacy.1",
+            "label": "旧版按键",
+            "icon": "sparkles",
+            "accent": "blue",
+            "colSpan": 1,
+            "mode": "gesture"
+        }))
+        .unwrap();
+        assert_eq!(legacy_tile.row_span, 1);
+
+        // Build a 32-tile mixed Bento + PointerPad + Dpad3x3 page with 1x2, 2x2, and out-of-bounds spans
+        let mut tiles = Vec::new();
+        for idx in 0..32 {
+            let mut t = tile(
+                &format!("custom.t{idx}"),
+                &format!("键 {idx}"),
+                "sparkles",
+                TileAccent::Blue,
+                if idx == 0 { 9 } else { 1 }, // idx 0 clamps col_span 9 -> 2
+            );
+            t.row_span = match idx {
+                0 => 2, // 2x2 hero pad
+                1 => 5, // clamps 5 -> 2 (1x2 vertical rocker)
+                2 => 0, // clamps 0 -> 1 (1x1 standard)
+                _ => 1,
+            };
+            tiles.push(t);
+        }
+
+        let zones = vec![
+            MobileDeckZone {
+                id: "  zone-pad  ".into(),
+                kind: DeckZoneKind::PointerPad,
+                columns: None,
+                pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                tile_ids: Vec::new(),
+            },
+            MobileDeckZone {
+                id: "zone-dpad".into(),
+                kind: DeckZoneKind::Dpad3x3,
+                columns: None,
+                pointer_mode: None,
+                tile_ids: vec![
+                    "".into(),
+                    "custom.t0".into(),
+                    "".into(),
+                    "custom.t1".into(),
+                    "custom.t2".into(),
+                    "custom.t3".into(),
+                    "".into(),
+                    "custom.t4".into(),
+                    "".into(),
+                ],
+            },
+            MobileDeckZone {
+                id: "zone-bento".into(),
+                kind: DeckZoneKind::BentoGrid,
+                columns: Some(4),
+                pointer_mode: None,
+                tile_ids: (5..32).map(|i| format!("custom.t{i}")).collect(),
+            },
+        ];
+
+        let custom_page = MobileDeckPage {
+            id: "mixed-bento".into(),
+            name: "混排面板".into(),
+            layout: PageLayout::Grid,
+            columns: 3,
+            tiles,
+            zones,
+        };
+
+        let (rev2, snap2) = store
+            .apply_layout_patch(
+                1,
+                DeckLayoutPatch {
+                    active_page_id: Some("mixed-bento".into()),
+                    pages: Some(vec![custom_page.clone()]),
+                    ..Default::default()
+                },
+            )
+            .ok()
+            .expect("32 tiles and 3 valid zones should succeed");
+        assert_eq!(rev2, 2);
+        let saved_page = &snap2.pages[0];
+        assert_eq!(saved_page.tiles[0].col_span, 2);
+        assert_eq!(saved_page.tiles[0].row_span, 2);
+        assert_eq!(saved_page.tiles[1].col_span, 1);
+        assert_eq!(saved_page.tiles[1].row_span, 2);
+        assert_eq!(saved_page.tiles[2].row_span, 1);
+        assert_eq!(saved_page.zones[0].id, "zone-pad");
+
+        // Verify exact wire strings for DeckZoneKind and EmbeddedPointerMode + persistence reload
+        let wire = serde_json::to_value(&saved_page.zones).unwrap();
+        assert_eq!(wire[0]["kind"], "pointer-pad");
+        assert_eq!(wire[0]["pointerMode"], "trackpad");
+        assert_eq!(wire[1]["kind"], "dpad-3x3");
+        assert_eq!(wire[2]["kind"], "bento-grid");
+        assert_eq!(wire[2]["columns"], 4);
+
+        let reloaded = DeckStore::load(path).unwrap();
+        assert_eq!(reloaded.snapshot(), snap2);
+
+        // Validation: reject invalid zone columns (1 or 5), empty zone.id, >6 zones, >32 tiles
+        let mut bad_col_page = custom_page.clone();
+        bad_col_page.zones[2].columns = Some(5);
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![bad_col_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        let mut empty_zone_id_page = custom_page.clone();
+        empty_zone_id_page.zones[0].id = "   ".into();
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![empty_zone_id_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        let mut too_many_zones_page = custom_page.clone();
+        too_many_zones_page.zones = (0..7)
+            .map(|i| MobileDeckZone {
+                id: format!("z-{i}"),
+                kind: DeckZoneKind::BentoGrid,
+                columns: Some(3),
+                pointer_mode: None,
+                tile_ids: Vec::new(),
+            })
+            .collect();
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![too_many_zones_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        let mut too_many_tiles_page = custom_page;
+        too_many_tiles_page.tiles.push(tile(
+            "custom.t32",
+            "超限",
+            "sparkles",
+            TileAccent::Slate,
+            1,
+        ));
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![too_many_tiles_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hold_mode_extracts_tap_keys_updates_silkscreen_and_decouples_profile_from_layout() {
+        use super::super::protocol::{DeckZoneKind, EmbeddedPointerMode, MobileDeckZone};
+        use crate::input_service::TriggerBehaviors;
+        use std::collections::HashSet;
+
+        let dir = std::env::temp_dir().join(format!("axonkey-deck-v3-hold-{}", Uuid::new_v4()));
+        let path = dir.join("mobile-deck.json");
+        let mut store = DeckStore::load(path).unwrap();
+
+        let mut hold_space = tile(
+            "custom.hold_space",
+            "按住空格",
+            "play",
+            TileAccent::Emerald,
+            1,
+        );
+        hold_space.row_span = 2; // 1x2 tall strip
+        hold_space.mode = TileMode::Hold;
+
+        let mut hold_combo = tile(
+            "custom.hold_combo",
+            "组合键按住",
+            "command",
+            TileAccent::Violet,
+            2,
+        );
+        hold_combo.row_span = 2; // 2x2 hero pad
+        hold_combo.mode = TileMode::Hold;
+
+        let custom_zones = vec![
+            MobileDeckZone {
+                id: "top-pad".into(),
+                kind: DeckZoneKind::PointerPad,
+                columns: None,
+                pointer_mode: Some(EmbeddedPointerMode::Relative),
+                tile_ids: Vec::new(),
+            },
+            MobileDeckZone {
+                id: "bottom-bento".into(),
+                kind: DeckZoneKind::BentoGrid,
+                columns: Some(3),
+                pointer_mode: None,
+                tile_ids: vec!["custom.hold_space".into(), "custom.hold_combo".into()],
+            },
+        ];
+
+        let (_, layout_snap) = store
+            .apply_layout_patch(
+                1,
+                DeckLayoutPatch {
+                    active_page_id: Some("game-layout".into()),
+                    pages: Some(vec![MobileDeckPage {
+                        id: "game-layout".into(),
+                        name: "游戏混排".into(),
+                        layout: PageLayout::Grid,
+                        columns: 3,
+                        tiles: vec![hold_space, hold_combo],
+                        zones: custom_zones.clone(),
+                    }]),
+                    ..Default::default()
+                },
+            )
+            .ok()
+            .unwrap();
+        assert_eq!(layout_snap.active_page_id, "game-layout");
+
+        // Profile A: Desktop right-hand lane binds `click` (mapped to `tap`) with Key & Shortcut
+        let mut prof_a = HashMap::new();
+        prof_a.insert(
+            "custom.hold_space".to_owned(),
+            TriggerBehaviors {
+                click: vec![key("Space")],
+                ..Default::default()
+            },
+        );
+        prof_a.insert(
+            "custom.hold_combo".to_owned(),
+            TriggerBehaviors {
+                click: vec![shortcut(&["Control", "Shift"])],
+                ..Default::default()
+            },
+        );
+        let prev_empty = HashSet::new();
+        let (_, snap_prof_a) = store
+            .sync_from_managed_profile_with_previous(&prof_a, &prev_empty)
+            .unwrap()
+            .expect("Profile A should update bindings");
+
+        assert_eq!(
+            store.resolve_hold_keys("custom.hold_space"),
+            Some(vec!["Space".to_owned()])
+        );
+        assert_eq!(
+            store.resolve_hold_keys("custom.hold_combo"),
+            Some(vec!["Control".to_owned(), "Shift".to_owned()])
+        );
+        assert_eq!(
+            snap_prof_a.pages[0].tiles[0].action_summary.as_deref(),
+            Some("按住 Space")
+        );
+        assert_eq!(
+            snap_prof_a.pages[0].tiles[1].action_summary.as_deref(),
+            Some("按住 Ctrl+Shift")
+        );
+
+        // Profile B: Switch Desktop profile -> layout (active_page_id, pages, zones, spans) MUST NOT change!
+        let prev_a: HashSet<String> = prof_a.keys().cloned().collect();
+        let mut prof_b = HashMap::new();
+        prof_b.insert(
+            "custom.hold_space".to_owned(),
+            TriggerBehaviors {
+                click: vec![key("Escape")],
+                ..Default::default()
+            },
+        );
+        let (_, snap_prof_b) = store
+            .sync_from_managed_profile_with_previous(&prof_b, &prev_a)
+            .unwrap()
+            .expect("Profile B should update bindings");
+
+        assert_eq!(snap_prof_b.active_page_id, "game-layout");
+        assert_eq!(snap_prof_b.pages.len(), 1);
+        assert_eq!(snap_prof_b.pages[0].zones, custom_zones);
+        assert_eq!(snap_prof_b.pages[0].tiles[0].row_span, 2);
+        assert_eq!(snap_prof_b.pages[0].tiles[1].col_span, 2);
+        assert_eq!(snap_prof_b.pages[0].tiles[1].row_span, 2);
+        assert_eq!(
+            snap_prof_b.pages[0].tiles[0].action_summary.as_deref(),
+            Some("按住 Esc")
+        );
+        assert_eq!(snap_prof_b.pages[0].tiles[1].action_summary, None);
+        assert_eq!(store.resolve_hold_keys("custom.hold_combo"), None);
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

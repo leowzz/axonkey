@@ -42,7 +42,7 @@ pub struct MobilePairingOfferResponse {
     pub qr_payload: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileDeckResponse {
     pub revision: u64,
@@ -58,12 +58,14 @@ pub struct MobileDeviceInputPayload {
 }
 
 pub type UiInputSink = Arc<dyn Fn(Vec<String>) + Send + Sync>;
+pub type DeckChangeSink = Arc<dyn Fn(MobileDeckResponse) + Send + Sync>;
 
 pub struct MobileHostHandle<B: MobileInputBackend + 'static = SystemMobileBackend> {
     coordinator: Arc<Mutex<MobileCoordinator<B>>>,
     port: u16,
     snapshot_provider: Arc<Mutex<Option<SnapshotProvider>>>,
     ui_sink: Arc<Mutex<Option<UiInputSink>>>,
+    deck_sink: Arc<Mutex<Option<DeckChangeSink>>>,
     shutdown_tx: Mutex<Option<watch::Sender<bool>>>,
     _runtime: Arc<tokio::runtime::Runtime>,
 }
@@ -110,6 +112,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         let host_name_for_udp = identity.host_name.clone();
 
         let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<Vec<String>>();
+        let (deck_tx, mut deck_rx) = mpsc::unbounded_channel::<MobileDeckResponse>();
         let mut coord_inner = MobileCoordinator::new(
             identity.host_id,
             identity.host_name,
@@ -119,6 +122,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             input,
         );
         coord_inner.set_ui_event_sender(ui_tx);
+        coord_inner.set_deck_event_sender(deck_tx);
         let coordinator = Arc::new(Mutex::new(coord_inner));
 
         let runtime = Arc::new(
@@ -143,6 +147,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let snapshot_provider: Arc<Mutex<Option<SnapshotProvider>>> = Arc::new(Mutex::new(None));
         let ui_sink: Arc<Mutex<Option<UiInputSink>>> = Arc::new(Mutex::new(None));
+        let deck_sink: Arc<Mutex<Option<DeckChangeSink>>> = Arc::new(Mutex::new(None));
 
         // Spawn UI pressed-keys forwarder (`'axonkey-device-input'`)
         let ui_sink_for_task = Arc::clone(&ui_sink);
@@ -154,6 +159,20 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
                     .clone();
                 if let Some(cb) = sink {
                     cb(pressed);
+                }
+            }
+        });
+
+        // Spawn live deck-changed forwarder (`'axonkey-mobile-deck-changed'`)
+        let deck_sink_for_task = Arc::clone(&deck_sink);
+        runtime.spawn(async move {
+            while let Some(resp) = deck_rx.recv().await {
+                let sink = deck_sink_for_task
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if let Some(cb) = sink {
+                    cb(resp);
                 }
             }
         });
@@ -204,6 +223,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             port,
             snapshot_provider,
             ui_sink,
+            deck_sink,
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
             _runtime: runtime,
         })
@@ -211,8 +231,10 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
 
     /// Connects the live Tauri `AppHandle` so:
     /// 1. Mobile button/tile/voice presses emit `'axonkey-device-input'` `{ instanceId, pressed, values: {} }`
-    ///    for all enabled `axonkeyMobile` instances (flashing green in the PC SVG!), and
-    /// 2. Foreground app automatic profile switching (`effective_profile_id` changes) is polled on
+    ///    for all enabled `axonkeyMobile` instances (flashing green in the PC SVG!),
+    /// 2. Live deck layout or silkscreen updates from any path emit `'axonkey-mobile-deck-changed'`
+    ///    with `MobileDeckResponse { revision, snapshot }` so Desktop's dynamic SVG updates immediately, and
+    /// 3. Foreground app automatic profile switching (`effective_profile_id` changes) is polled on
     ///    `run_wss_server`'s 250ms tick.
     pub fn attach_app_handle(&self, app: tauri::AppHandle) {
         let app_for_snap = app.clone();
@@ -220,6 +242,11 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             app_for_snap
                 .try_state::<crate::DeviceManager>()
                 .map(|m| m.snapshot())
+        }));
+
+        let app_for_deck = app.clone();
+        self.set_deck_change_sink(Arc::new(move |resp: MobileDeckResponse| {
+            let _ = app_for_deck.emit("axonkey-mobile-deck-changed", resp);
         }));
 
         let app_for_emit = app;
@@ -255,6 +282,10 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
 
     pub fn set_ui_input_sink(&self, sink: UiInputSink) {
         *self.ui_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
+    }
+
+    pub fn set_deck_change_sink(&self, sink: DeckChangeSink) {
+        *self.deck_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
     }
 
     pub fn port(&self) -> u16 {
@@ -967,6 +998,340 @@ mod tests {
                 }
             }
             assert!(saw_profile_push);
+
+            let _ = ws.close(None).await;
+        });
+
+        host.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn live_deck_changed_sink_emits_across_phone_desktop_binding_and_profile_sync_and_hold_injects()
+    {
+        use protocol::{
+            DeckZoneKind, EmbeddedPointerMode, MobileDeckPage, MobileDeckZone, MobileTile,
+            PageLayout, TileAccent, TileMode,
+        };
+
+        let dir = std::env::temp_dir().join(format!("axonkey-v3-deck-events-{}", Uuid::new_v4()));
+        let backend = RecordingBackend::default();
+        let backend_log = Arc::clone(&backend.log);
+        let input = Arc::new(MobileInputController::new(backend));
+        let host = MobileHostHandle::start_with_backend(dir.clone(), Arc::clone(&input), 0)
+            .expect("start mobile host");
+
+        let deck_events: Arc<StdMutex<Vec<MobileDeckResponse>>> =
+            Arc::new(StdMutex::new(Vec::new()));
+        let deck_events_sink = Arc::clone(&deck_events);
+        host.set_deck_change_sink(Arc::new(move |resp| {
+            deck_events_sink.lock().unwrap().push(resp);
+        }));
+
+        let offer_resp = host.start_pairing().expect("start pairing");
+        let port = host.port();
+        let ca_der = base64::engine::general_purpose::STANDARD
+            .decode(&offer_resp.offer.ca_cert_der_b64)
+            .unwrap();
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add(CertificateDer::from(ca_der)).unwrap();
+        let connector = TlsConnector::from(Arc::new(
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        ));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let server_name =
+                ServerName::try_from(format!("{}.axonkey.local", offer_resp.offer.host_id))
+                    .unwrap();
+            let tls = connector.connect(server_name, tcp).await.unwrap();
+            let mut req = format!("wss://127.0.0.1:{port}/ws")
+                .into_client_request()
+                .unwrap();
+            req.headers_mut().insert(
+                "Sec-WebSocket-Protocol",
+                HeaderValue::from_static(MOBILE_SUBPROTOCOL),
+            );
+            let (mut ws, _) = tokio_tungstenite::client_async(req, tls).await.unwrap();
+
+            // Pair & Auth
+            ws.send(Message::Text(
+                serde_json::to_string(&ClientMessage::PairRequest {
+                    pair_token: offer_resp.offer.pair_token.clone(),
+                    device_name: "Phone V3".into(),
+                })
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let (peer_id, peer_token) = match serde_json::from_str::<ServerMessage>(
+                ws.next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .into_text()
+                    .unwrap()
+                    .as_str(),
+            )
+            .unwrap()
+            {
+                ServerMessage::PairResult {
+                    peer_id: Some(id),
+                    peer_token: Some(tok),
+                    ..
+                } => (id, tok),
+                other => panic!("pair failed: {other:?}"),
+            };
+
+            ws.send(Message::Text(
+                serde_json::to_string(&ClientMessage::ClientAuth {
+                    peer_id,
+                    peer_token,
+                    device_name: "Phone V3".into(),
+                })
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let (session_id, deck_rev) = match serde_json::from_str::<ServerMessage>(
+                ws.next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .into_text()
+                    .unwrap()
+                    .as_str(),
+            )
+            .unwrap()
+            {
+                ServerMessage::ServerReady {
+                    session_id,
+                    deck_revision,
+                    ..
+                } => (session_id, deck_revision),
+                other => panic!("auth failed: {other:?}"),
+            };
+
+            // 1. Phone sends ClientMessage::DeckUpdate with custom Bento 1x2 Hold button + PointerPad zone
+            let custom_page = MobileDeckPage {
+                id: "bento-pro".into(),
+                name: "Bento 专业页".into(),
+                layout: PageLayout::Grid,
+                columns: 3,
+                tiles: vec![MobileTile {
+                    id: "custom.shift_hold".into(),
+                    label: "冲刺 Shift".into(),
+                    subtitle: None,
+                    action_summary: None,
+                    icon: "sparkles".into(),
+                    accent: TileAccent::Amber,
+                    col_span: 1,
+                    row_span: 2,
+                    mode: TileMode::Hold,
+                    has_double_click: false,
+                    has_long_press: false,
+                }],
+                zones: vec![
+                    MobileDeckZone {
+                        id: "z-pad".into(),
+                        kind: DeckZoneKind::PointerPad,
+                        columns: None,
+                        pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                        tile_ids: Vec::new(),
+                    },
+                    MobileDeckZone {
+                        id: "z-grid".into(),
+                        kind: DeckZoneKind::BentoGrid,
+                        columns: Some(3),
+                        pointer_mode: None,
+                        tile_ids: vec!["custom.shift_hold".into()],
+                    },
+                ],
+            };
+            ws.send(Message::Text(
+                serde_json::to_string(&ClientMessage::DeckUpdate {
+                    session_id: session_id.clone(),
+                    request_id: "u-phone".into(),
+                    base_revision: deck_rev,
+                    layout_patch: DeckLayoutPatch {
+                        active_page_id: Some("bento-pro".into()),
+                        pages: Some(vec![custom_page]),
+                        ..Default::default()
+                    },
+                })
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+            for _ in 0..4 {
+                if let Some(Ok(Message::Text(t))) = ws.next().await {
+                    if let ServerMessage::DeckUpdateResult { ok: true, .. } =
+                        serde_json::from_str(&t).unwrap()
+                    {
+                        break;
+                    }
+                }
+            }
+
+            // 2. Desktop binds `tap: [Key("Shift")]` via set_tile_binding -> updates silkscreen to "按住 Shift"
+            let bind_resp = host
+                .set_tile_binding(
+                    "custom.shift_hold".into(),
+                    deck::TileActionBindings {
+                        tap: vec![NativeBehavior::Key {
+                            enabled: true,
+                            key: "Shift".into(),
+                        }],
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(bind_resp.revision, deck_rev + 2);
+            assert_eq!(
+                bind_resp.snapshot.pages[0].tiles[0]
+                    .action_summary
+                    .as_deref(),
+                Some("按住 Shift")
+            );
+
+            // Drain pushed DeckSnapshotPush on WS and grab updated epoch + fresh lease from tick
+            let mut latest_epoch = 0;
+            let mut latest_lease = 0;
+            for _ in 0..6 {
+                if let Ok(Some(Ok(Message::Text(t)))) =
+                    tokio::time::timeout(Duration::from_millis(350), ws.next()).await
+                {
+                    match serde_json::from_str::<ServerMessage>(&t).unwrap() {
+                        ServerMessage::DeckSnapshotPush { input_epoch, .. } => {
+                            latest_epoch = input_epoch;
+                        }
+                        ServerMessage::ServerTick {
+                            input_epoch,
+                            lease_id,
+                            ..
+                        } => {
+                            latest_epoch = input_epoch;
+                            latest_lease = lease_id;
+                            if latest_epoch > 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            assert!(latest_lease > 0);
+
+            // Verify TileHoldBegin / TileHoldEnd works seamlessly with Desktop `tap` binding!
+            ws.send(Message::Text(
+                serde_json::to_string(&ClientMessage::TileHoldBegin {
+                    session_id: session_id.clone(),
+                    input_epoch: latest_epoch,
+                    seq: 10,
+                    lease_id: latest_lease,
+                    request_id: "hb-1".into(),
+                    tile_id: "custom.shift_hold".into(),
+                    press_id: "p-shift".into(),
+                })
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws.send(Message::Text(
+                serde_json::to_string(&ClientMessage::TileHoldEnd {
+                    session_id: session_id.clone(),
+                    input_epoch: latest_epoch,
+                    seq: 11,
+                    lease_id: latest_lease,
+                    request_id: "he-1".into(),
+                    tile_id: "custom.shift_hold".into(),
+                    press_id: "p-shift".into(),
+                })
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            {
+                let log = backend_log.lock().unwrap();
+                assert!(log.contains(&"key:Shift:true".to_owned()));
+                assert!(log.contains(&"key:Shift:false".to_owned()));
+            }
+
+            // 3. Desktop calls update_deck
+            let upd_resp = host
+                .update_deck(
+                    bind_resp.revision,
+                    DeckLayoutPatch {
+                        pointer_sensitivity: Some(2.0),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(upd_resp.revision, deck_rev + 3);
+
+            // 4. Desktop profile sync via sync_from_device_snapshot
+            let inst: crate::input_service::managed::Instance =
+                serde_json::from_value(serde_json::json!({
+                    "id": "mob-inst-v3",
+                    "kind": "axonkeyMobile",
+                    "name": "Axonkey Mobile",
+                    "binding": null,
+                    "audioGainDb": 0,
+                    "enabled": true,
+                    "activeProfileId": "p1",
+                    "profiles": [{
+                        "id": "p1",
+                        "name": "剪辑模式",
+                        "behaviors": {
+                            "custom.shift_hold": {
+                                "click": [{ "type": "key", "key": "Space" }],
+                                "doubleClick": [],
+                                "longPress": []
+                            }
+                        }
+                    }]
+                }))
+                .unwrap();
+            let managed_snap = crate::input_service::managed::Snapshot {
+                store: crate::input_service::managed::Store {
+                    version: 1,
+                    revision: 2,
+                    instances: vec![inst],
+                },
+                discovered: vec![],
+                runtime: BTreeMap::new(),
+                error: None,
+                scan_error: None,
+                scanning: false,
+            };
+            host.sync_from_device_snapshot(&managed_snap);
+
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            let emitted = deck_events.lock().unwrap();
+            let revisions: Vec<u64> = emitted.iter().map(|e| e.revision).collect();
+            assert_eq!(
+                revisions,
+                vec![deck_rev + 1, deck_rev + 2, deck_rev + 3, deck_rev + 4]
+            );
+            // Layout zones & row_span stayed completely intact after Desktop profile sync!
+            let final_snap = &emitted.last().unwrap().snapshot;
+            assert_eq!(final_snap.active_page_id, "bento-pro");
+            assert_eq!(final_snap.pages[0].zones.len(), 2);
+            assert_eq!(final_snap.pages[0].tiles[0].row_span, 2);
+            assert_eq!(
+                final_snap.pages[0].tiles[0].action_summary.as_deref(),
+                Some("按住 Space")
+            );
 
             let _ = ws.close(None).await;
         });

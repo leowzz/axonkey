@@ -272,6 +272,40 @@ pub enum PageLayout {
     Grid,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DeckZoneKind {
+    #[serde(rename = "bento-grid")]
+    BentoGrid,
+    #[serde(rename = "dpad-3x3")]
+    Dpad3x3,
+    #[serde(rename = "pointer-pad")]
+    PointerPad,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddedPointerMode {
+    Trackpad,
+    Relative,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MobileDeckZone {
+    pub id: String,
+    pub kind: DeckZoneKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pointer_mode: Option<EmbeddedPointerMode>,
+    #[serde(default)]
+    pub tile_ids: Vec<String>,
+}
+
+const fn default_one() -> u8 {
+    1
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileTile {
@@ -284,7 +318,10 @@ pub struct MobileTile {
     pub action_summary: Option<String>,
     pub icon: String,
     pub accent: TileAccent,
+    #[serde(default = "default_one")]
     pub col_span: u8,
+    #[serde(default = "default_one")]
+    pub row_span: u8,
     pub mode: TileMode,
     #[serde(default)]
     pub has_double_click: bool,
@@ -301,6 +338,8 @@ pub struct MobileDeckPage {
     pub layout: PageLayout,
     pub columns: u8,
     pub tiles: Vec<MobileTile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub zones: Vec<MobileDeckZone>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
