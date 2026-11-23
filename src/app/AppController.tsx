@@ -1025,6 +1025,13 @@ function AppController({
                   description: '按触发方式唤起快捷交互窗；必须为唯一行为',
                   exclusive: true,
                 },
+                {
+                  type: 'clipboardOverlay',
+                  optionalFields: ['action'],
+                  actions: ['paste', 'copyText'],
+                  description: '按触发方式唤起剪贴板交互窗并将剪贴板历史铺到其他按键上；必须为唯一行为',
+                  exclusive: true,
+                },
                 { type: 'disabled', fields: [] },
               ],
               devices: cliDevices.map(item => ({
@@ -1934,7 +1941,9 @@ function AppController({
                     ? { type, command: '' }
                     : type === 'httpRequest'
                       ? { type, method: 'POST', url: '' }
-                      : { type, ms: 300 },
+                      : type === 'clipboardOverlay'
+                        ? { type, action: 'paste' }
+                        : { type, ms: 300 },
           )
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
@@ -2089,6 +2098,7 @@ function AppController({
       case 'openWebsite':
       case 'runCommand':
       case 'httpRequest':
+      case 'clipboardOverlay':
         beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':

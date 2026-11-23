@@ -30,6 +30,7 @@ export const behaviorTypes = [
   'httpRequest',
   'switchProfile',
   'quickOverlay',
+  'clipboardOverlay',
   'disabled',
 ] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
@@ -92,6 +93,9 @@ export type OpenAppBehavior = BehaviorBase & { type: 'openApp'; path: string }
 export type ProfileDirection = 'previous' | 'next'
 export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
 export type QuickOverlayBehavior = BehaviorBase & { type: 'quickOverlay'; profileId: string }
+export const clipboardOverlayActions = ['paste', 'copyText'] as const
+export type ClipboardOverlayAction = (typeof clipboardOverlayActions)[number]
+export type ClipboardOverlayBehavior = BehaviorBase & { type: 'clipboardOverlay'; action: ClipboardOverlayAction }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 export type RunCommandBehavior = BehaviorBase & {
   type: 'runCommand'
@@ -126,6 +130,7 @@ export type Behavior =
   | DisabledBehavior
   | SwitchProfileBehavior
   | QuickOverlayBehavior
+  | ClipboardOverlayBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -176,6 +181,7 @@ export type CreateBehaviorOptions = { libraryItemId?: string } & (
     }
   | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
   | { type: 'quickOverlay'; profileId?: string; enabled?: boolean; id?: string }
+  | { type: 'clipboardOverlay'; action?: ClipboardOverlayAction; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
 )
 
@@ -184,7 +190,9 @@ const maxDelayMs = 300_000
 export const newBehaviorMinAppVersion = '1.8.11'
 export const quickOverlayMinAppVersion = '1.9.11'
 export const commandBehaviorMinAppVersion = '1.9.19'
+export const clipboardOverlayMinAppVersion = '1.9.21'
 export function minAppVersionForBehaviors(behaviors: readonly Behavior[]): string | undefined {
+  if (behaviors.some(behavior => behavior.type === 'clipboardOverlay')) return clipboardOverlayMinAppVersion
   if (
     behaviors.some(
       behavior => behavior.type === 'copyText' || behavior.type === 'runCommand' || behavior.type === 'httpRequest',
@@ -208,7 +216,12 @@ export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): bool
 }
 
 export function isCommunityShareableBehavior(behavior: Pick<Behavior, 'type'>): boolean {
-  return behavior.type !== 'quickOverlay' && behavior.type !== 'runCommand' && behavior.type !== 'httpRequest'
+  return (
+    behavior.type !== 'quickOverlay' &&
+    behavior.type !== 'clipboardOverlay' &&
+    behavior.type !== 'runCommand' &&
+    behavior.type !== 'httpRequest'
+  )
 }
 
 export function normalizeBehaviorTitle(value: unknown): string | undefined {
@@ -266,6 +279,11 @@ export function normalizeProfileReferenceId(value: unknown): string | null {
   const id = value.trim()
   if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null
   return id
+}
+
+export function normalizeClipboardOverlayAction(value: unknown): ClipboardOverlayAction | null {
+  if (value === undefined) return 'paste'
+  return value === 'paste' || value === 'copyText' ? value : null
 }
 
 export function normalizeFilePath(value: unknown): string | null {
@@ -418,6 +436,12 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
         ...base,
         type: 'quickOverlay',
         profileId: normalizeProfileReferenceId(options.profileId) ?? '',
+      }
+    case 'clipboardOverlay':
+      return {
+        ...base,
+        type: 'clipboardOverlay',
+        action: normalizeClipboardOverlayAction(options.action) ?? 'paste',
       }
     case 'disabled':
       return { ...base, type: 'disabled' }
@@ -575,6 +599,10 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
     case 'quickOverlay': {
       const profileId = normalizeProfileReferenceId(value.profileId)
       return profileId ? { ...base, type, profileId } : null
+    }
+    case 'clipboardOverlay': {
+      const action = normalizeClipboardOverlayAction(value.action)
+      return action ? { ...base, type, action } : null
     }
     case 'disabled':
       return { ...base, type }
@@ -858,6 +886,9 @@ export function serializeSequence(behaviors: Behavior[]): string {
         case 'quickOverlay':
           line = `quick ${sequenceArgument(behavior.profileId)}`
           break
+        case 'clipboardOverlay':
+          line = behavior.action === 'copyText' ? 'clipboard copy' : 'clipboard'
+          break
         case 'disabled':
           line = 'disabled'
           break
@@ -965,6 +996,9 @@ function parseSequenceText(text: string): unknown[] | null {
     )
       behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
     else if (command === 'quick' && args.length === 1) behavior = { type: 'quickOverlay', profileId: args[0] }
+    else if (command === 'clipboard' && args.length === 0) behavior = { type: 'clipboardOverlay', action: 'paste' }
+    else if (command === 'clipboard' && args.length === 1 && (args[0] === 'paste' || args[0] === 'copy'))
+      behavior = { type: 'clipboardOverlay', action: args[0] === 'copy' ? 'copyText' : 'paste' }
     else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
     else return null
     behaviors.push({ ...behavior, enabled })
