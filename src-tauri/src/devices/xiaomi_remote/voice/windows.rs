@@ -8,6 +8,7 @@ use crate::devices::tcl_rc902v::atvv::{
 use crate::windows_runtime::BluetoothRequest;
 use crate::windows_vmic::{self, AudioSource, DriverSnapshot};
 use std::{
+    collections::VecDeque,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
@@ -40,6 +41,7 @@ const CONTROL_UUID: GUID = GUID::from_u128(0xab5e0004_5a21_4f05_bc7d_af01f617b66
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const CONNECTION_POLL: Duration = Duration::from_millis(100);
 const BLUETOOTH_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_PENDING_VOICE_TAPS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GattRemoteKind {
@@ -126,6 +128,7 @@ struct Shared {
     rc902v_session: Mutex<Rc902vAtvvSession>,
     rc902v_command_tx: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     rc902v_resample_prev: Mutex<Option<i16>>,
+    voice_taps: Mutex<VecDeque<Instant>>,
     source: AudioSource,
     input: Mutex<()>,
     a15_active: AtomicBool,
@@ -155,6 +158,7 @@ impl Shared {
             }),
             rc902v_command_tx: Mutex::new(None),
             rc902v_resample_prev: Mutex::new(None),
+            voice_taps: Mutex::new(VecDeque::new()),
             source: windows_vmic::source(),
             input: Mutex::new(()),
             a15_active: AtomicBool::new(false),
@@ -210,6 +214,15 @@ impl Shared {
 
     fn driver_connected(&self) -> bool {
         self.enabled.load(Ordering::Acquire) && windows_vmic::snapshot().connected
+    }
+
+    fn wants_ble_connection(&self) -> bool {
+        if self.remote_kind == GattRemoteKind::SonyRmfTx800c {
+            // Sony control notifications also drive button mappings.
+            self.enabled.load(Ordering::Acquire)
+        } else {
+            self.driver_connected()
+        }
     }
 
     fn reset_voice_session(&self) {
@@ -400,6 +413,7 @@ impl AudioService {
         }
         self.shared.ble_refresh.store(true, Ordering::Release);
         if !enabled {
+            self.shared.voice_taps.lock().unwrap().clear();
             self.shared.set_a15_recording(false);
             self.shared.source.clear();
             self.shared.update_status(|status| {
@@ -441,6 +455,16 @@ impl AudioService {
             .map(|mut session| session.on_voice_key_edge(pressed, Instant::now()))
             .unwrap_or_default();
         self.shared.dispatch_rc902v_action(action);
+    }
+
+    pub(crate) fn take_voice_taps(&self, since: Instant) -> VecDeque<Instant> {
+        let mut taps = self.shared.voice_taps.lock().unwrap();
+        if !self.shared.enabled.load(Ordering::Acquire) {
+            taps.clear();
+        } else {
+            taps.retain(|time| *time >= since);
+        }
+        std::mem::take(&mut *taps)
     }
 
     pub fn status(&self) -> AudioServiceStatus {
@@ -521,7 +545,7 @@ fn ble_worker_loop(shared: Arc<Shared>) {
     let mut last_connection_error: Option<String> = None;
     while !shared.stop.load(Ordering::Acquire) {
         shared.ble_refresh.store(false, Ordering::Release);
-        if !shared.driver_connected() {
+        if !shared.wants_ble_connection() {
             wait_or_stop(&shared, Duration::from_millis(500), &shared.ble_refresh);
             continue;
         }
@@ -644,7 +668,11 @@ impl VoiceConnection {
                 &connection.control,
                 Arc::clone(&shared),
                 "voice controls",
-                move |shared, bytes| handle_rc902v_control_packet(shared, bytes, &command_tx),
+                move |shared, bytes| {
+                    let audio_available = shared.remote_kind != GattRemoteKind::SonyRmfTx800c
+                        || shared.driver_connected();
+                    handle_rc902v_control_packet(shared, bytes, &command_tx, audio_available);
+                },
             )?);
         } else {
             connection.audio_token = Some(watch_packets(
@@ -702,7 +730,7 @@ impl VoiceConnection {
         while !shared.stop.load(Ordering::Acquire)
             && !shared.ble_refresh.swap(false, Ordering::AcqRel)
         {
-            if !shared.driver_connected() {
+            if !shared.wants_ble_connection() {
                 return Err(
                     "Quarbor virtual microphone control connection became unavailable".into(),
                 );
@@ -721,7 +749,16 @@ impl VoiceConnection {
                 let polled = shared
                     .rc902v_session
                     .lock()
-                    .map(|mut session| session.poll_timers(Instant::now()))
+                    .map(|mut session| {
+                        if shared.remote_kind == GattRemoteKind::SonyRmfTx800c
+                            && !shared.driver_connected()
+                        {
+                            if let Some(action) = session.abort_active_stream() {
+                                return action;
+                            }
+                        }
+                        session.poll_timers(Instant::now())
+                    })
                     .unwrap_or_default();
                 apply_rc902v_events(shared, polled.events);
                 for command in polled.tx_commands {
@@ -1206,7 +1243,15 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
     }
 }
 
-fn handle_rc902v_control_packet(shared: &Shared, bytes: &[u8], command_tx: &mpsc::Sender<Vec<u8>>) {
+fn handle_rc902v_control_packet(
+    shared: &Shared,
+    bytes: &[u8],
+    command_tx: &mpsc::Sender<Vec<u8>>,
+    audio_available: bool,
+) {
+    if !shared.enabled.load(Ordering::Acquire) {
+        return;
+    }
     let Some(&opcode) = bytes.first() else {
         return;
     };
@@ -1223,7 +1268,9 @@ fn handle_rc902v_control_packet(shared: &Shared, bytes: &[u8], command_tx: &mpsc
     let action = shared
         .rc902v_session
         .lock()
-        .map(|mut session| session.handle_control(bytes, Instant::now()))
+        .map(|mut session| {
+            session.handle_control_with_audio(bytes, Instant::now(), audio_available)
+        })
         .unwrap_or_default();
     apply_rc902v_events(shared, action.events);
     for command in action.tx_commands {
@@ -1261,6 +1308,15 @@ fn apply_rc902v_events(shared: &Shared, events: Vec<Rc902vSessionEvent>) {
     let label = shared.remote_kind.label();
     for event in events {
         match event {
+            Rc902vSessionEvent::VoiceTap(at) => {
+                let mut taps = shared.voice_taps.lock().unwrap();
+                if shared.enabled.load(Ordering::Acquire) {
+                    if taps.len() == MAX_PENDING_VOICE_TAPS {
+                        taps.pop_front();
+                    }
+                    taps.push_back(at);
+                }
+            }
             Rc902vSessionEvent::Capabilities(caps) => {
                 log::info!(
                     target: "axonkey::audio",
@@ -1346,6 +1402,7 @@ fn apply_rc902v_events(shared: &Shared, events: Vec<Rc902vSessionEvent>) {
                 });
             }
             Rc902vSessionEvent::Disconnected => {
+                shared.voice_taps.lock().unwrap().clear();
                 shared.reset_voice_session();
             }
         }
@@ -1542,6 +1599,42 @@ mod tests {
     }
 
     #[test]
+    fn sony_control_delivers_one_tap_without_the_audio_driver() {
+        let audio = AudioService::start_paused_for("rmfTx800c", None);
+        audio.set_enabled(true);
+        let since = Instant::now();
+        audio
+            .shared
+            .rc902v_session
+            .lock()
+            .unwrap()
+            .begin_negotiation(since);
+        let (tx, rx) = mpsc::channel();
+        let mut search = [0; 20];
+        search[0] = 0x08;
+
+        handle_rc902v_control_packet(&audio.shared, &search, &tx, false);
+        assert!(audio.take_voice_taps(since).is_empty());
+        handle_rc902v_control_packet(
+            &audio.shared,
+            &[0x0b, 1, 0, 2, 0, 0, 0xa0, 0, 0],
+            &tx,
+            false,
+        );
+        handle_rc902v_control_packet(&audio.shared, &search, &tx, false);
+        assert_eq!(audio.take_voice_taps(since).len(), 1);
+        assert!(audio.take_voice_taps(since).is_empty());
+        assert!(rx.try_recv().is_err());
+
+        handle_rc902v_control_packet(&audio.shared, &search, &tx, false);
+        audio.set_enabled(false);
+        assert!(audio.take_voice_taps(since).is_empty());
+        handle_rc902v_control_packet(&audio.shared, &search, &tx, false);
+        audio.set_enabled(true);
+        assert!(audio.take_voice_taps(since).is_empty());
+    }
+
+    #[test]
     fn sony_bridge_keeps_click_recording_on_the_on_request_gatt_channel() {
         let shared = Shared::new(GattRemoteKind::from_kind("rmfTx800c"), None);
         shared.update_status(|status| status.bluetooth_connected = true);
@@ -1553,15 +1646,15 @@ mod tests {
             session.begin_negotiation(now)
         };
         assert_eq!(init.tx_commands, [vec![0x0a, 0x01, 0, 0, 0x03, 0]]);
-        handle_rc902v_control_packet(&shared, &[0x0b, 0x01, 0, 0x02, 0, 0, 0xa0, 0, 0], &tx);
-        handle_rc902v_control_packet(&shared, &[0x08], &tx);
+        handle_rc902v_control_packet(&shared, &[0x0b, 0x01, 0, 0x02, 0, 0, 0xa0, 0, 0], &tx, true);
+        handle_rc902v_control_packet(&shared, &[0x08], &tx, true);
         assert_eq!(rx.try_recv().unwrap(), vec![0x0c, 0]);
-        handle_rc902v_control_packet(&shared, &[0x04, 0, 0x02, 0], &tx);
+        handle_rc902v_control_packet(&shared, &[0x04, 0, 0x02, 0], &tx, true);
         handle_rc902v_audio_packet(&shared, &[0; 160], &tx);
         assert!(shared.status.lock().unwrap().forwarding);
         assert_eq!(shared.source.queued_samples(), 320);
 
-        handle_rc902v_control_packet(&shared, &[0x08], &tx);
+        handle_rc902v_control_packet(&shared, &[0x08], &tx, true);
         assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0]);
         assert!(!shared.status.lock().unwrap().forwarding);
         assert_eq!(shared.source.queued_samples(), 0);
@@ -1593,6 +1686,7 @@ mod tests {
                 &audio.shared,
                 &[0x0b, 0x01, 0x00, 0x02, 0x03, 0x00, 0xa0, 0x01, 0x00],
                 &tx,
+                true,
             );
             assert_eq!(audio.status_with_driver(ready_driver()).state, "ready");
 
@@ -1603,7 +1697,7 @@ mod tests {
 
             // Hold mode: AUDIO_START(reason=0x03) -> PCM -> remote AUDIO_STOP on release.
             audio.handle_voice_key_edge(true);
-            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x03, 0x02, 0x05], &tx);
+            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x03, 0x02, 0x05], &tx, true);
             assert!(audio.shared.recording_indicator.is_active());
             handle_rc902v_audio_packet(&audio.shared, &[0x7f; 160], &tx);
             assert_eq!(audio.shared.source.queued_samples(), 320);
@@ -1614,7 +1708,7 @@ mod tests {
             assert!(audio.shared.recording_indicator.is_active());
             assert!(audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 320);
-            handle_rc902v_control_packet(&audio.shared, &[0x00, 0x02], &tx);
+            handle_rc902v_control_packet(&audio.shared, &[0x00, 0x02], &tx, true);
             assert!(!audio.shared.recording_indicator.is_active());
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 0);

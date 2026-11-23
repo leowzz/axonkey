@@ -1207,14 +1207,14 @@ mod tests {
             .filter(|input| input.pending && input.sources.is_empty())
             .map(|input| input.id.as_str())
             .collect();
-        assert_eq!(pending, ["rmf-tx800c.power", "rmf-tx800c.voice"]);
+        assert_eq!(pending, ["rmf-tx800c.power"]);
         assert_eq!(
             descriptor
                 .inputs
                 .iter()
                 .filter(|input| input.target.is_some())
                 .count(),
-            15
+            16
         );
         assert!(descriptor
             .inputs
@@ -1223,6 +1223,16 @@ mod tests {
             .all(|input| input.target.is_none()));
         assert_eq!(voice_key(kind), Some("rmf-tx800c.voice"));
         assert_eq!(voice_engine(kind), Some("tcl-rc902v-atvv"));
+        let voice = descriptor
+            .inputs
+            .iter()
+            .find(|input| input.id == "rmf-tx800c.voice")
+            .unwrap();
+        assert_eq!(voice.target.as_deref(), Some("#key-voice"));
+        assert_eq!(voice.sources[0].report, "voice-control");
+        let mut search = [0; 20];
+        search[0] = 0x08;
+        assert!(engine.accept(descriptor, &search).is_empty());
     }
 
     #[test]

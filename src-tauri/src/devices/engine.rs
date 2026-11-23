@@ -85,6 +85,14 @@ pub(crate) struct DescriptorEngine {
 }
 
 impl DescriptorEngine {
+    #[cfg(windows)]
+    pub(crate) fn set_button_state(&mut self, key: &str, down: bool) {
+        self.active.insert(key.to_owned(), down);
+        self.values
+            .insert(key.to_owned(), if down { 1.0 } else { 0.0 });
+        self.dirty = true;
+    }
+
     pub(crate) fn accept(
         &mut self,
         descriptor: &DeviceDescriptor,

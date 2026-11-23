@@ -24,6 +24,7 @@ struct QuarborContext {
     keyboard: RemoteKeyboard,
     events: std::collections::VecDeque<super::windows_quarbor::Event>,
     keys: std::collections::VecDeque<RemoteKeyEvent>,
+    voice_taps: std::collections::VecDeque<Instant>,
     pointer_moves: std::collections::VecDeque<crate::devices::hisense_rcf3b65::PointerPosition>,
     device_id: Option<String>,
     device_kind: Option<String>,
@@ -54,6 +55,7 @@ impl Default for QuarborContext {
             keyboard: RemoteKeyboard::default(),
             events: std::collections::VecDeque::new(),
             keys: std::collections::VecDeque::new(),
+            voice_taps: std::collections::VecDeque::new(),
             pointer_moves: std::collections::VecDeque::new(),
             device_id: None,
             device_kind: None,
@@ -935,6 +937,8 @@ fn worker_loop(shared: Arc<Shared>) {
 
 #[cfg(windows)]
 fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
+    #[cfg(not(test))]
+    let started = Instant::now();
     let mut ble_monitor = BleLinkMonitor::start(&target, Arc::clone(&shared.driver_gate));
     context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
@@ -954,6 +958,21 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
         });
         if ble_monitor.take_disconnect() {
             quarbor_handle_ble_disconnect(context);
+        }
+        if shared.stop.load(Ordering::Acquire) || shared.driver_gate.load(Ordering::Acquire) {
+            break;
+        }
+        #[cfg(not(test))]
+        if sony_voice_input(context).is_some() {
+            if let (Some(id), Some(app)) = (
+                shared.instance_id.as_deref(),
+                shared.event_app.read().ok().and_then(|app| app.clone()),
+            ) {
+                use tauri::Manager;
+                if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
+                    context.voice_taps = audio.take_voice_taps(id, started);
+                }
+            }
         }
         quarbor_publish_events(context, shared);
         process_remote_actions(
@@ -1223,6 +1242,23 @@ fn rc902_voice(
 }
 
 #[cfg(windows)]
+fn sony_voice_input(
+    context: &QuarborContext,
+) -> Option<&'static crate::devices::device_descriptor::InputDescriptor> {
+    if context.device_kind.as_deref() != Some("rmfTx800c") {
+        return None;
+    }
+    let voice = rc902_voice(context)?;
+    context.descriptor?.inputs.iter().find(|input| {
+        input.id == voice.trigger_key
+            && input.target.is_some()
+            && input.sources.iter().any(|source| {
+                source.report == "voice-control" && source.field.as_deref() == Some("start-search")
+            })
+    })
+}
+
+#[cfg(windows)]
 fn send_recording_report(
     engine: Option<&str>,
     reader: &mut Option<super::windows_quarbor::Client>,
@@ -1489,6 +1525,20 @@ fn process_remote_actions_inner(
             publish_rc902_voice_key_edge(shared, key.pressed);
         }
         actions.edge(key.button, key.pressed, &settings, now);
+    }
+    if let Some(input) = sony_voice_input(context).filter(|_| settings.enabled) {
+        let button = crate::devices::descriptor_registry::input_key(input);
+        for at in std::mem::take(&mut context.voice_taps) {
+            for down in [true, false] {
+                if let Some(engine) = context.descriptor_engine.as_mut() {
+                    engine.set_button_state(&input.id, down);
+                    publish_descriptor_input(context, shared);
+                }
+                actions.edge(button, down, &settings, at);
+            }
+        }
+    } else {
+        context.voice_taps.clear();
     }
     let mut output_error = None;
     actions.tick(now, |output| {
@@ -2635,6 +2685,56 @@ mod tests {
                     bytes,
                 },
             );
+        }
+
+        #[test]
+        fn sony_atvv_tap_runs_the_instance_shortcut_and_releases_its_keys() {
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {
+                    "rmf-tx800c.voice": {"click": [{"type": "shortcut", "keys": ["Ctrl", "K"]}]}
+                }
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.device_kind = Some("rmfTx800c".into());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::bundled_descriptor_for_kind("rmfTx800c");
+            harness.context.descriptor_engine = Some(Default::default());
+            let updates = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&updates);
+            Arc::get_mut(&mut harness.channel.shared)
+                .unwrap()
+                .managed_input = Some(Arc::new(move |_, pressed| {
+                captured.lock().unwrap().push(pressed);
+            }));
+            RC902_VOICE_KEY_EDGES.with(|edges| edges.borrow_mut().clear());
+
+            a15_report(&mut harness.context, 1, vec![4, 0x89, 0, 0, 0]);
+            harness.tick(&settings, 0, &[]);
+            harness.context.voice_taps.push_back(harness.start);
+            harness.tick(&settings, 10, &[]);
+            harness.tick(&settings, 700, &[]);
+
+            assert_eq!(
+                take_test_keyboard_batches(),
+                [
+                    vec![(0xa2, 0)],
+                    vec![(0x4b, 0)],
+                    vec![(0x4b, 2)],
+                    vec![(0xa2, 2)]
+                ]
+            );
+            assert_eq!(
+                *updates.lock().unwrap(),
+                [
+                    vec!["rmf-tx800c.tv"],
+                    vec!["rmf-tx800c.tv", "rmf-tx800c.voice"],
+                    vec!["rmf-tx800c.tv"]
+                ]
+            );
+            assert!(harness.context.keyboard.held.is_empty());
+            RC902_VOICE_KEY_EDGES.with(|edges| assert!(edges.borrow().is_empty()));
         }
 
         #[test]

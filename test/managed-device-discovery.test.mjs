@@ -1346,6 +1346,13 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     assert.equal(undoBtn().props.disabled, true)
     assert.equal(redoBtn().props.disabled, true)
     assert.equal(workflow().props.sequences.click.length, 0)
+
+    instance = { ...model.newInstance('rmfTx800c', null), id: 'sony-mic-mapping' }
+    snapshot.store.instances = [instance]
+    act(() => view.update(render()))
+    act(() => remote().props.onSelect('rmf-tx800c.voice'))
+    assert.equal(workflow().props.button.id, 'rmf-tx800c.voice')
+    assert.match(text(view.root.findByProps({ className: 'key-picker-voice-guidance' })), /此键只报告点按/)
   } finally {
     act(() => view.unmount())
   }

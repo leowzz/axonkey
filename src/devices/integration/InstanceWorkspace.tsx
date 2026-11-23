@@ -227,6 +227,7 @@ export function InstanceWorkspace({
       short: '—',
       icon: 'center',
     }
+  const sonyMicSelected = instance.kind === 'rmfTx800c' && selectedInput.id === 'rmf-tx800c.voice'
   const status = controller.snapshot.runtime[instance.id]
   const recording = native && !!status?.recording
   const { bars: voiceAmplitudes, tone: voiceTone } = useVoiceAmplitude(
@@ -1043,13 +1044,17 @@ export function InstanceWorkspace({
                   <div className="key-picker-head">
                     <div className="key-picker-heading">
                       <h2>{selectedInput.label}</h2>
-                      {selectedInput.icon === 'mic' && (
-                        <span
-                          className="key-picker-voice-guidance"
-                          title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
-                        >
-                          要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
-                        </span>
+                      {sonyMicSelected ? (
+                        <span className="key-picker-voice-guidance">此键只报告点按，语音快捷键请配在「单击」</span>
+                      ) : (
+                        selectedInput.icon === 'mic' && (
+                          <span
+                            className="key-picker-voice-guidance"
+                            title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
+                          >
+                            要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
+                          </span>
+                        )
                       )}
                     </div>
                     <div className="key-picker-actions">
