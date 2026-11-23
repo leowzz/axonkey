@@ -14,16 +14,31 @@ const DEFAULT_OFFER_TTL_SECS: u64 = 120;
 pub struct PairedPeerRecord {
     pub peer_id: String,
     pub device_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remark: Option<String>,
     pub token_sha256: String,
     pub paired_at_ms: u64,
     pub last_seen_ms: u64,
+}
+
+impl PairedPeerRecord {
+    pub fn effective_name(&self) -> &str {
+        self.remark
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&self.device_name)
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairedPeerSummary {
     pub peer_id: String,
+    /// Effective display name (`remark` if set on PC, otherwise phone-reported `hardware_name`).
     pub device_name: String,
+    pub hardware_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remark: Option<String>,
     pub paired_at_ms: u64,
     pub last_seen_ms: u64,
 }
@@ -32,7 +47,9 @@ impl From<&PairedPeerRecord> for PairedPeerSummary {
     fn from(r: &PairedPeerRecord) -> Self {
         Self {
             peer_id: r.peer_id.clone(),
-            device_name: r.device_name.clone(),
+            device_name: r.effective_name().to_owned(),
+            hardware_name: r.device_name.clone(),
+            remark: r.remark.clone(),
             paired_at_ms: r.paired_at_ms,
             last_seen_ms: r.last_seen_ms,
         }
@@ -119,6 +136,7 @@ impl PairingStore {
         self.peers.push(PairedPeerRecord {
             peer_id: peer_id.clone(),
             device_name: clean_name,
+            remark: None,
             token_sha256: sha256_hex(&peer_token),
             paired_at_ms: now,
             last_seen_ms: now,
@@ -147,6 +165,40 @@ impl PairingStore {
         }
         let summary = PairedPeerSummary::from(&*record);
         let _ = self.save();
+        Ok(summary)
+    }
+
+    pub fn update_reported_name(
+        &mut self,
+        peer_id: &str,
+        device_name: &str,
+    ) -> Option<PairedPeerSummary> {
+        let record = self.peers.iter_mut().find(|p| p.peer_id == peer_id)?;
+        let clean_name = sanitize_device_name(device_name);
+        let changed = !clean_name.is_empty() && record.device_name != clean_name;
+        if changed {
+            record.device_name = clean_name;
+        }
+        let summary = PairedPeerSummary::from(&*record);
+        if changed {
+            let _ = self.save();
+        }
+        Some(summary)
+    }
+
+    pub fn set_peer_remark(
+        &mut self,
+        peer_id: &str,
+        remark: Option<String>,
+    ) -> Result<PairedPeerSummary, String> {
+        let Some(record) = self.peers.iter_mut().find(|p| p.peer_id == peer_id) else {
+            return Err("未找到已配对设备".to_owned());
+        };
+        record.remark = remark
+            .map(|r| r.trim().chars().take(48).collect::<String>())
+            .filter(|r| !r.is_empty());
+        let summary = PairedPeerSummary::from(&*record);
+        self.save()?;
         Ok(summary)
     }
 
@@ -239,6 +291,22 @@ mod tests {
         assert!(store
             .authenticate(&peer_id, "wrong-token", "Pixel 9")
             .is_err());
+
+        // PC remark overrides display name across subsequent reconnects until cleared.
+        let renamed = store
+            .set_peer_remark(&peer_id, Some("书房遥控手机".into()))
+            .unwrap();
+        assert_eq!(renamed.device_name, "书房遥控手机");
+        assert_eq!(renamed.hardware_name, "Pixel 9");
+        let authed = store
+            .authenticate(&peer_id, &peer_token, "Pixel 9 Pro")
+            .unwrap();
+        assert_eq!(authed.device_name, "书房遥控手机");
+        assert_eq!(authed.hardware_name, "Pixel 9 Pro");
+
+        let cleared = store.set_peer_remark(&peer_id, Some("   ".into())).unwrap();
+        assert_eq!(cleared.device_name, "Pixel 9 Pro");
+        assert!(cleared.remark.is_none());
 
         // Revoke removes peer and blocks subsequent auth.
         assert!(store.revoke(&peer_id).unwrap());

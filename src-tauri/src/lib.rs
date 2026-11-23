@@ -2486,6 +2486,7 @@ pub fn run() {
             mobile_host::mobile_host_status,
             mobile_host::mobile_host_start_pairing,
             mobile_host::mobile_host_list_peers,
+            mobile_host::mobile_host_rename_peer,
             mobile_host::mobile_host_revoke_peer,
             mobile_host::mobile_host_get_deck,
             mobile_host::mobile_host_update_deck,

@@ -246,9 +246,45 @@
   font-weight: 600;
 }
 
-.dialog-secondary.mobile-pair-revoke-btn {
+.dialog-secondary.mobile-pair-revoke-btn,
+.dialog-secondary.mobile-pair-icon-btn {
   height: 25px;
   padding: 0 8px;
   font-size: 11.5px;
   flex-shrink: 0;
+}
+
+.mobile-pair-peer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.mobile-pair-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+
+.mobile-pair-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--blue, #1478e8);
+  background: var(--surface, #ffffff);
+  color: var(--ink, inherit);
+  font-size: 12px;
+  outline: none;
+}
+
+.mobile-pair-peer-sub {
+  font-size: 11px;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

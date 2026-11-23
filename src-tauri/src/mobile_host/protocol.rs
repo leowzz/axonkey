@@ -344,6 +344,11 @@ pub enum ClientMessage {
     },
     #[serde(rename = "client.alive", rename_all = "camelCase")]
     ClientAlive { session_id: String, lease_id: u64 },
+    #[serde(rename = "client.rename", rename_all = "camelCase")]
+    ClientRename {
+        session_id: String,
+        device_name: String,
+    },
     #[serde(rename = "tile.activate", rename_all = "camelCase")]
     TileActivate {
         session_id: String,

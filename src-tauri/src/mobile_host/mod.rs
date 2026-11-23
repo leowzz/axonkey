@@ -385,6 +385,17 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             .list_peers()
     }
 
+    pub fn rename_peer(
+        &self,
+        peer_id: &str,
+        remark: Option<String>,
+    ) -> Result<PairedPeerSummary, String> {
+        self.coordinator
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .rename_peer(peer_id, remark)
+    }
+
     pub fn revoke_peer(&self, peer_id: &str) -> Result<bool, String> {
         self.coordinator
             .lock()
@@ -521,6 +532,15 @@ pub fn mobile_host_list_peers(
     host: tauri::State<'_, MobileHostHandle>,
 ) -> Result<Vec<PairedPeerSummary>, String> {
     Ok(host.list_peers())
+}
+
+#[tauri::command]
+pub fn mobile_host_rename_peer(
+    host: tauri::State<'_, MobileHostHandle>,
+    peer_id: String,
+    remark: Option<String>,
+) -> Result<PairedPeerSummary, String> {
+    host.rename_peer(&peer_id, remark)
 }
 
 #[tauri::command]

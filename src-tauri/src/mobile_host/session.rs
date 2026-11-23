@@ -450,6 +450,20 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         Ok(removed)
     }
 
+    pub fn rename_peer(
+        &mut self,
+        peer_id: &str,
+        remark: Option<String>,
+    ) -> Result<PairedPeerSummary, String> {
+        let summary = self.pairing.set_peer_remark(peer_id, remark)?;
+        if let Some(session) = self.active.as_mut() {
+            if session.peer_id == peer_id {
+                session.device_name = summary.device_name.clone();
+            }
+        }
+        Ok(summary)
+    }
+
     pub fn update_deck_from_desktop(
         &mut self,
         base_revision: u64,
@@ -816,6 +830,26 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                         && session.is_lease_valid(lease_id, now)
                     {
                         session.last_alive_at = now;
+                    }
+                }
+                None
+            }
+            ClientMessage::ClientRename {
+                session_id,
+                device_name,
+            } => {
+                let peer_id = self
+                    .active
+                    .as_ref()
+                    .filter(|s| s.session_id == conn_session_id && s.session_id == session_id)
+                    .map(|s| s.peer_id.clone());
+                if let Some(pid) = peer_id {
+                    if let Some(summary) = self.pairing.update_reported_name(&pid, &device_name) {
+                        if let Some(session) = self.active.as_mut() {
+                            if session.peer_id == pid {
+                                session.device_name = summary.device_name;
+                            }
+                        }
                     }
                 }
                 None

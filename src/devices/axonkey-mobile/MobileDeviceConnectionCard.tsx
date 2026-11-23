@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
-import { Check, Copy, QrCode, Radio, RefreshCw, Smartphone, Trash2, Wifi, X } from 'lucide-react'
+import { Check, Copy, Pencil, QrCode, Radio, RefreshCw, Smartphone, Trash2, Wifi, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { SettingsHelp } from '../../components/SettingsHelp'
 import './MobileDeviceConnectionCard.css'
@@ -32,6 +32,8 @@ type PairingOfferResponse = {
 type PairedPeerSummary = {
   peerId: string
   deviceName: string
+  hardwareName?: string
+  remark?: string | null
 }
 
 type MobileDeviceConnectionCardProps = {
@@ -45,6 +47,8 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
   const [pairing, setPairing] = useState<PairingOfferResponse | null>(null)
   const [loadingOffer, setLoadingOffer] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [editingPeerId, setEditingPeerId] = useState<string | null>(null)
+  const [remarkDraft, setRemarkDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -95,6 +99,27 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
     if (!native) return
     try {
       await invoke<boolean>('mobile_host_revoke_peer', { peerId })
+      if (editingPeerId === peerId) setEditingPeerId(null)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const startRenamePeer = (peer: PairedPeerSummary) => {
+    setEditingPeerId(peer.peerId)
+    setRemarkDraft(peer.remark ?? peer.deviceName)
+  }
+
+  const submitRenamePeer = async (peerId: string) => {
+    if (!native) return
+    try {
+      const trimmed = remarkDraft.trim()
+      await invoke<PairedPeerSummary>('mobile_host_rename_peer', {
+        peerId,
+        remark: trimmed.length > 0 ? trimmed : null,
+      })
+      setEditingPeerId(null)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -249,22 +274,81 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
                     <div className="mobile-pair-peers-list">
                       {peers.map(peer => {
                         const isOnline = activeSession?.peerId === peer.peerId
+                        const isEditing = editingPeerId === peer.peerId
+                        const showSub =
+                          Boolean(peer.remark) && Boolean(peer.hardwareName) && peer.hardwareName !== peer.deviceName
                         return (
                           <div key={peer.peerId} className="mobile-pair-peer-row">
-                            <span className="mobile-pair-peer-info">
-                              <Smartphone size={14} aria-hidden="true" />
-                              <strong className="mobile-pair-peer-name">{peer.deviceName}</strong>
-                              {isOnline && <span className="mobile-pair-peer-online">在线</span>}
-                            </span>
-                            <button
-                              type="button"
-                              className="dialog-secondary mobile-pair-revoke-btn"
-                              aria-label={`移除 ${peer.deviceName}`}
-                              onClick={() => void revokePeer(peer.peerId)}
-                            >
-                              <Trash2 size={12} aria-hidden="true" />
-                              <span>移除</span>
-                            </button>
+                            {isEditing ? (
+                              <form
+                                className="mobile-pair-rename-form"
+                                onSubmit={e => {
+                                  e.preventDefault()
+                                  void submitRenamePeer(peer.peerId)
+                                }}
+                              >
+                                <input
+                                  type="text"
+                                  className="mobile-pair-rename-input"
+                                  value={remarkDraft}
+                                  maxLength={48}
+                                  placeholder={peer.hardwareName || '输入手机备注名称（留空恢复原名）'}
+                                  autoFocus
+                                  onChange={e => setRemarkDraft(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Escape') {
+                                      e.stopPropagation()
+                                      setEditingPeerId(null)
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="submit"
+                                  className="dialog-secondary mobile-pair-icon-btn"
+                                  aria-label="保存备注"
+                                >
+                                  <Check size={12} aria-hidden="true" />
+                                  <span>保存</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="dialog-secondary mobile-pair-icon-btn"
+                                  aria-label="取消修改"
+                                  onClick={() => setEditingPeerId(null)}
+                                >
+                                  <span>取消</span>
+                                </button>
+                              </form>
+                            ) : (
+                              <>
+                                <span className="mobile-pair-peer-info">
+                                  <Smartphone size={14} aria-hidden="true" />
+                                  <strong className="mobile-pair-peer-name">{peer.deviceName}</strong>
+                                  {showSub && <span className="mobile-pair-peer-sub">({peer.hardwareName})</span>}
+                                  {isOnline && <span className="mobile-pair-peer-online">在线</span>}
+                                </span>
+                                <span className="mobile-pair-peer-actions">
+                                  <button
+                                    type="button"
+                                    className="dialog-secondary mobile-pair-icon-btn"
+                                    aria-label={`修改 ${peer.deviceName} 备注名称`}
+                                    onClick={() => startRenamePeer(peer)}
+                                  >
+                                    <Pencil size={12} aria-hidden="true" />
+                                    <span>备注</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="dialog-secondary mobile-pair-revoke-btn"
+                                    aria-label={`移除 ${peer.deviceName}`}
+                                    onClick={() => void revokePeer(peer.peerId)}
+                                  >
+                                    <Trash2 size={12} aria-hidden="true" />
+                                    <span>移除</span>
+                                  </button>
+                                </span>
+                              </>
+                            )}
                           </div>
                         )
                       })}
