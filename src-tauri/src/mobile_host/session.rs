@@ -1,13 +1,15 @@
-use super::deck::{DeckStore, DeckUpdateError, VOICE_KEY_ID};
+use super::deck::{
+    bindings_to_trigger_behaviors_dto, DeckStore, DeckUpdateError, TileActionBindings, VOICE_KEY_ID,
+};
 use super::pairing::{PairedPeerSummary, PairingStore};
 use super::protocol::{
     Aka1AudioFrame, Akp1PointerFrame, Akp1PointerKind, ClientMessage, DeckLayoutPatch,
     DeckSnapshot, ForegroundContext, HostCapabilities, PointerButtonName, PointerButtonPhase,
-    ServerMessage, TextCommitMode, DEFAULT_LEASE_TTL_MS, DEFAULT_TICK_INTERVAL_MS,
-    MAX_AUDIO_PCM_BYTES,
+    ServerMessage, StarterPresetId, SystemTouchpadGesture, TextCommitMode, VoicePresetKind,
+    DEFAULT_LEASE_TTL_MS, DEFAULT_TICK_INTERVAL_MS, MAX_AUDIO_PCM_BYTES,
 };
 use crate::input_service::mobile::{MobileInputBackend, MobileInputController};
-use crate::input_service::MouseButton;
+use crate::input_service::{MouseButton, NativeBehavior};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -140,6 +142,7 @@ pub struct MobileCoordinator<B: MobileInputBackend> {
     next_flash_id: u64,
     ui_tx: Option<mpsc::UnboundedSender<Vec<String>>>,
     deck_event_tx: Option<mpsc::UnboundedSender<super::MobileDeckResponse>>,
+    preset_event_tx: Option<mpsc::UnboundedSender<super::MobilePresetAppliedPayload>>,
 }
 
 impl<B: MobileInputBackend> MobileCoordinator<B> {
@@ -182,6 +185,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             next_flash_id: 0,
             ui_tx: None,
             deck_event_tx: None,
+            preset_event_tx: None,
         }
     }
 
@@ -208,9 +212,33 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         self.deck_event_tx = Some(tx);
     }
 
+    pub fn set_preset_event_sender(
+        &mut self,
+        tx: mpsc::UnboundedSender<super::MobilePresetAppliedPayload>,
+    ) {
+        self.preset_event_tx = Some(tx);
+    }
+
     fn emit_deck_changed(&self, revision: u64, snapshot: DeckSnapshot) {
         if let Some(tx) = &self.deck_event_tx {
             let _ = tx.send(super::MobileDeckResponse { revision, snapshot });
+        }
+    }
+
+    fn emit_preset_applied(
+        &self,
+        revision: u64,
+        snapshot: DeckSnapshot,
+        bindings: std::collections::HashMap<String, TileActionBindings>,
+    ) {
+        if let Some(tx) = &self.preset_event_tx {
+            let behaviors = bindings_to_trigger_behaviors_dto(&bindings);
+            let _ = tx.send(super::MobilePresetAppliedPayload {
+                revision,
+                snapshot,
+                bindings,
+                behaviors,
+            });
         }
     }
 
@@ -391,6 +419,34 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             });
         }
         self.emit_deck_changed(rev, snap.clone());
+        Ok((rev, snap))
+    }
+
+    pub fn apply_preset_from_desktop(
+        &mut self,
+        preset: StarterPresetId,
+        voice_preset: Option<VoicePresetKind>,
+    ) -> Result<(u64, DeckSnapshot), String> {
+        let (rev, snap, bindings) = self.deck.apply_preset(preset, voice_preset)?;
+        self.last_managed_keys = bindings.keys().cloned().collect();
+        self.cancel_voice_internal();
+        self.clear_all_ui_presses();
+        let next_epoch = self.next_epoch;
+        let next_gen = self.allocate_generation();
+        if let Some(session) = &mut self.active {
+            self.next_epoch += 1;
+            session.input_epoch = next_epoch;
+            session.input_generation = next_gen;
+            let _ = self.input.revoke_session(&session.session_id);
+            let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
+                deck_snapshot: snap.clone(),
+                deck_revision: rev,
+                input_epoch: next_epoch,
+                input_generation: next_gen,
+            });
+        }
+        self.emit_deck_changed(rev, snap.clone());
+        self.emit_preset_applied(rev, snap.clone(), bindings);
         Ok((rev, snap))
     }
 
@@ -1131,6 +1187,64 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                     }
                 }
             }
+            ClientMessage::DeckApplyPreset {
+                session_id,
+                request_id,
+                preset,
+                voice_preset,
+            } => {
+                if !self
+                    .active
+                    .as_ref()
+                    .is_some_and(|s| s.session_id == conn_session_id && s.session_id == session_id)
+                {
+                    return SessionOutcome {
+                        reply: Some(ServerMessage::DeckUpdateResult {
+                            request_id,
+                            ok: false,
+                            conflict: None,
+                            deck_revision: self.deck.revision(),
+                            deck_snapshot: None,
+                            error: Some("会话已失效".into()),
+                        }),
+                        ..outcome
+                    };
+                }
+                match self.deck.apply_preset(preset, voice_preset) {
+                    Ok((rev, snap, bindings)) => {
+                        self.last_managed_keys = bindings.keys().cloned().collect();
+                        self.cancel_voice_internal();
+                        self.clear_all_ui_presses();
+                        if let Some(session) = &self.active {
+                            let _ = self.input.revoke_session(&session.session_id);
+                            let _ = session.tx.try_send(ServerMessage::DeckSnapshotPush {
+                                deck_snapshot: snap.clone(),
+                                deck_revision: rev,
+                                input_epoch: session.input_epoch,
+                                input_generation: session.input_generation,
+                            });
+                        }
+                        self.emit_deck_changed(rev, snap.clone());
+                        self.emit_preset_applied(rev, snap.clone(), bindings);
+                        Some(ServerMessage::DeckUpdateResult {
+                            request_id,
+                            ok: true,
+                            conflict: None,
+                            deck_revision: rev,
+                            deck_snapshot: Some(snap),
+                            error: None,
+                        })
+                    }
+                    Err(e) => Some(ServerMessage::DeckUpdateResult {
+                        request_id,
+                        ok: false,
+                        conflict: None,
+                        deck_revision: self.deck.revision(),
+                        deck_snapshot: None,
+                        error: Some(e),
+                    }),
+                }
+            }
             ClientMessage::TileActivate {
                 session_id,
                 input_epoch,
@@ -1301,6 +1415,73 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 }
                 let sens = self.deck.scroll_sensitivity();
                 let _ = self.input.pointer_scroll(&session_id, x, y, sens);
+                None
+            }
+            ClientMessage::TouchpadGesture {
+                session_id,
+                input_epoch,
+                seq,
+                lease_id,
+                gesture,
+            } => {
+                if self
+                    .validate_input_gate(
+                        conn_session_id,
+                        &session_id,
+                        input_epoch,
+                        seq,
+                        lease_id,
+                        now,
+                    )
+                    .is_err()
+                {
+                    return outcome;
+                }
+                match gesture {
+                    SystemTouchpadGesture::ThreeFingerUp => {
+                        let actions = [NativeBehavior::Shortcut {
+                            enabled: true,
+                            keys: vec!["Win".into(), "Tab".into()],
+                        }];
+                        let _ = self.input.execute_behaviors(&actions);
+                    }
+                    SystemTouchpadGesture::ThreeFingerDown => {
+                        let actions = [NativeBehavior::Shortcut {
+                            enabled: true,
+                            keys: vec!["Win".into(), "D".into()],
+                        }];
+                        let _ = self.input.execute_behaviors(&actions);
+                    }
+                    SystemTouchpadGesture::ThreeFingerLeft => {
+                        let actions = [NativeBehavior::Shortcut {
+                            enabled: true,
+                            keys: vec!["Ctrl".into(), "Win".into(), "Right".into()],
+                        }];
+                        let _ = self.input.execute_behaviors(&actions);
+                    }
+                    SystemTouchpadGesture::ThreeFingerRight => {
+                        let actions = [NativeBehavior::Shortcut {
+                            enabled: true,
+                            keys: vec!["Ctrl".into(), "Win".into(), "Left".into()],
+                        }];
+                        let _ = self.input.execute_behaviors(&actions);
+                    }
+                    SystemTouchpadGesture::ThreeFingerTap => {
+                        let press_id = format!("gesture:middle:{seq}");
+                        if self
+                            .input
+                            .pointer_button(&session_id, &press_id, MouseButton::Middle, true)
+                            .is_ok()
+                        {
+                            let _ = self.input.pointer_button(
+                                &session_id,
+                                &press_id,
+                                MouseButton::Middle,
+                                false,
+                            );
+                        }
+                    }
+                }
                 None
             }
             ClientMessage::PointerButton {
@@ -2061,6 +2242,274 @@ mod tests {
                 ]
             );
         });
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn touchpad_gesture_dispatches_system_shortcuts_and_middle_click_under_input_gate() {
+        let dir = std::env::temp_dir().join(format!("axonkey-gesture-test-{}", Uuid::new_v4()));
+        let pairing = PairingStore::load(dir.join("peers.json")).unwrap();
+        let deck = DeckStore::load(dir.join("mobile-deck.json")).unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+
+        struct GestureMock(Arc<Mutex<Vec<String>>>);
+        impl MobileInputBackend for GestureMock {
+            fn execute_behaviors(&self, behaviors: &[NativeBehavior]) -> Result<(), String> {
+                for b in behaviors {
+                    if let NativeBehavior::Shortcut { keys, .. } = b {
+                        self.0
+                            .lock()
+                            .unwrap()
+                            .push(format!("shortcut:{}", keys.join("+")));
+                    } else {
+                        self.0.lock().unwrap().push(format!("other:{b:?}"));
+                    }
+                }
+                Ok(())
+            }
+            fn inject_relative_motion(&self, _: i32, _: i32) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_absolute_pointer(&self, _: f64, _: f64) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_wheel(&self, _: i32, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+            fn inject_mouse_button(&self, button: MouseButton, down: bool) -> Result<(), String> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("btn:{button:?}:{down}"));
+                Ok(())
+            }
+            fn inject_key_edge(&self, _: &str, _: bool) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let input = Arc::new(MobileInputController::new(GestureMock(Arc::clone(&events))));
+        let mut coord = MobileCoordinator::new(
+            "host-gesture".into(),
+            "TestPC".into(),
+            "CA".into(),
+            pairing,
+            deck,
+            input,
+        );
+        let offer = coord.create_pairing_offer(vec!["127.0.0.1:9999".into()]);
+        let (peer_id, peer_token) = match coord.handle_pair_request(&offer.pair_token, "Phone") {
+            ServerMessage::PairResult {
+                peer_id: Some(id),
+                peer_token: Some(tok),
+                ..
+            } => (id, tok),
+            _ => unreachable!(),
+        };
+        let t0 = Instant::now();
+        let (tx, _rx) = mpsc::channel(16);
+        let (sid, ready) = coord
+            .claim_control(&peer_id, &peer_token, "Phone", tx, t0)
+            .unwrap();
+        let (epoch, lease) = match ready {
+            ServerMessage::ServerReady {
+                input_epoch,
+                lease_id,
+                ..
+            } => (input_epoch, lease_id),
+            _ => unreachable!(),
+        };
+
+        // Verify wire JSON parsing for `touchpad.gesture`
+        let parsed_up: ClientMessage = serde_json::from_value(serde_json::json!({
+            "type": "touchpad.gesture",
+            "sessionId": sid,
+            "inputEpoch": epoch,
+            "seq": 1,
+            "leaseId": lease,
+            "gesture": "three_finger_up"
+        }))
+        .unwrap();
+        assert!(coord
+            .handle_session_message(&sid, parsed_up, t0 + Duration::from_millis(10))
+            .is_none());
+
+        for (seq, gesture) in [
+            (2, SystemTouchpadGesture::ThreeFingerDown),
+            (3, SystemTouchpadGesture::ThreeFingerLeft),
+            (4, SystemTouchpadGesture::ThreeFingerRight),
+            (5, SystemTouchpadGesture::ThreeFingerTap),
+        ] {
+            coord.handle_session_message(
+                &sid,
+                ClientMessage::TouchpadGesture {
+                    session_id: sid.clone(),
+                    input_epoch: epoch,
+                    seq,
+                    lease_id: lease,
+                    gesture,
+                },
+                t0 + Duration::from_millis(20 + seq * 5),
+            );
+        }
+
+        // Duplicate seq or expired lease must be silently dropped
+        coord.handle_session_message(
+            &sid,
+            ClientMessage::TouchpadGesture {
+                session_id: sid.clone(),
+                input_epoch: epoch,
+                seq: 5,
+                lease_id: lease,
+                gesture: SystemTouchpadGesture::ThreeFingerUp,
+            },
+            t0 + Duration::from_millis(60),
+        );
+        coord.handle_session_message(
+            &sid,
+            ClientMessage::TouchpadGesture {
+                session_id: sid.clone(),
+                input_epoch: epoch,
+                seq: 6,
+                lease_id: lease,
+                gesture: SystemTouchpadGesture::ThreeFingerUp,
+            },
+            t0 + Duration::from_millis(900),
+        );
+
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                "shortcut:Win+Tab",
+                "shortcut:Win+D",
+                "shortcut:Ctrl+Win+Right",
+                "shortcut:Ctrl+Win+Left",
+                "btn:Middle:true",
+                "btn:Middle:false",
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deck_apply_preset_from_mobile_and_desktop_emits_events_and_syncs_idempotently() {
+        let dir = std::env::temp_dir().join(format!("axonkey-preset-sess-{}", Uuid::new_v4()));
+        let pairing = PairingStore::load(dir.join("peers.json")).unwrap();
+        let deck = DeckStore::load(dir.join("mobile-deck.json")).unwrap();
+        let input = Arc::new(MobileInputController::new(MockBackend::default()));
+
+        let mut coord = MobileCoordinator::new(
+            "host-preset".into(),
+            "TestPC".into(),
+            "CA".into(),
+            pairing,
+            deck,
+            input,
+        );
+        let (deck_tx, mut deck_rx) = mpsc::unbounded_channel();
+        let (preset_tx, mut preset_rx) = mpsc::unbounded_channel();
+        coord.set_deck_event_sender(deck_tx);
+        coord.set_preset_event_sender(preset_tx);
+
+        let offer = coord.create_pairing_offer(vec!["127.0.0.1:9999".into()]);
+        let (peer_id, peer_token) = match coord.handle_pair_request(&offer.pair_token, "Phone") {
+            ServerMessage::PairResult {
+                peer_id: Some(id),
+                peer_token: Some(tok),
+                ..
+            } => (id, tok),
+            _ => unreachable!(),
+        };
+        let t0 = Instant::now();
+        let (tx, mut rx) = mpsc::channel(16);
+        let (sid, _) = coord
+            .claim_control(&peer_id, &peer_token, "Phone", tx, t0)
+            .unwrap();
+
+        // 1. Mobile sends `deck.apply_preset` JSON
+        let wire_msg: ClientMessage = serde_json::from_value(serde_json::json!({
+            "type": "deck.apply_preset",
+            "sessionId": sid,
+            "requestId": "preset-req-1",
+            "preset": "presentation-media",
+            "voicePreset": "system-win-h"
+        }))
+        .unwrap();
+        let reply = coord
+            .handle_session_message(&sid, wire_msg, t0 + Duration::from_millis(20))
+            .unwrap();
+        match reply {
+            ServerMessage::DeckUpdateResult {
+                request_id,
+                ok,
+                conflict,
+                deck_revision,
+                deck_snapshot: Some(snap),
+                error,
+            } => {
+                assert_eq!(request_id, "preset-req-1");
+                assert!(ok);
+                assert_eq!(conflict, None);
+                assert_eq!(deck_revision, 2);
+                assert_eq!(snap.active_page_id, "presentation-main");
+                assert_eq!(snap.voice_binding_summary.as_deref(), Some("Win+H"));
+                assert_eq!(error, None);
+            }
+            other => panic!("Expected DeckUpdateResult, got {other:?}"),
+        }
+
+        let deck_evt1 = deck_rx.try_recv().unwrap();
+        assert_eq!(deck_evt1.revision, 2);
+        let preset_evt1 = preset_rx.try_recv().unwrap();
+        assert_eq!(preset_evt1.revision, 2);
+        assert!(preset_evt1.behaviors.contains_key("ppt.next"));
+        assert!(preset_evt1.behaviors.contains_key(VOICE_KEY_ID));
+
+        // Simulate Desktop writing back `preset_evt1.behaviors` via `sync_from_managed_instance_with_gain`
+        // -> MUST NOT bump revision or emit another deck-changed event (zero infinite loop!)
+        coord.sync_from_managed_instance_with_gain(
+            "默认配置".into(),
+            0,
+            &super::super::deck::dto_map_to_trigger_behaviors(&preset_evt1.behaviors),
+        );
+        assert_eq!(coord.deck_state().0, 2);
+        assert!(deck_rx.try_recv().is_err());
+
+        // 2. Desktop calls `apply_preset_from_desktop(BlankCanvas, None)`
+        let (rev3, snap3) = coord
+            .apply_preset_from_desktop(StarterPresetId::BlankCanvas, None)
+            .unwrap();
+        assert_eq!(rev3, 3);
+        assert_eq!(snap3.active_page_id, "custom-canvas");
+        assert_eq!(snap3.voice_binding_summary, None);
+
+        let preset_evt2 = preset_rx.try_recv().unwrap();
+        assert_eq!(preset_evt2.revision, 3);
+        assert!(preset_evt2.bindings.is_empty());
+        assert!(preset_evt2.behaviors.is_empty());
+        let _ = deck_rx.try_recv().unwrap();
+
+        // Active mobile session received DeckSnapshotPush for rev 3
+        let mut saw_push_rev3 = false;
+        while let Ok(m) = rx.try_recv() {
+            if let ServerMessage::DeckSnapshotPush { deck_revision, .. } = m {
+                if deck_revision == 3 {
+                    saw_push_rev3 = true;
+                }
+            }
+        }
+        assert!(saw_push_rev3);
+
+        // Desktop syncing back empty behaviors `{}` -> MUST also be idempotent!
+        coord.sync_from_managed_instance_with_gain(
+            "默认配置".into(),
+            0,
+            &super::super::deck::dto_map_to_trigger_behaviors(&preset_evt2.behaviors),
+        );
+        assert_eq!(coord.deck_state().0, 3);
+        assert!(deck_rx.try_recv().is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -5,11 +5,48 @@ import { listen } from '@tauri-apps/api/event'
 import { Check, Copy, Pencil, QrCode, Radio, RefreshCw, Smartphone, Trash2, Wifi, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { SettingsHelp } from '../../components/SettingsHelp'
+import { replaceInstanceProfileBehaviors } from '../integration/instanceProfiles'
 import { setDynamicSupportPackageOverride } from '../integration/model'
-import { buildDynamicMobileSupportPackage, type DeckSnapshot } from './dynamicSvg'
+import type { DeviceController } from '../integration/useDeviceInstances'
+import {
+  buildDynamicMobileSupportPackage,
+  type DeckSnapshot,
+  type StarterPresetId,
+  type VoicePresetKind,
+} from './dynamicSvg'
+import {
+  applyPresetPayloadToDeviceController,
+  inferActiveStarterPreset,
+  inferVoicePresetFromSummary,
+  voicePresetToRustBinding,
+  voicePresetToTriggerBehaviors,
+  type MobilePresetAppliedPayload,
+} from './presetSync'
 import './MobileDeviceConnectionCard.css'
 
 const UDP_DISCOVERY_PORT = 49671
+
+const STARTER_PRESETS: ReadonlyArray<{
+  id: StarterPresetId
+  label: string
+  title: string
+}> = [
+  { id: 'daily-remote', label: '日常+语音', title: '经典遥控器 + 影音网页快捷页' },
+  { id: 'vibe-coding', label: 'AI编程', title: 'AI 编程副屏（继续执行 / 采纳 / 撤销 / 终端）+ 经典遥控器' },
+  { id: 'presentation-media', label: '演示影音', title: 'PPT 翻页放映 + 内嵌触控混排页' },
+  { id: 'blank-canvas', label: '空白起步', title: '单页 2 列纯净空白面板（无预置按键映射）' },
+]
+
+const VOICE_PRESETS: ReadonlyArray<{
+  id: VoicePresetKind
+  label: string
+  title: string
+}> = [
+  { id: 'doubao-alt', label: 'Alt', title: '按住保持 Alt + 虚拟麦克风（适配豆包等语音输入）' },
+  { id: 'system-win-h', label: 'Win+H', title: '触发 Win+H 系统听写 + 虚拟麦克风' },
+  { id: 'ctrl-win', label: 'Ctrl+Win', title: '按住保持 Ctrl+Win + 虚拟麦克风' },
+  { id: 'pure-mic', label: '纯麦克风', title: '仅传输虚拟麦克风音频，不注入任何快捷键' },
+]
 
 type ActiveSessionInfo = {
   sessionId: string
@@ -46,13 +83,22 @@ type MobileDeckResponse = {
 
 type MobileDeviceConnectionCardProps = {
   native: boolean
+  instanceId?: string
+  controller?: DeviceController
+  onToast?: (message: string) => void
 }
 
-export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCardProps) {
+export function MobileDeviceConnectionCard({
+  native,
+  instanceId,
+  controller,
+  onToast,
+}: MobileDeviceConnectionCardProps) {
   const [status, setStatus] = useState<MobileHostStatus | null>(null)
   const [peers, setPeers] = useState<PairedPeerSummary[]>([])
   const [deckSnapshot, setDeckSnapshot] = useState<DeckSnapshot | null>(null)
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null)
+  const [applyingPreset, setApplyingPreset] = useState(false)
   const lastDeckRevisionRef = useRef(0)
   const lastPhoneActivePageIdRef = useRef<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -63,14 +109,14 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
   const [remarkDraft, setRemarkDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const applyDeckPayload = useCallback((payload: MobileDeckResponse | null | undefined) => {
+  const applyDeckPayload = useCallback((payload: MobileDeckResponse | null | undefined, forceActivePage = false) => {
     if (!payload?.snapshot) return
     if (payload.revision < lastDeckRevisionRef.current) return
     lastDeckRevisionRef.current = payload.revision
     const nextSnapshot = payload.snapshot
     setDeckSnapshot(nextSnapshot)
 
-    if (nextSnapshot.activePageId !== lastPhoneActivePageIdRef.current) {
+    if (forceActivePage || nextSnapshot.activePageId !== lastPhoneActivePageIdRef.current) {
       lastPhoneActivePageIdRef.current = nextSnapshot.activePageId
       setSelectedPageId(nextSnapshot.activePageId)
     } else {
@@ -108,15 +154,24 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
       })
       .catch(() => {})
 
-    const unlistenPromise = listen<MobileDeckResponse>('axonkey-mobile-deck-changed', event => {
+    const unlistenDeckPromise = listen<MobileDeckResponse>('axonkey-mobile-deck-changed', event => {
       if (alive) applyDeckPayload(event.payload)
+    })
+
+    const unlistenPresetPromise = listen<MobilePresetAppliedPayload>('axonkey-mobile-preset-applied', event => {
+      if (!alive || !event.payload?.snapshot) return
+      applyDeckPayload({ revision: event.payload.revision, snapshot: event.payload.snapshot }, true)
+      if (controller) {
+        void applyPresetPayloadToDeviceController(controller, event.payload, instanceId)
+      }
     })
 
     return () => {
       alive = false
-      void unlistenPromise.then(unlisten => unlisten())
+      void unlistenDeckPromise.then(unlisten => unlisten())
+      void unlistenPresetPromise.then(unlisten => unlisten())
     }
-  }, [applyDeckPayload, native])
+  }, [applyDeckPayload, controller, instanceId, native])
 
   const effectivePageId =
     (selectedPageId && deckSnapshot?.pages.some(page => page.id === selectedPageId)
@@ -142,6 +197,85 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
     const timer = window.setInterval(() => void refresh(), intervalMs)
     return () => window.clearInterval(timer)
   }, [dialogOpen, native, refresh])
+
+  const activeStarterPreset = inferActiveStarterPreset(deckSnapshot)
+  const inferredVoicePreset = inferVoicePresetFromSummary(deckSnapshot?.voiceBindingSummary)
+
+  const handleApplyPreset = async (preset: StarterPresetId) => {
+    if (!native || applyingPreset) return
+    setApplyingPreset(true)
+    try {
+      const voicePreset: VoicePresetKind | null =
+        preset === 'blank-canvas'
+          ? null
+          : inferredVoicePreset && !(activeStarterPreset === 'blank-canvas' && inferredVoicePreset === 'pure-mic')
+            ? inferredVoicePreset
+            : 'doubao-alt'
+      const res = await invoke<MobileDeckResponse>('mobile_host_apply_preset', {
+        preset,
+        voicePreset,
+      })
+      applyDeckPayload(res, true)
+      const label = STARTER_PRESETS.find(item => item.id === preset)?.label ?? preset
+      onToast?.(`已切换预设方案「${label}」`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg)
+      onToast?.(`切换预设失败：${msg}`)
+    } finally {
+      setApplyingPreset(false)
+    }
+  }
+
+  const handleSelectVoicePreset = async (voicePreset: VoicePresetKind) => {
+    if (!native || applyingPreset) return
+    setApplyingPreset(true)
+    try {
+      const res = await invoke<MobileDeckResponse>('mobile_host_set_tile_binding', {
+        tileId: 'mobile.voice',
+        binding: voicePresetToRustBinding(voicePreset),
+      })
+      applyDeckPayload(res)
+      if (controller) {
+        const target = controller.snapshot.store.instances.find(
+          inst => inst.kind === 'axonkeyMobile' && (!instanceId || inst.id === instanceId),
+        )
+        if (target) {
+          const effectiveId = controller.snapshot.runtime[target.id]?.effectiveProfileId ?? target.activeProfileId
+          const prof =
+            target.profiles.find(p => !p.quick && p.id === effectiveId) ??
+            target.profiles.find(p => !p.quick) ??
+            target.profiles[0]
+          if (prof) {
+            const voiceSeq = voicePresetToTriggerBehaviors(voicePreset)
+            await controller.update(target.id, current => {
+              const latestProf = current.profiles.find(p => p.id === prof.id)
+              const existing = (latestProf?.behaviors ?? {}) as Record<string, unknown>
+              const nextMap = { ...existing }
+              if (voicePreset === 'pure-mic') {
+                delete nextMap['mobile.voice']
+              } else {
+                nextMap['mobile.voice'] = voiceSeq
+              }
+              return replaceInstanceProfileBehaviors(
+                current,
+                prof.id,
+                nextMap as Parameters<typeof replaceInstanceProfileBehaviors>[2],
+              )
+            })
+          }
+        }
+      }
+      const label = VOICE_PRESETS.find(item => item.id === voicePreset)?.label ?? voicePreset
+      onToast?.(`语音触发已切换为「${label}」`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg)
+      onToast?.(`语音触发切换失败：${msg}`)
+    } finally {
+      setApplyingPreset(false)
+    }
+  }
 
   const requestPairingOffer = useCallback(async () => {
     if (!native) return
@@ -236,7 +370,7 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
 
   return (
     <>
-      <div className="mobile-device-bar" role="region" aria-label="手机连接状态">
+      <div className="mobile-device-bar" role="region" aria-label="手机连接与预设">
         <div className="mobile-device-bar-main">
           <div className="mobile-device-bar-status" title={barText}>
             <span className={`mobile-device-dot ${dotTone}`.trim()} aria-hidden="true" />
@@ -253,6 +387,7 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
             <span>配对</span>
           </button>
         </div>
+
         {pages.length > 1 && (
           <div className="mobile-device-pages" role="tablist" aria-label="手机页面视图">
             {pages.map(page => {
@@ -276,6 +411,54 @@ export function MobileDeviceConnectionCard({ native }: MobileDeviceConnectionCar
             })}
           </div>
         )}
+
+        <div className="mobile-device-presets" aria-label="预设方案与语音触发">
+          <div className="mobile-device-preset-head">
+            <span className="mobile-device-section-label">预设方案</span>
+            <SettingsHelp id="mobile-starter-preset-help" label="手机预设方案与语音触发说明">
+              一键切换手机端面板布局与当前配置的映射动作，手机与桌面端双向实时同步；「空白起步」将清空预置按键动作，方便从零自定义。
+            </SettingsHelp>
+          </div>
+          <div className="mobile-device-preset-grid" role="group" aria-label="预设方案">
+            {STARTER_PRESETS.map(item => {
+              const isActive = activeStarterPreset === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={!native || applyingPreset}
+                  aria-pressed={isActive}
+                  className={`mobile-device-preset-pill${isActive ? ' active' : ''}`}
+                  title={item.title}
+                  onClick={() => void handleApplyPreset(item.id)}
+                >
+                  {item.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="mobile-device-voice-row" role="group" aria-label="语音触发方式">
+            <span className="mobile-device-voice-label">语音触发</span>
+            <div className="mobile-device-voice-pills">
+              {VOICE_PRESETS.map(item => {
+                const isActive = inferredVoicePreset === item.id
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={!native || applyingPreset}
+                    aria-pressed={isActive}
+                    className={`mobile-device-voice-pill${isActive ? ' active' : ''}`}
+                    title={item.title}
+                    onClick={() => void handleSelectVoicePreset(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       </div>
 
       {dialogOpen &&

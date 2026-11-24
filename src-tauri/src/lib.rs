@@ -2492,6 +2492,7 @@ pub fn run() {
             mobile_host::mobile_host_update_deck,
             mobile_host::mobile_host_get_bindings,
             mobile_host::mobile_host_set_tile_binding,
+            mobile_host::mobile_host_apply_preset,
             ping,
             app_storage::load_app_config,
             app_storage::update_app_config,

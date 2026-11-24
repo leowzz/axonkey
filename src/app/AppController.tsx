@@ -4,6 +4,7 @@ import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
+import { useAxonkeyMobilePresetSync } from '../devices/axonkey-mobile/presetSync'
 import {
   InstanceCliError,
   normalizeCliDeviceSelector,
@@ -241,6 +242,7 @@ function AppController({
 }) {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const deviceInstances = useDeviceInstances(nativeRuntime)
+  useAxonkeyMobilePresetSync(nativeRuntime, deviceInstances)
   const [initialUiState] = useState<StoredUiState>(() => {
     const stored = getStoredUiState()
     const device = devices.find(item => item.id === stored.selectedDeviceId) ?? devices[0]

@@ -1,8 +1,9 @@
 use super::protocol::{
-    DeckLayoutPatch, DeckSnapshot, MobileDeckPage, MobileTile, PageLayout, TileAccent,
-    TileGestureKind, TileMode,
+    DeckLayoutPatch, DeckSnapshot, DeckZoneKind, EmbeddedPadHeight, EmbeddedPointerMode,
+    MobileDeckPage, MobileDeckZone, MobileTile, PageLayout, StarterPresetId, TileAccent,
+    TileGestureKind, TileMode, VoicePresetKind,
 };
-use crate::input_service::NativeBehavior;
+use crate::input_service::{NativeBehavior, TriggerBehaviors};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -13,7 +14,7 @@ const MAX_TILES_PER_PAGE: usize = 32;
 const MAX_ZONES_PER_PAGE: usize = 6;
 pub const VOICE_KEY_ID: &str = "mobile.voice";
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TileActionBindings {
     #[serde(default)]
@@ -26,6 +27,15 @@ pub struct TileActionBindings {
     pub hold_keys: Vec<String>,
 }
 
+impl TileActionBindings {
+    pub fn is_empty(&self) -> bool {
+        self.tap.is_empty()
+            && self.double.is_empty()
+            && self.long.is_empty()
+            && self.hold_keys.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedDeck {
@@ -33,6 +43,8 @@ struct PersistedDeck {
     revision: u64,
     snapshot: DeckSnapshot,
     bindings: HashMap<String, TileActionBindings>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    preset_applied: bool,
 }
 
 #[derive(Debug)]
@@ -52,6 +64,8 @@ pub struct DeckStore {
     revision: u64,
     snapshot: DeckSnapshot,
     bindings: HashMap<String, TileActionBindings>,
+    baseline_bindings: HashMap<String, TileActionBindings>,
+    preset_applied: bool,
 }
 
 impl DeckStore {
@@ -61,13 +75,21 @@ impl DeckStore {
                 fs::read(&path).map_err(|e| format!("Failed to read mobile-deck.json: {e}"))?;
             let persisted: PersistedDeck = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Corrupt mobile-deck.json (refusing silent reset): {e}"))?;
+            let baseline_bindings = if persisted.preset_applied {
+                persisted.bindings.clone()
+            } else {
+                default_mobile_deck().1
+            };
             let mut store = Self {
                 path,
                 revision: persisted.revision.max(1),
                 snapshot: persisted.snapshot,
                 bindings: persisted.bindings,
+                baseline_bindings,
+                preset_applied: persisted.preset_applied,
             };
-            let inserted_default_voice = !store.bindings.contains_key(VOICE_KEY_ID);
+            let inserted_default_voice =
+                !store.preset_applied && !store.bindings.contains_key(VOICE_KEY_ID);
             if inserted_default_voice {
                 store.bindings.insert(
                     VOICE_KEY_ID.into(),
@@ -84,11 +106,14 @@ impl DeckStore {
             return Ok(store);
         }
         let (snapshot, bindings) = default_mobile_deck();
+        let baseline_bindings = bindings.clone();
         let mut store = Self {
             path,
             revision: 1,
             snapshot,
             bindings,
+            baseline_bindings,
+            preset_applied: false,
         };
         store.rehydrate_tile_metadata();
         store.save()?;
@@ -194,28 +219,38 @@ impl DeckStore {
     }
 
     /// Replaces bindings for keys present in the managed Axonkey `axonkeyMobile` device instance's
-    /// active profile (and restores defaults for keys removed since the previous managed profile),
+    /// active profile (and restores baseline bindings for keys removed since the previous managed profile),
     /// re-derives `action_summary` + `voice_binding_summary`, and bumps revision if anything changed.
     pub fn sync_from_managed_profile_with_previous(
         &mut self,
-        behaviors: &HashMap<String, crate::input_service::TriggerBehaviors>,
+        behaviors: &HashMap<String, TriggerBehaviors>,
         previous_managed_keys: &std::collections::HashSet<String>,
     ) -> Result<Option<(u64, DeckSnapshot)>, String> {
         let mut changed = false;
-        let defaults = default_mobile_deck().1;
         for removed_key in previous_managed_keys {
             if behaviors.contains_key(removed_key) {
                 continue;
             }
-            let fallback = defaults.get(removed_key).cloned().unwrap_or_default();
-            let same = self.bindings.get(removed_key).is_some_and(|p| {
-                p.tap == fallback.tap
-                    && p.double == fallback.double
-                    && p.long == fallback.long
-                    && p.hold_keys == fallback.hold_keys
-            });
+            let fallback = self
+                .baseline_bindings
+                .get(removed_key)
+                .cloned()
+                .unwrap_or_default();
+            let same = match self.bindings.get(removed_key) {
+                Some(p) => {
+                    p.tap == fallback.tap
+                        && p.double == fallback.double
+                        && p.long == fallback.long
+                        && p.hold_keys == fallback.hold_keys
+                }
+                None => fallback.is_empty(),
+            };
             if !same {
-                self.bindings.insert(removed_key.clone(), fallback);
+                if fallback.is_empty() && self.preset_applied {
+                    self.bindings.remove(removed_key);
+                } else {
+                    self.bindings.insert(removed_key.clone(), fallback);
+                }
                 changed = true;
             }
         }
@@ -227,12 +262,15 @@ impl DeckStore {
                 hold_keys: Vec::new(),
             };
             let prev = self.bindings.get(key);
-            let same = prev.is_some_and(|p| {
-                p.tap == next.tap
-                    && p.double == next.double
-                    && p.long == next.long
-                    && p.hold_keys.is_empty()
-            });
+            let same = match prev {
+                Some(p) => {
+                    p.tap == next.tap
+                        && p.double == next.double
+                        && p.long == next.long
+                        && p.hold_keys.is_empty()
+                }
+                None => next.is_empty(),
+            };
             if !same {
                 self.bindings.insert(key.clone(), next);
                 changed = true;
@@ -245,6 +283,37 @@ impl DeckStore {
         self.rehydrate_tile_metadata();
         self.save()?;
         Ok(Some((self.revision, self.snapshot.clone())))
+    }
+
+    /// Applies one of the 4 starter presets + optional voice preset atomically, bumping revision,
+    /// rehydrating silkscreen summaries, and saving `mobile-deck.json`.
+    pub fn apply_preset(
+        &mut self,
+        preset: StarterPresetId,
+        voice_preset: Option<VoicePresetKind>,
+    ) -> Result<(u64, DeckSnapshot, HashMap<String, TileActionBindings>), String> {
+        let (active_page_id, pages, bindings) = build_starter_preset(preset, voice_preset);
+        let prev_rev = self.revision;
+        let prev_snap = self.snapshot.clone();
+        let prev_bindings = std::mem::replace(&mut self.bindings, bindings.clone());
+        let prev_baseline = std::mem::replace(&mut self.baseline_bindings, bindings);
+        let prev_preset_flag = self.preset_applied;
+
+        self.revision += 1;
+        self.preset_applied = true;
+        self.snapshot.active_page_id = active_page_id;
+        self.snapshot.pages = pages;
+        self.rehydrate_tile_metadata();
+
+        if let Err(err) = self.save() {
+            self.revision = prev_rev;
+            self.snapshot = prev_snap;
+            self.bindings = prev_bindings;
+            self.baseline_bindings = prev_baseline;
+            self.preset_applied = prev_preset_flag;
+            return Err(err);
+        }
+        Ok((self.revision, self.snapshot.clone(), self.bindings.clone()))
     }
 
     /// Optimistic-concurrency layout update from mobile or desktop UI.
@@ -312,7 +381,8 @@ impl DeckStore {
                     )));
                 }
                 for tile in &mut page.tiles {
-                    if tile.id.trim().is_empty() || tile.label.trim().is_empty() {
+                    tile.id = tile.id.trim().to_owned();
+                    if tile.id.is_empty() || tile.label.trim().is_empty() {
                         return Err(DeckUpdateError::Invalid("卡片 ID 和标题不能为空".into()));
                     }
                     if !is_safe_icon_token(&tile.icon) {
@@ -342,6 +412,20 @@ impl DeckStore {
                     }
                     for slot_id in &mut zone.tile_ids {
                         *slot_id = slot_id.trim().to_owned();
+                    }
+                    if zone.kind == DeckZoneKind::GesturePad {
+                        if zone.tile_ids.len() > 6 {
+                            return Err(DeckUpdateError::Invalid(
+                                "手势触发垫最多支持 6 个手势槽位".into(),
+                            ));
+                        }
+                        for slot_id in &zone.tile_ids {
+                            if !slot_id.is_empty() && !page.tiles.iter().any(|t| t.id == *slot_id) {
+                                return Err(DeckUpdateError::Invalid(format!(
+                                    "手势触发垫引用的卡片不存在: {slot_id}"
+                                )));
+                            }
+                        }
                     }
                 }
                 sanitized_pages.push(page);
@@ -425,6 +509,7 @@ impl DeckStore {
             revision: self.revision,
             snapshot: self.snapshot.clone(),
             bindings: self.bindings.clone(),
+            preset_applied: self.preset_applied,
         };
         let tmp = self.path.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(&persisted)
@@ -527,18 +612,740 @@ fn pretty_key(key: &str) -> String {
     match key {
         "Control" => "Ctrl".into(),
         "Escape" => "Esc".into(),
-        "ArrowUp" => "↑".into(),
-        "ArrowDown" => "↓".into(),
-        "ArrowLeft" => "←".into(),
-        "ArrowRight" => "→".into(),
-        "AudioVolumeUp" => "音量+".into(),
-        "AudioVolumeDown" => "音量-".into(),
-        "AudioVolumeMute" => "静音".into(),
+        "ArrowUp" | "Up" => "↑".into(),
+        "ArrowDown" | "Down" => "↓".into(),
+        "ArrowLeft" | "Left" => "←".into(),
+        "ArrowRight" | "Right" => "→".into(),
+        "AudioVolumeUp" | "VolumeUp" => "音量+".into(),
+        "AudioVolumeDown" | "VolumeDown" => "音量-".into(),
+        "AudioVolumeMute" | "VolumeMute" => "静音".into(),
         "MediaPlayPause" => "播放/暂停".into(),
-        "MediaTrackPrevious" => "上一曲".into(),
-        "MediaTrackNext" => "下一曲".into(),
+        "MediaTrackPrevious" | "MediaPrevious" => "上一曲".into(),
+        "MediaTrackNext" | "MediaNext" => "下一曲".into(),
         "Backspace" => "退格".into(),
         other => other.to_owned(),
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopTriggerBehaviorsDto {
+    pub click: Vec<NativeBehavior>,
+    pub double_click: Vec<NativeBehavior>,
+    pub long_press: Vec<NativeBehavior>,
+}
+
+pub fn bindings_to_trigger_behaviors_dto(
+    bindings: &HashMap<String, TileActionBindings>,
+) -> HashMap<String, DesktopTriggerBehaviorsDto> {
+    let mut out = HashMap::new();
+    for (tile_id, b) in bindings {
+        if b.is_empty() {
+            continue;
+        }
+        let click = if !b.tap.is_empty() {
+            b.tap.clone()
+        } else if b.hold_keys.len() == 1 {
+            vec![key(&b.hold_keys[0])]
+        } else if b.hold_keys.len() > 1 {
+            vec![NativeBehavior::Shortcut {
+                enabled: true,
+                keys: b.hold_keys.clone(),
+            }]
+        } else {
+            Vec::new()
+        };
+        out.insert(
+            tile_id.clone(),
+            DesktopTriggerBehaviorsDto {
+                click,
+                double_click: b.double.clone(),
+                long_press: b.long.clone(),
+            },
+        );
+    }
+    out
+}
+
+#[cfg(test)]
+pub fn dto_map_to_trigger_behaviors(
+    dto: &HashMap<String, DesktopTriggerBehaviorsDto>,
+) -> HashMap<String, TriggerBehaviors> {
+    dto.iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                TriggerBehaviors {
+                    click: v.click.clone(),
+                    double_click: v.double_click.clone(),
+                    long_press: v.long_press.clone(),
+                    ..Default::default()
+                },
+            )
+        })
+        .collect()
+}
+
+fn tile_with_span(
+    id: &str,
+    label: &str,
+    icon: &str,
+    accent: TileAccent,
+    col_span: u8,
+    row_span: u8,
+) -> MobileTile {
+    let mut t = tile(id, label, icon, accent, col_span);
+    t.row_span = row_span;
+    t
+}
+
+fn classic_remote_page_and_bindings(
+    everyday_mode: bool,
+) -> (MobileDeckPage, HashMap<String, TileActionBindings>) {
+    let mut bindings = HashMap::new();
+    bindings.insert(
+        "remote.esc".into(),
+        TileActionBindings {
+            tap: vec![key("Esc")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.menu".into(),
+        TileActionBindings {
+            tap: vec![if everyday_mode {
+                shortcut(&["Win", "Tab"])
+            } else {
+                shortcut(&["Ctrl", "K"])
+            }],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.up".into(),
+        TileActionBindings {
+            tap: vec![key("Up")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.down".into(),
+        TileActionBindings {
+            tap: vec![key("Down")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.left".into(),
+        TileActionBindings {
+            tap: vec![key("Left")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.right".into(),
+        TileActionBindings {
+            tap: vec![key("Right")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.ok".into(),
+        TileActionBindings {
+            tap: vec![key("Enter")],
+            double: vec![if everyday_mode {
+                key("Space")
+            } else {
+                shortcut(&["Ctrl", "Enter"])
+            }],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.back".into(),
+        TileActionBindings {
+            tap: vec![key("Backspace")],
+            long: vec![if everyday_mode {
+                shortcut(&["Alt", "Left"])
+            } else {
+                shortcut(&["Ctrl", "Z"])
+            }],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.home".into(),
+        TileActionBindings {
+            tap: vec![if everyday_mode {
+                shortcut(&["Win", "D"])
+            } else {
+                shortcut(&["Ctrl", "L"])
+            }],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.vol_up".into(),
+        TileActionBindings {
+            tap: vec![key("VolumeUp")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.vol_down".into(),
+        TileActionBindings {
+            tap: vec![key("VolumeDown")],
+            ..Default::default()
+        },
+    );
+    bindings.insert(
+        "remote.mute".into(),
+        TileActionBindings {
+            tap: vec![key("VolumeMute")],
+            ..Default::default()
+        },
+    );
+
+    let bottom_tiles = if everyday_mode {
+        bindings.insert(
+            "remote.q1".into(),
+            TileActionBindings {
+                tap: vec![key("MediaPlayPause")],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q2".into(),
+            TileActionBindings {
+                tap: vec![shortcut(&["Alt", "Tab"])],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q3".into(),
+            TileActionBindings {
+                tap: vec![shortcut(&["Ctrl", "C"])],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q4".into(),
+            TileActionBindings {
+                tap: vec![shortcut(&["Ctrl", "V"])],
+                ..Default::default()
+            },
+        );
+        vec![
+            tile("remote.q1", "播放/暂停", "play", TileAccent::Violet, 1),
+            tile("remote.q2", "切换窗口", "refresh", TileAccent::Blue, 1),
+            tile("remote.q3", "复制", "copy", TileAccent::Emerald, 1),
+            tile("remote.q4", "粘贴", "clipboard", TileAccent::Amber, 1),
+        ]
+    } else {
+        bindings.insert(
+            "remote.q1".into(),
+            TileActionBindings {
+                tap: vec![paste("继续执行，完成后汇报验证结果。"), key("Enter")],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q2".into(),
+            TileActionBindings {
+                tap: vec![shortcut(&["Ctrl", "Enter"])],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q3".into(),
+            TileActionBindings {
+                tap: vec![shortcut(&["Ctrl", "Z"])],
+                double: vec![shortcut(&["Ctrl", "Y"])],
+                ..Default::default()
+            },
+        );
+        bindings.insert(
+            "remote.q4".into(),
+            TileActionBindings {
+                tap: vec![key("MediaPlayPause")],
+                ..Default::default()
+            },
+        );
+        vec![
+            tile("remote.q1", "继续执行", "sparkles", TileAccent::Blue, 1),
+            tile("remote.q2", "接受变更", "check", TileAccent::Emerald, 1),
+            tile("remote.q3", "撤销", "undo", TileAccent::Amber, 1),
+            tile("remote.q4", "播放/暂停", "play", TileAccent::Violet, 1),
+        ]
+    };
+
+    let mut tiles = vec![
+        tile("remote.esc", "退出/中断", "esc", TileAccent::Rose, 1),
+        tile(
+            "remote.menu",
+            if everyday_mode {
+                "任务视图"
+            } else {
+                "命令菜单"
+            },
+            if everyday_mode { "layout" } else { "search" },
+            TileAccent::Blue,
+            1,
+        ),
+        tile("remote.up", "上", "arrow-up", TileAccent::Slate, 1),
+        tile("remote.down", "下", "arrow-down", TileAccent::Slate, 1),
+        tile("remote.left", "左", "arrow-left", TileAccent::Slate, 1),
+        tile("remote.right", "右", "arrow-right", TileAccent::Slate, 1),
+        tile("remote.ok", "确认", "enter", TileAccent::Blue, 1),
+        tile("remote.back", "返回", "undo", TileAccent::Slate, 1),
+        tile(
+            "remote.home",
+            if everyday_mode {
+                "显示桌面"
+            } else {
+                "主页/对话"
+            },
+            if everyday_mode { "home" } else { "command" },
+            TileAccent::Slate,
+            1,
+        ),
+        tile("remote.vol_up", "音量+", "volume-up", TileAccent::Slate, 1),
+        tile(
+            "remote.vol_down",
+            "音量-",
+            "volume-down",
+            TileAccent::Slate,
+            1,
+        ),
+        tile("remote.mute", "静音", "volume-mute", TileAccent::Slate, 1),
+    ];
+    tiles.extend(bottom_tiles);
+
+    let page = MobileDeckPage {
+        id: "classic-remote".into(),
+        name: "经典遥控器".into(),
+        layout: PageLayout::Remote,
+        columns: 3,
+        tiles,
+        zones: Vec::new(),
+    };
+    (page, bindings)
+}
+
+fn apply_voice_preset_binding(
+    bindings: &mut HashMap<String, TileActionBindings>,
+    voice_preset: VoicePresetKind,
+) {
+    match voice_preset {
+        VoicePresetKind::DoubaoAlt => {
+            bindings.insert(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: vec![key("Alt")],
+                    ..Default::default()
+                },
+            );
+        }
+        VoicePresetKind::SystemWinH => {
+            bindings.insert(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Win", "H"])],
+                    ..Default::default()
+                },
+            );
+        }
+        VoicePresetKind::CtrlWin => {
+            bindings.insert(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "Win"])],
+                    ..Default::default()
+                },
+            );
+        }
+        VoicePresetKind::PureMic => {
+            bindings.remove(VOICE_KEY_ID);
+        }
+    }
+}
+
+pub fn build_starter_preset(
+    preset: StarterPresetId,
+    voice_preset: Option<VoicePresetKind>,
+) -> (
+    String,
+    Vec<MobileDeckPage>,
+    HashMap<String, TileActionBindings>,
+) {
+    let effective_voice = voice_preset.unwrap_or(match preset {
+        StarterPresetId::BlankCanvas => VoicePresetKind::PureMic,
+        StarterPresetId::DailyRemote
+        | StarterPresetId::VibeCoding
+        | StarterPresetId::PresentationMedia => VoicePresetKind::DoubaoAlt,
+    });
+
+    match preset {
+        StarterPresetId::DailyRemote => {
+            let (remote_page, mut bindings) = classic_remote_page_and_bindings(true);
+            bindings.insert(
+                "daily.play_pause".into(),
+                TileActionBindings {
+                    tap: vec![key("MediaPlayPause")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.fullscreen".into(),
+                TileActionBindings {
+                    tap: vec![key("F")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.prev_track".into(),
+                TileActionBindings {
+                    tap: vec![key("MediaPrevious")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.next_track".into(),
+                TileActionBindings {
+                    tap: vec![key("MediaNext")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.refresh".into(),
+                TileActionBindings {
+                    tap: vec![key("F5")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.tab_prev".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "Shift", "Tab"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.tab_next".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "Tab"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "daily.close_tab".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "W"])],
+                    ..Default::default()
+                },
+            );
+            let media_page = MobileDeckPage {
+                id: "daily-media".into(),
+                name: "影音与网页".into(),
+                layout: PageLayout::Grid,
+                columns: 3,
+                tiles: vec![
+                    tile(
+                        "daily.play_pause",
+                        "播放/暂停",
+                        "play",
+                        TileAccent::Violet,
+                        2,
+                    ),
+                    tile("daily.fullscreen", "全屏", "tv", TileAccent::Blue, 1),
+                    tile(
+                        "daily.prev_track",
+                        "上一曲",
+                        "skip-back",
+                        TileAccent::Slate,
+                        1,
+                    ),
+                    tile(
+                        "daily.next_track",
+                        "下一曲",
+                        "skip-forward",
+                        TileAccent::Slate,
+                        1,
+                    ),
+                    tile(
+                        "daily.refresh",
+                        "刷新网页",
+                        "refresh",
+                        TileAccent::Emerald,
+                        1,
+                    ),
+                    tile(
+                        "daily.tab_prev",
+                        "上一标签",
+                        "arrow-left",
+                        TileAccent::Slate,
+                        1,
+                    ),
+                    tile(
+                        "daily.tab_next",
+                        "下一标签",
+                        "arrow-right",
+                        TileAccent::Slate,
+                        1,
+                    ),
+                    tile("daily.close_tab", "关闭标签", "esc", TileAccent::Rose, 1),
+                ],
+                zones: Vec::new(),
+            };
+            apply_voice_preset_binding(&mut bindings, effective_voice);
+            (
+                "classic-remote".into(),
+                vec![remote_page, media_page],
+                bindings,
+            )
+        }
+        StarterPresetId::VibeCoding => {
+            let (remote_page, mut bindings) = classic_remote_page_and_bindings(false);
+            bindings.insert(
+                "tile.continue".into(),
+                TileActionBindings {
+                    tap: vec![paste("继续执行，完成后汇报验证结果。"), key("Enter")],
+                    long: vec![
+                        paste("先停下来检查当前改动是否有边界问题，再继续。"),
+                        key("Enter"),
+                    ],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.enter".into(),
+                TileActionBindings {
+                    tap: vec![key("Enter")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.accept".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "Enter"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.undo".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "Z"])],
+                    double: vec![shortcut(&["Ctrl", "Y"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.esc".into(),
+                TileActionBindings {
+                    tap: vec![key("Esc")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.copy".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "C"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.paste".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "V"])],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "tile.terminal".into(),
+                TileActionBindings {
+                    tap: vec![shortcut(&["Ctrl", "`"])],
+                    ..Default::default()
+                },
+            );
+            let vibe_page = MobileDeckPage {
+                id: "vibe-coding".into(),
+                name: "AI 编程副屏".into(),
+                layout: PageLayout::Grid,
+                columns: 3,
+                tiles: vec![
+                    tile("tile.continue", "继续执行", "sparkles", TileAccent::Blue, 2),
+                    tile("tile.enter", "发送确认", "enter", TileAccent::Emerald, 1),
+                    tile("tile.accept", "采纳", "check", TileAccent::Emerald, 1),
+                    tile("tile.undo", "撤销", "undo", TileAccent::Amber, 1),
+                    tile("tile.esc", "中断", "esc", TileAccent::Rose, 1),
+                    tile("tile.copy", "复制", "copy", TileAccent::Slate, 1),
+                    tile("tile.paste", "粘贴", "clipboard", TileAccent::Slate, 1),
+                    tile("tile.terminal", "终端", "terminal", TileAccent::Violet, 1),
+                ],
+                zones: Vec::new(),
+            };
+            apply_voice_preset_binding(&mut bindings, effective_voice);
+            ("vibe-coding".into(), vec![vibe_page, remote_page], bindings)
+        }
+        StarterPresetId::PresentationMedia => {
+            let mut bindings = HashMap::new();
+            bindings.insert(
+                "ppt.prev".into(),
+                TileActionBindings {
+                    tap: vec![key("PageUp")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "ppt.next".into(),
+                TileActionBindings {
+                    tap: vec![key("PageDown")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "ppt.fullscreen".into(),
+                TileActionBindings {
+                    tap: vec![key("F5")],
+                    long: vec![key("Esc")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "ppt.blackout".into(),
+                TileActionBindings {
+                    tap: vec![key("B")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "media.play_pause".into(),
+                TileActionBindings {
+                    tap: vec![key("MediaPlayPause")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "media.mute".into(),
+                TileActionBindings {
+                    tap: vec![key("VolumeMute")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "pres.prev".into(),
+                TileActionBindings {
+                    tap: vec![key("PageUp")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "pres.next".into(),
+                TileActionBindings {
+                    tap: vec![key("PageDown")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "pres.esc".into(),
+                TileActionBindings {
+                    tap: vec![key("Esc")],
+                    ..Default::default()
+                },
+            );
+            bindings.insert(
+                "pres.play".into(),
+                TileActionBindings {
+                    tap: vec![key("MediaPlayPause")],
+                    ..Default::default()
+                },
+            );
+
+            let ppt_page = MobileDeckPage {
+                id: "presentation-main".into(),
+                name: "演示与影音".into(),
+                layout: PageLayout::Grid,
+                columns: 2,
+                tiles: vec![
+                    tile_with_span("ppt.prev", "上一页", "arrow-left", TileAccent::Slate, 1, 2),
+                    tile_with_span("ppt.next", "下一页", "arrow-right", TileAccent::Blue, 1, 2),
+                    tile("ppt.fullscreen", "全屏放映", "tv", TileAccent::Emerald, 1),
+                    tile("ppt.blackout", "黑屏", "power", TileAccent::Amber, 1),
+                    tile(
+                        "media.play_pause",
+                        "播放/暂停",
+                        "play",
+                        TileAccent::Violet,
+                        1,
+                    ),
+                    tile("media.mute", "静音", "volume-mute", TileAccent::Rose, 1),
+                ],
+                zones: Vec::new(),
+            };
+
+            let mixed_page = MobileDeckPage {
+                id: "presentation-touchpad".into(),
+                name: "触控演示混排".into(),
+                layout: PageLayout::Grid,
+                columns: 2,
+                tiles: vec![
+                    tile("pres.prev", "上一页", "arrow-left", TileAccent::Slate, 1),
+                    tile("pres.next", "下一页", "arrow-right", TileAccent::Blue, 1),
+                    tile("pres.esc", "退出放映", "esc", TileAccent::Rose, 1),
+                    tile("pres.play", "播放/暂停", "play", TileAccent::Violet, 1),
+                ],
+                zones: vec![
+                    MobileDeckZone {
+                        id: "pres-pad".into(),
+                        kind: DeckZoneKind::PointerPad,
+                        columns: None,
+                        pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                        pad_height: Some(EmbeddedPadHeight::Standard),
+                        show_buttons: Some(true),
+                        tile_ids: Vec::new(),
+                    },
+                    MobileDeckZone {
+                        id: "pres-keys".into(),
+                        kind: DeckZoneKind::BentoGrid,
+                        columns: Some(2),
+                        pointer_mode: None,
+                        pad_height: None,
+                        show_buttons: None,
+                        tile_ids: vec![
+                            "pres.prev".into(),
+                            "pres.next".into(),
+                            "pres.esc".into(),
+                            "pres.play".into(),
+                        ],
+                    },
+                ],
+            };
+
+            apply_voice_preset_binding(&mut bindings, effective_voice);
+            (
+                "presentation-main".into(),
+                vec![ppt_page, mixed_page],
+                bindings,
+            )
+        }
+        StarterPresetId::BlankCanvas => {
+            let mut bindings = HashMap::new();
+            let canvas_page = MobileDeckPage {
+                id: "custom-canvas".into(),
+                name: "自定义面板".into(),
+                layout: PageLayout::Grid,
+                columns: 2,
+                tiles: vec![
+                    tile("custom.1", "自定义 1", "sparkles", TileAccent::Slate, 1),
+                    tile("custom.2", "自定义 2", "command", TileAccent::Slate, 1),
+                    tile("custom.3", "自定义 3", "zap", TileAccent::Slate, 1),
+                    tile("custom.4", "自定义 4", "layout", TileAccent::Slate, 1),
+                ],
+                zones: Vec::new(),
+            };
+            apply_voice_preset_binding(&mut bindings, effective_voice);
+            ("custom-canvas".into(), vec![canvas_page], bindings)
+        }
     }
 }
 
@@ -1029,6 +1836,8 @@ mod tests {
                 kind: DeckZoneKind::PointerPad,
                 columns: None,
                 pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: Vec::new(),
             },
             MobileDeckZone {
@@ -1036,6 +1845,8 @@ mod tests {
                 kind: DeckZoneKind::Dpad3x3,
                 columns: None,
                 pointer_mode: None,
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: vec![
                     "".into(),
                     "custom.t0".into(),
@@ -1053,6 +1864,8 @@ mod tests {
                 kind: DeckZoneKind::BentoGrid,
                 columns: Some(4),
                 pointer_mode: None,
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: (5..32).map(|i| format!("custom.t{i}")).collect(),
             },
         ];
@@ -1131,6 +1944,8 @@ mod tests {
                 kind: DeckZoneKind::BentoGrid,
                 columns: Some(3),
                 pointer_mode: None,
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: Vec::new(),
             })
             .collect();
@@ -1203,6 +2018,8 @@ mod tests {
                 kind: DeckZoneKind::PointerPad,
                 columns: None,
                 pointer_mode: Some(EmbeddedPointerMode::Relative),
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: Vec::new(),
             },
             MobileDeckZone {
@@ -1210,6 +2027,8 @@ mod tests {
                 kind: DeckZoneKind::BentoGrid,
                 columns: Some(3),
                 pointer_mode: None,
+                pad_height: None,
+                show_buttons: None,
                 tile_ids: vec!["custom.hold_space".into(), "custom.hold_combo".into()],
             },
         ];
@@ -1300,6 +2119,214 @@ mod tests {
         );
         assert_eq!(snap_prof_b.pages[0].tiles[1].action_summary, None);
         assert_eq!(store.resolve_hold_keys("custom.hold_combo"), None);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn gesture_pad_and_embedded_pad_options_validate_and_roundtrip_wire_json() {
+        let dir = std::env::temp_dir().join(format!("axonkey-deck-v4-gpad-{}", Uuid::new_v4()));
+        let path = dir.join("mobile-deck.json");
+        let mut store = DeckStore::load(path.clone()).unwrap();
+
+        let g_tiles = vec![
+            tile("g.up", "上滑", "arrow-up", TileAccent::Blue, 1),
+            tile("g.down", "下滑", "arrow-down", TileAccent::Slate, 1),
+            tile("g.left", "左滑", "arrow-left", TileAccent::Slate, 1),
+            tile("g.right", "右滑", "arrow-right", TileAccent::Slate, 1),
+            tile("g.tap", "轻点", "enter", TileAccent::Emerald, 1),
+            tile("g.double", "双击", "sparkles", TileAccent::Violet, 1),
+        ];
+
+        let valid_page = MobileDeckPage {
+            id: "gesture-page".into(),
+            name: "手势与触控".into(),
+            layout: PageLayout::Grid,
+            columns: 2,
+            tiles: g_tiles.clone(),
+            zones: vec![
+                MobileDeckZone {
+                    id: "ptr-compact".into(),
+                    kind: DeckZoneKind::PointerPad,
+                    columns: None,
+                    pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                    pad_height: Some(EmbeddedPadHeight::Compact),
+                    show_buttons: Some(false),
+                    tile_ids: Vec::new(),
+                },
+                MobileDeckZone {
+                    id: "gpad-main".into(),
+                    kind: DeckZoneKind::GesturePad,
+                    columns: None,
+                    pointer_mode: None,
+                    pad_height: Some(EmbeddedPadHeight::Tall),
+                    show_buttons: None,
+                    tile_ids: vec![
+                        "g.up".into(),
+                        "g.down".into(),
+                        "".into(), // empty slot allowed!
+                        "g.right".into(),
+                        "g.tap".into(),
+                        "g.double".into(),
+                    ],
+                },
+            ],
+        };
+
+        let (rev2, snap2) = store
+            .apply_layout_patch(
+                1,
+                DeckLayoutPatch {
+                    active_page_id: Some("gesture-page".into()),
+                    pages: Some(vec![valid_page.clone()]),
+                    ..Default::default()
+                },
+            )
+            .ok()
+            .expect("valid gesture-pad with <= 6 slots and empty slot should succeed");
+
+        let wire = serde_json::to_value(&snap2.pages[0].zones).unwrap();
+        assert_eq!(wire[0]["kind"], "pointer-pad");
+        assert_eq!(wire[0]["padHeight"], "compact");
+        assert_eq!(wire[0]["showButtons"], false);
+        assert_eq!(wire[1]["kind"], "gesture-pad");
+        assert_eq!(wire[1]["padHeight"], "tall");
+        assert!(wire[1].get("showButtons").is_none());
+
+        // Reject > 6 slots in gesture-pad
+        let mut seven_slots_page = valid_page.clone();
+        seven_slots_page.zones[1].tile_ids.push("g.left".into());
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![seven_slots_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        // Reject non-existent tile_id in gesture-pad
+        let mut missing_tile_page = valid_page;
+        missing_tile_page.zones[1].tile_ids[2] = "nonexistent.tile".into();
+        assert!(matches!(
+            store.apply_layout_patch(
+                rev2,
+                DeckLayoutPatch {
+                    pages: Some(vec![missing_tile_page]),
+                    ..Default::default()
+                }
+            ),
+            Err(DeckUpdateError::Invalid(_))
+        ));
+
+        let reloaded = DeckStore::load(path).unwrap();
+        assert_eq!(reloaded.snapshot(), snap2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn starter_presets_and_voice_presets_cover_all_16_combinations_and_blank_pure_mic_is_empty() {
+        use std::collections::HashSet;
+
+        let dir = std::env::temp_dir().join(format!("axonkey-deck-v4-presets-{}", Uuid::new_v4()));
+        let path = dir.join("mobile-deck.json");
+        let mut store = DeckStore::load(path.clone()).unwrap();
+
+        let all_presets = [
+            StarterPresetId::DailyRemote,
+            StarterPresetId::VibeCoding,
+            StarterPresetId::PresentationMedia,
+            StarterPresetId::BlankCanvas,
+        ];
+        let all_voices = [
+            VoicePresetKind::DoubaoAlt,
+            VoicePresetKind::SystemWinH,
+            VoicePresetKind::CtrlWin,
+            VoicePresetKind::PureMic,
+        ];
+
+        for preset in all_presets {
+            for voice in all_voices {
+                let prev_rev = store.revision();
+                let (rev, snap, bindings) = store.apply_preset(preset, Some(voice)).unwrap();
+                assert_eq!(rev, prev_rev + 1);
+                assert!(!snap.pages.is_empty());
+                assert!(snap.pages.iter().any(|p| p.id == snap.active_page_id));
+
+                match voice {
+                    VoicePresetKind::DoubaoAlt => {
+                        assert_eq!(store.resolve_voice_hold_keys(), vec!["Alt".to_owned()]);
+                        assert_eq!(snap.voice_binding_summary.as_deref(), Some("Alt"));
+                    }
+                    VoicePresetKind::SystemWinH => {
+                        assert_eq!(
+                            store.resolve_voice_hold_keys(),
+                            vec!["Win".to_owned(), "H".to_owned()]
+                        );
+                        assert_eq!(snap.voice_binding_summary.as_deref(), Some("Win+H"));
+                    }
+                    VoicePresetKind::CtrlWin => {
+                        assert_eq!(
+                            store.resolve_voice_hold_keys(),
+                            vec!["Ctrl".to_owned(), "Win".to_owned()]
+                        );
+                        assert_eq!(snap.voice_binding_summary.as_deref(), Some("Ctrl+Win"));
+                    }
+                    VoicePresetKind::PureMic => {
+                        assert!(store.resolve_voice_hold_keys().is_empty());
+                        assert_eq!(snap.voice_binding_summary, None);
+                        assert!(!bindings.contains_key(VOICE_KEY_ID));
+                    }
+                }
+
+                if preset == StarterPresetId::BlankCanvas && voice == VoicePresetKind::PureMic {
+                    assert!(
+                        bindings.is_empty(),
+                        "blank-canvas + pure-mic must have 100% empty bindings"
+                    );
+                    assert!(bindings_to_trigger_behaviors_dto(&bindings).is_empty());
+                    for t in &snap.pages[0].tiles {
+                        assert_eq!(t.action_summary, None);
+                    }
+                } else if preset != StarterPresetId::BlankCanvas {
+                    assert!(!bindings.is_empty());
+                }
+            }
+        }
+
+        // Verify default voicePreset == None on BlankCanvas defaults to PureMic (empty bindings!)
+        // and survives disk reload + idempotent Desktop profile sync without restoring Alt!
+        let (rev_blank, snap_blank, bindings_blank) = store
+            .apply_preset(StarterPresetId::BlankCanvas, None)
+            .unwrap();
+        assert!(bindings_blank.is_empty());
+        assert_eq!(snap_blank.voice_binding_summary, None);
+        assert_eq!(snap_blank.pages.len(), 1);
+        assert_eq!(snap_blank.pages[0].name, "自定义面板");
+        assert_eq!(snap_blank.pages[0].columns, 2);
+        assert_eq!(snap_blank.pages[0].tiles.len(), 4);
+
+        let prev_keys: HashSet<String> = [
+            "remote.esc".to_owned(),
+            "tile.continue".to_owned(),
+            VOICE_KEY_ID.to_owned(),
+        ]
+        .into_iter()
+        .collect();
+        let sync_res = store
+            .sync_from_managed_profile_with_previous(&HashMap::new(), &prev_keys)
+            .unwrap();
+        assert!(
+            sync_res.is_none(),
+            "Desktop syncing back empty behaviors after blank-canvas must be a clean no-op"
+        );
+        assert_eq!(store.revision(), rev_blank);
+
+        let reloaded = DeckStore::load(path).unwrap();
+        assert!(reloaded.bindings().is_empty());
+        assert_eq!(reloaded.snapshot().voice_binding_summary, None);
 
         let _ = fs::remove_dir_all(&dir);
     }

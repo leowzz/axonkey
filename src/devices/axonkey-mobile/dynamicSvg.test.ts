@@ -17,8 +17,17 @@ import {
   type MobileDeckPage,
   type MobileTile,
 } from './dynamicSvg.ts'
+import {
+  applyPresetPayloadToDeviceController,
+  convertPresetPayloadToProfileBehaviors,
+  inferActiveStarterPreset,
+  inferVoicePresetFromSummary,
+  resetSyncedPresetRevisionForTest,
+} from './presetSync.ts'
+import type { DeviceController } from '../integration/useDeviceInstances.ts'
+import { emptySnapshot, newInstance } from '../integration/model.ts'
 
-type TestFn = () => void
+type TestFn = () => void | Promise<void>
 const registeredSuites: Array<[string, TestFn]> = []
 
 function defineTest(name: string, fn: TestFn) {
@@ -352,6 +361,187 @@ defineTest(
       unsubscribe()
     } finally {
       resetRuntimeSupportPackages()
+    }
+  },
+)
+
+defineTest(
+  'gesture-pad renders 6 interactive hotzones in canonical [up, down, left, right, tap, double] order and pointer-pad respects padHeight & showButtons',
+  () => {
+    const gesturePage: MobileDeckPage = {
+      id: 'gesture-v4',
+      name: '手势与触控混排',
+      columns: 2,
+      tiles: [
+        makeTile('gp.up', '上滑', { icon: 'arrow-up', accent: 'blue', actionSummary: 'Win+Tab' }),
+        makeTile('gp.down', '下滑', { icon: 'arrow-down', actionSummary: 'Win+D' }),
+        makeTile('gp.left', '左滑', { icon: 'arrow-left', actionSummary: '上一桌面' }),
+        makeTile('gp.right', '右滑', { icon: 'arrow-right', actionSummary: '下一桌面' }),
+        makeTile('gp.tap', '轻点', { icon: 'enter', accent: 'emerald', actionSummary: '播放/暂停' }),
+        makeTile('gp.double', '双击', { icon: 'sparkles', accent: 'violet', actionSummary: '全屏' }),
+        makeTile('extra.orphan', '额外键', { icon: 'zap', accent: 'amber' }),
+      ],
+      zones: [
+        {
+          id: 'z-ptr-compact-nobtns',
+          kind: 'pointer-pad',
+          pointerMode: 'trackpad',
+          padHeight: 'compact',
+          showButtons: false,
+          tileIds: [],
+        },
+        {
+          id: 'z-gesture',
+          kind: 'gesture-pad',
+          padHeight: 'tall',
+          tileIds: ['gp.up', 'gp.down', 'gp.left', 'gp.right', 'gp.tap', 'gp.double'],
+        },
+      ],
+    }
+
+    const normalized = normalizePageZones(gesturePage)
+    assertEqual(normalized.length, 3) // pointer-pad + gesture-pad + rescued orphan bento-grid
+    assertEqual(normalized[0].kind, 'pointer-pad')
+    assertEqual(normalized[0].padHeight, 'compact')
+    assertEqual(normalized[0].showButtons, false)
+    assertEqual(normalized[1].kind, 'gesture-pad')
+    assertEqual(normalized[1].padHeight, 'tall')
+    assertDeepEqual(normalized[2].tileIds, ['extra.orphan'])
+
+    const snapshot = makeBaseSnapshot([gesturePage])
+    const svg = synthesizeMobileDescriptorSvg(snapshot)
+    assertOk(!svg.includes('>左键<'), 'showButtons=false on pointer-pad must hide Left/Right button strip')
+    assertOk(svg.includes('Win+Tab'), 'gesture-pad slot actionSummary silkscreen must render in SVG')
+
+    const pkg = buildDynamicMobileSupportPackage(snapshot)
+    assertDeepEqual(
+      pkg.inputs.map(i => i.id),
+      ['gp.up', 'gp.down', 'gp.left', 'gp.right', 'gp.tap', 'gp.double', 'extra.orphan', 'mobile.voice'],
+    )
+    assertDeepEqual(
+      pkg.remoteView?.buttons.slice(0, 6).map(b => b.short),
+      ['上滑', '下滑', '左滑', '右滑', '轻点', '双击'],
+    )
+
+    // Also verify empty slot "" in gesture-pad renders placeholder cleanly without broken inputs
+    const sparseGesturePage: MobileDeckPage = {
+      id: 'sparse-gpad',
+      name: '精简手势垫',
+      columns: 2,
+      tiles: [makeTile('gp.only_up', '切窗', { icon: 'arrow-up' }), makeTile('gp.only_tap', '确认', { icon: 'enter' })],
+      zones: [
+        {
+          id: 'z-sparse',
+          kind: 'gesture-pad',
+          tileIds: ['gp.only_up', '', '', '', 'gp.only_tap', ''],
+        },
+      ],
+    }
+    const sparsePkg = buildDynamicMobileSupportPackage(makeBaseSnapshot([sparseGesturePage]))
+    assertDeepEqual(
+      sparsePkg.inputs.map(i => i.id),
+      ['gp.only_up', 'gp.only_tap', 'mobile.voice'],
+    )
+    assertEqual(sparsePkg.inputs[0].label, '手势垫 · 上滑（切窗）')
+  },
+)
+
+defineTest(
+  'presetSync converts Rust bindings & behaviors, infers active preset/voice, and updates DeviceController idempotently',
+  async () => {
+    resetSyncedPresetRevisionForTest()
+    resetRuntimeSupportPackages()
+    try {
+      // 1. Blank canvas + pure mic -> empty behaviors {}
+      const blankBehaviors = convertPresetPayloadToProfileBehaviors({
+        bindings: {},
+        behaviors: {},
+      })
+      assertDeepEqual(blankBehaviors, {})
+
+      // 2. Bindings fallback conversion (tap, double, long, holdKeys)
+      const converted = convertPresetPayloadToProfileBehaviors({
+        bindings: {
+          'ppt.next': { tap: [{ type: 'key', enabled: true, key: 'PageDown' }] },
+          'mobile.voice': { tap: [{ type: 'shortcut', enabled: true, keys: ['Win', 'H'] }] },
+        },
+      })
+      assertEqual(converted['ppt.next']?.click[0]?.type, 'key')
+      assertEqual(converted['mobile.voice']?.click[0]?.type, 'shortcut')
+
+      // 3. Preset & voice inference
+      assertEqual(
+        inferActiveStarterPreset(
+          makeBaseSnapshot([
+            { id: 'classic-remote', name: '经典遥控器', columns: 3, tiles: [] },
+            { id: 'daily-media', name: '影音与网页', columns: 3, tiles: [] },
+          ]),
+        ),
+        'daily-remote',
+      )
+      assertEqual(
+        inferActiveStarterPreset(
+          makeBaseSnapshot([{ id: 'custom-canvas', name: '自定义面板', columns: 2, tiles: [] }]),
+        ),
+        'blank-canvas',
+      )
+      assertEqual(inferVoicePresetFromSummary('Alt'), 'doubao-alt')
+      assertEqual(inferVoicePresetFromSummary('Win+H'), 'system-win-h')
+      assertEqual(inferVoicePresetFromSummary('Ctrl+Win'), 'ctrl-win')
+      assertEqual(inferVoicePresetFromSummary(null), 'pure-mic')
+
+      // 4. Deduplicated controller sync across multiple listeners (e.g. AppController + MobileDeviceConnectionCard)
+      let currentInst = newInstance('axonkeyMobile', 'Axonkey Mobile')
+      let updateCalls = 0
+      const mockSnap = emptySnapshot()
+      mockSnap.store.instances = [currentInst]
+      const mockController = {
+        snapshot: mockSnap,
+        update: async (_id: string, fn: (inst: typeof currentInst) => typeof currentInst) => {
+          updateCalls += 1
+          currentInst = fn(currentInst)
+          mockSnap.store.instances = [currentInst]
+          return mockSnap
+        },
+      } as unknown as DeviceController
+
+      const presetSnap = makeBaseSnapshot(
+        [
+          {
+            id: 'presentation-main',
+            name: '演示与影音',
+            columns: 2,
+            tiles: [makeTile('ppt.next', '下一页', { actionSummary: 'PageDown' })],
+          },
+        ],
+        'presentation-main',
+      )
+      presetSnap.voiceBindingSummary = 'Win+H'
+
+      const payload = {
+        revision: 7,
+        snapshot: presetSnap,
+        behaviors: {
+          'ppt.next': { click: [{ type: 'key', enabled: true, key: 'PageDown' }], doubleClick: [], longPress: [] },
+          'mobile.voice': {
+            click: [{ type: 'shortcut', enabled: true, keys: ['Win', 'H'] }],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
+      }
+
+      const applied1 = await applyPresetPayloadToDeviceController(mockController, payload)
+      const applied2 = await applyPresetPayloadToDeviceController(mockController, payload)
+      assertEqual(applied1, true)
+      assertEqual(applied2, false)
+      assertEqual(updateCalls, 1)
+      const updatedBehaviors = currentInst.profiles[0].behaviors as Record<string, unknown>
+      assertOk(Boolean(updatedBehaviors['ppt.next']), 'ppt.next must be synced into active profile behaviors')
+      assertOk(!('remote.esc' in updatedBehaviors), 'old remote.esc must be replaced cleanly by preset behaviors')
+    } finally {
+      resetRuntimeSupportPackages()
+      resetSyncedPresetRevisionForTest()
     }
   },
 )

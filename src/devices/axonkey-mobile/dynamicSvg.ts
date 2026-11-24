@@ -5,8 +5,11 @@ import type { DeviceSupportPackage } from '../types.ts'
 export type TileMode = 'gesture' | 'hold'
 export type TileAccent = 'slate' | 'blue' | 'emerald' | 'amber' | 'rose' | 'violet'
 export type PageLayout = 'remote' | 'grid'
-export type DeckZoneKind = 'bento-grid' | 'dpad-3x3' | 'pointer-pad'
+export type DeckZoneKind = 'bento-grid' | 'dpad-3x3' | 'pointer-pad' | 'gesture-pad'
 export type EmbeddedPointerMode = 'trackpad' | 'relative'
+export type EmbeddedPadHeight = 'compact' | 'standard' | 'tall'
+export type StarterPresetId = 'daily-remote' | 'vibe-coding' | 'presentation-media' | 'blank-canvas'
+export type VoicePresetKind = 'doubao-alt' | 'system-win-h' | 'ctrl-win' | 'pure-mic'
 
 export interface MobileTile {
   id: string
@@ -27,6 +30,8 @@ export interface MobileDeckZone {
   kind: DeckZoneKind
   columns?: 2 | 3 | 4
   pointerMode?: EmbeddedPointerMode
+  padHeight?: EmbeddedPadHeight
+  showButtons?: boolean
   tileIds: string[]
 }
 
@@ -239,18 +244,25 @@ export function normalizePageZones(page: MobileDeckPage): MobileDeckZone[] {
     const zones: MobileDeckZone[] = page.zones.map((zone, idx) => ({
       id: zone.id?.trim() || `${page.id}-zone-${idx + 1}`,
       kind:
-        zone.kind === 'dpad-3x3' || zone.kind === 'pointer-pad' || zone.kind === 'bento-grid'
+        zone.kind === 'dpad-3x3' ||
+        zone.kind === 'pointer-pad' ||
+        zone.kind === 'gesture-pad' ||
+        zone.kind === 'bento-grid'
           ? zone.kind
           : 'bento-grid',
       ...(zone.columns !== undefined ? { columns: clampColumns(zone.columns) } : {}),
       ...(zone.pointerMode !== undefined ? { pointerMode: zone.pointerMode } : {}),
+      ...(zone.padHeight === 'compact' || zone.padHeight === 'standard' || zone.padHeight === 'tall'
+        ? { padHeight: zone.padHeight }
+        : {}),
+      ...(typeof zone.showButtons === 'boolean' ? { showButtons: zone.showButtons } : {}),
       tileIds: Array.isArray(zone.tileIds) ? zone.tileIds.map(id => (typeof id === 'string' ? id.trim() : '')) : [],
     }))
 
     const referenced = new Set<string>()
     for (const zone of zones) {
       if (zone.kind === 'pointer-pad') continue
-      const limit = zone.kind === 'dpad-3x3' ? 9 : zone.tileIds.length
+      const limit = zone.kind === 'dpad-3x3' ? 9 : zone.kind === 'gesture-pad' ? 6 : zone.tileIds.length
       for (let i = 0; i < limit && i < zone.tileIds.length; i++) {
         const id = zone.tileIds[i]
         if (id) referenced.add(id)
@@ -510,23 +522,132 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     if (zoneIdx > 0) cursorY += zoneGap
 
     if (zone.kind === 'pointer-pad') {
-      const padH = 124
+      const showButtons = zone.showButtons !== false
+      const padH = zone.padHeight === 'compact' ? 96 : zone.padHeight === 'tall' ? 164 : 124
+      const innerH = showButtons ? padH - 42 : padH - 20
+      const innerCenterY = cursorY + 10 + innerH / 2
       const padTitle = zone.pointerMode === 'relative' ? '内嵌体感空鼠区' : '内嵌触控板区'
       const padSub = zone.pointerMode === 'relative' ? '按住离合挥动 · 轻点左键' : '单指移动 · 双指滚轮 · 轻点左键'
       const cx = contentX + contentWidth / 2
       bodyFragments.push(
         `  <g class="am-pointer-pad">`,
         `    <rect x="${contentX}" y="${fmt(cursorY)}" width="${contentWidth}" height="${padH}" rx="18" fill="url(#am-pad)" stroke="#293852" stroke-width="1.25" />`,
-        `    <rect x="${contentX + 10}" y="${fmt(cursorY + 10)}" width="${contentWidth - 20}" height="${padH - 42}" rx="12" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3 3" />`,
-        `    <text x="${fmt(cx)}" y="${fmt(cursorY + 46)}" fill="#cbd5e1" font-size="12.5" font-weight="600" text-anchor="middle">${escapeXml(padTitle)}</text>`,
-        `    <text x="${fmt(cx)}" y="${fmt(cursorY + 65)}" fill="#64748b" font-size="10" text-anchor="middle">${escapeXml(padSub)}</text>`,
-        `    <line x1="${contentX + 14}" y1="${fmt(cursorY + padH - 24)}" x2="${contentX + contentWidth - 14}" y2="${fmt(cursorY + padH - 24)}" stroke="#1e293b" stroke-width="1" />`,
-        `    <line x1="${fmt(cx)}" y1="${fmt(cursorY + padH - 21)}" x2="${fmt(cx)}" y2="${fmt(cursorY + padH - 7)}" stroke="#1e293b" stroke-width="1" />`,
-        `    <text x="${fmt(contentX + contentWidth * 0.26)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">左键</text>`,
-        `    <text x="${fmt(contentX + contentWidth * 0.74)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">右键</text>`,
+        `    <rect x="${contentX + 10}" y="${fmt(cursorY + 10)}" width="${contentWidth - 20}" height="${innerH}" rx="12" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3 3" />`,
+        `    <text x="${fmt(cx)}" y="${fmt(innerCenterY - 4)}" fill="#cbd5e1" font-size="12.5" font-weight="600" text-anchor="middle">${escapeXml(padTitle)}</text>`,
+        `    <text x="${fmt(cx)}" y="${fmt(innerCenterY + 14)}" fill="#64748b" font-size="10" text-anchor="middle">${escapeXml(padSub)}</text>`,
+      )
+      if (showButtons) {
+        bodyFragments.push(
+          `    <line x1="${contentX + 14}" y1="${fmt(cursorY + padH - 24)}" x2="${contentX + contentWidth - 14}" y2="${fmt(cursorY + padH - 24)}" stroke="#1e293b" stroke-width="1" />`,
+          `    <line x1="${fmt(cx)}" y1="${fmt(cursorY + padH - 21)}" x2="${fmt(cx)}" y2="${fmt(cursorY + padH - 7)}" stroke="#1e293b" stroke-width="1" />`,
+          `    <text x="${fmt(contentX + contentWidth * 0.26)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">左键</text>`,
+          `    <text x="${fmt(contentX + contentWidth * 0.74)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">右键</text>`,
+        )
+      }
+      bodyFragments.push(`  </g>`)
+      cursorY += padH
+      return
+    }
+
+    if (zone.kind === 'gesture-pad') {
+      const wellX = 32
+      const wellW = 256
+      const rowH = zone.padHeight === 'compact' ? 40 : zone.padHeight === 'tall' ? 52 : 46
+      const rowGap = 6
+      const topPad = 26
+      const yUp = cursorY + topPad
+      const yMid = yUp + rowH + rowGap
+      const yDown = yMid + rowH + rowGap
+      const yTap = yDown + rowH + 8
+      const wellH = topPad + rowH * 4 + rowGap * 2 + 8 + 10
+      const rx = 12
+      const compassCy = yMid + rowH / 2
+
+      const slotSpecs: ReadonlyArray<{
+        slot: number
+        defaultLabel: string
+        glyph: string
+        fallbackIcon: RemoteButton['icon']
+        x: number
+        y: number
+        w: number
+        h: number
+      }> = [
+        { slot: 0, defaultLabel: '上滑', glyph: '↑', fallbackIcon: 'up', x: 84, y: yUp, w: 152, h: rowH },
+        { slot: 1, defaultLabel: '下滑', glyph: '↓', fallbackIcon: 'down', x: 84, y: yDown, w: 152, h: rowH },
+        { slot: 2, defaultLabel: '左滑', glyph: '←', fallbackIcon: 'left', x: 40, y: yMid, w: 98, h: rowH },
+        { slot: 3, defaultLabel: '右滑', glyph: '→', fallbackIcon: 'right', x: 182, y: yMid, w: 98, h: rowH },
+        { slot: 4, defaultLabel: '轻点', glyph: '●', fallbackIcon: 'locate', x: 40, y: yTap, w: 116, h: rowH },
+        { slot: 5, defaultLabel: '双击', glyph: '◎', fallbackIcon: 'center', x: 164, y: yTap, w: 116, h: rowH },
+      ]
+
+      bodyFragments.push(
+        `  <g class="am-gesture-pad">`,
+        `    <rect x="${wellX}" y="${fmt(cursorY)}" width="${wellW}" height="${fmt(wellH)}" rx="20" fill="#111725" stroke="#283753" stroke-width="1.25" />`,
+        `    <text x="160" y="${fmt(cursorY + 17)}" fill="#64748b" font-size="9.5" font-weight="600" text-anchor="middle">手势触发垫 · 点击任意手势绑定动作</text>`,
+        `    <circle cx="160" cy="${fmt(compassCy)}" r="13" fill="#0d1320" stroke="#24324c" stroke-width="1.1" />`,
+        `    <circle cx="160" cy="${fmt(compassCy)}" r="3" fill="#475569" />`,
         `  </g>`,
       )
-      cursorY += padH
+
+      for (const spec of slotSpecs) {
+        const { slot, defaultLabel, glyph, fallbackIcon, x, y, w, h } = spec
+        const cx = x + w / 2
+        const cy = y + h / 2
+        const rawId = zone.tileIds[slot]?.trim() ?? ''
+        const tile = rawId ? tileById.get(rawId) : undefined
+
+        if (!tile || renderedInputIds.has(tile.id)) {
+          bodyFragments.push(
+            `  <g class="am-gesture-slot-empty">`,
+            `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="#0f1420" stroke="#1b2436" stroke-width="1" stroke-dasharray="3 3" opacity="0.6" />`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="#475569" font-size="10.5" text-anchor="middle">${escapeXml(`${glyph} ${defaultLabel}`)}</text>`,
+            `  </g>`,
+          )
+          continue
+        }
+
+        renderedInputIds.add(tile.id)
+        const domId = sanitizeDomId(tile.id, usedDomIds)
+        const rawLabel = tile.label?.trim() || defaultLabel
+        const capTitle = `${glyph} ${rawLabel}`
+        const silkscreen = (tile.actionSummary?.trim() || tile.subtitle?.trim() || '').trim()
+        const palette = ACCENT_PALETTE[tile.accent] ?? ACCENT_PALETTE.slate
+        const fittedTitle = fitSvgText(capTitle, w - 12, 11.5)
+        const fittedSub = silkscreen ? fitSvgText(silkscreen, w - 12, 9) : ''
+
+        bodyFragments.push(`  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`)
+        bodyFragments.push(
+          `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="${palette.fill}" stroke="${palette.stroke}" stroke-width="1.25" />`,
+        )
+        if (fittedSub) {
+          bodyFragments.push(
+            `    <text x="${fmt(cx)}" y="${fmt(cy - 2)}" fill="${palette.labelFill}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 12)}" fill="${palette.subFill}" font-size="9" text-anchor="middle">${escapeXml(fittedSub)}</text>`,
+          )
+        } else {
+          bodyFragments.push(
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="${palette.labelFill}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
+          )
+        }
+        bodyFragments.push(`  </g>`)
+
+        const inputLabel =
+          rawLabel === defaultLabel ? `手势垫 · ${defaultLabel}` : `手势垫 · ${defaultLabel}（${rawLabel}）`
+        const mappedIcon = tile.icon?.trim() ? mapMobileIconToRemoteIcon(tile.icon, tile.id) : fallbackIcon
+        inputRecords.push({
+          id: tile.id,
+          domId,
+          label: inputLabel,
+          short: defaultLabel,
+          icon: mappedIcon,
+          anchorX: cx,
+          anchorY: cy,
+          regionPath: roundedRectPath(x, y, w, h, rx),
+        })
+      }
+
+      cursorY += wellH
       return
     }
 

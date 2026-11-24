@@ -82,6 +82,100 @@
   text-overflow: ellipsis;
 }
 
+.mobile-device-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mobile-device-preset-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mobile-device-section-label,
+.mobile-device-voice-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mobile-device-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+
+.mobile-device-preset-pill,
+.mobile-device-voice-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 23px;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: rgb(15 23 42 / 4%);
+  color: var(--ink-secondary, #475569);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  transition:
+    color 0.14s ease,
+    background-color 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.mobile-device-preset-pill:hover:not(:disabled),
+.mobile-device-voice-pill:hover:not(:disabled) {
+  color: var(--ink, #0f172a);
+  background: rgb(15 23 42 / 8%);
+}
+
+.mobile-device-preset-pill:focus-visible,
+.mobile-device-voice-pill:focus-visible {
+  outline: 2px solid var(--blue, #1478e8);
+  outline-offset: -1px;
+}
+
+.mobile-device-preset-pill.active,
+.mobile-device-voice-pill.active {
+  color: var(--blue, #1478e8);
+  background: var(--surface, #ffffff);
+  border-color: rgb(20 120 232 / 28%);
+  font-weight: 600;
+}
+
+.mobile-device-preset-pill:disabled,
+.mobile-device-voice-pill:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.mobile-device-voice-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mobile-device-voice-pills {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 1.25fr);
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
 .mobile-device-bar-status {
   display: flex;
   align-items: center;

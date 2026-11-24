@@ -11,7 +11,10 @@ use crate::input_service::mobile::{
 };
 use deck::{DeckStore, DeckUpdateError};
 use pairing::{PairedPeerSummary, PairingStore};
-use protocol::{DeckLayoutPatch, DeckSnapshot, PairingOfferQr, UDP_DISCOVERY_PORT};
+use protocol::{
+    DeckLayoutPatch, DeckSnapshot, PairingOfferQr, StarterPresetId, VoicePresetKind,
+    UDP_DISCOVERY_PORT,
+};
 use serde::Serialize;
 use session::{ActiveSessionInfo, MobileCoordinator};
 use std::collections::BTreeMap;
@@ -49,6 +52,15 @@ pub struct MobileDeckResponse {
     pub snapshot: DeckSnapshot,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MobilePresetAppliedPayload {
+    pub revision: u64,
+    pub snapshot: DeckSnapshot,
+    pub bindings: std::collections::HashMap<String, deck::TileActionBindings>,
+    pub behaviors: std::collections::HashMap<String, deck::DesktopTriggerBehaviorsDto>,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileDeviceInputPayload {
@@ -59,6 +71,7 @@ pub struct MobileDeviceInputPayload {
 
 pub type UiInputSink = Arc<dyn Fn(Vec<String>) + Send + Sync>;
 pub type DeckChangeSink = Arc<dyn Fn(MobileDeckResponse) + Send + Sync>;
+pub type PresetAppliedSink = Arc<dyn Fn(MobilePresetAppliedPayload) + Send + Sync>;
 
 pub struct MobileHostHandle<B: MobileInputBackend + 'static = SystemMobileBackend> {
     coordinator: Arc<Mutex<MobileCoordinator<B>>>,
@@ -66,6 +79,7 @@ pub struct MobileHostHandle<B: MobileInputBackend + 'static = SystemMobileBacken
     snapshot_provider: Arc<Mutex<Option<SnapshotProvider>>>,
     ui_sink: Arc<Mutex<Option<UiInputSink>>>,
     deck_sink: Arc<Mutex<Option<DeckChangeSink>>>,
+    preset_sink: Arc<Mutex<Option<PresetAppliedSink>>>,
     shutdown_tx: Mutex<Option<watch::Sender<bool>>>,
     _runtime: Arc<tokio::runtime::Runtime>,
 }
@@ -113,6 +127,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
 
         let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<Vec<String>>();
         let (deck_tx, mut deck_rx) = mpsc::unbounded_channel::<MobileDeckResponse>();
+        let (preset_tx, mut preset_rx) = mpsc::unbounded_channel::<MobilePresetAppliedPayload>();
         let mut coord_inner = MobileCoordinator::new(
             identity.host_id,
             identity.host_name,
@@ -123,6 +138,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         );
         coord_inner.set_ui_event_sender(ui_tx);
         coord_inner.set_deck_event_sender(deck_tx);
+        coord_inner.set_preset_event_sender(preset_tx);
         let coordinator = Arc::new(Mutex::new(coord_inner));
 
         let runtime = Arc::new(
@@ -148,6 +164,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         let snapshot_provider: Arc<Mutex<Option<SnapshotProvider>>> = Arc::new(Mutex::new(None));
         let ui_sink: Arc<Mutex<Option<UiInputSink>>> = Arc::new(Mutex::new(None));
         let deck_sink: Arc<Mutex<Option<DeckChangeSink>>> = Arc::new(Mutex::new(None));
+        let preset_sink: Arc<Mutex<Option<PresetAppliedSink>>> = Arc::new(Mutex::new(None));
 
         // Spawn UI pressed-keys forwarder (`'axonkey-device-input'`)
         let ui_sink_for_task = Arc::clone(&ui_sink);
@@ -173,6 +190,20 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
                     .clone();
                 if let Some(cb) = sink {
                     cb(resp);
+                }
+            }
+        });
+
+        // Spawn preset-applied forwarder (`'axonkey-mobile-preset-applied'`)
+        let preset_sink_for_task = Arc::clone(&preset_sink);
+        runtime.spawn(async move {
+            while let Some(payload) = preset_rx.recv().await {
+                let sink = preset_sink_for_task
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if let Some(cb) = sink {
+                    cb(payload);
                 }
             }
         });
@@ -224,6 +255,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             snapshot_provider,
             ui_sink,
             deck_sink,
+            preset_sink,
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
             _runtime: runtime,
         })
@@ -247,6 +279,11 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         let app_for_deck = app.clone();
         self.set_deck_change_sink(Arc::new(move |resp: MobileDeckResponse| {
             let _ = app_for_deck.emit("axonkey-mobile-deck-changed", resp);
+        }));
+
+        let app_for_preset = app.clone();
+        self.set_preset_applied_sink(Arc::new(move |payload: MobilePresetAppliedPayload| {
+            let _ = app_for_preset.emit("axonkey-mobile-preset-applied", payload);
         }));
 
         let app_for_emit = app;
@@ -286,6 +323,10 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
 
     pub fn set_deck_change_sink(&self, sink: DeckChangeSink) {
         *self.deck_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
+    }
+
+    pub fn set_preset_applied_sink(&self, sink: PresetAppliedSink) {
+        *self.preset_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
     }
 
     pub fn port(&self) -> u16 {
@@ -463,6 +504,19 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         Ok(MobileDeckResponse { revision, snapshot })
     }
 
+    pub fn apply_preset(
+        &self,
+        preset: StarterPresetId,
+        voice_preset: Option<VoicePresetKind>,
+    ) -> Result<MobileDeckResponse, String> {
+        let (revision, snapshot) = self
+            .coordinator
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply_preset_from_desktop(preset, voice_preset)?;
+        Ok(MobileDeckResponse { revision, snapshot })
+    }
+
     /// Syncs mappings, audio gain, & active profile name from the first-class `axonkeyMobile` managed device.
     pub fn sync_from_device_snapshot(&self, snapshot: &crate::input_service::managed::Snapshot) {
         let Some(instance) = snapshot
@@ -612,6 +666,15 @@ pub fn mobile_host_set_tile_binding(
     binding: deck::TileActionBindings,
 ) -> Result<MobileDeckResponse, String> {
     host.set_tile_binding(tile_id, binding)
+}
+
+#[tauri::command]
+pub fn mobile_host_apply_preset(
+    host: tauri::State<'_, MobileHostHandle>,
+    preset: StarterPresetId,
+    voice_preset: Option<VoicePresetKind>,
+) -> Result<MobileDeckResponse, String> {
+    host.apply_preset(preset, voice_preset)
 }
 
 #[cfg(test)]
@@ -1142,6 +1205,8 @@ mod tests {
                         kind: DeckZoneKind::PointerPad,
                         columns: None,
                         pointer_mode: Some(EmbeddedPointerMode::Trackpad),
+                        pad_height: None,
+                        show_buttons: None,
                         tile_ids: Vec::new(),
                     },
                     MobileDeckZone {
@@ -1149,6 +1214,8 @@ mod tests {
                         kind: DeckZoneKind::BentoGrid,
                         columns: Some(3),
                         pointer_mode: None,
+                        pad_height: None,
+                        show_buttons: None,
                         tile_ids: vec!["custom.shift_hold".into()],
                     },
                 ],

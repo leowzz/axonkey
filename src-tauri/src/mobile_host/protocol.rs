@@ -280,6 +280,8 @@ pub enum DeckZoneKind {
     Dpad3x3,
     #[serde(rename = "pointer-pad")]
     PointerPad,
+    #[serde(rename = "gesture-pad")]
+    GesturePad,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -287,6 +289,42 @@ pub enum DeckZoneKind {
 pub enum EmbeddedPointerMode {
     Trackpad,
     Relative,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddedPadHeight {
+    Compact,
+    Standard,
+    Tall,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemTouchpadGesture {
+    ThreeFingerUp,
+    ThreeFingerDown,
+    ThreeFingerLeft,
+    ThreeFingerRight,
+    ThreeFingerTap,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum StarterPresetId {
+    DailyRemote,
+    VibeCoding,
+    PresentationMedia,
+    BlankCanvas,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum VoicePresetKind {
+    DoubaoAlt,
+    SystemWinH,
+    CtrlWin,
+    PureMic,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -298,6 +336,10 @@ pub struct MobileDeckZone {
     pub columns: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pointer_mode: Option<EmbeddedPointerMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_height: Option<EmbeddedPadHeight>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_buttons: Option<bool>,
     #[serde(default)]
     pub tile_ids: Vec<String>,
 }
@@ -436,6 +478,14 @@ pub enum ClientMessage {
         x: f64,
         y: f64,
     },
+    #[serde(rename = "touchpad.gesture", rename_all = "camelCase")]
+    TouchpadGesture {
+        session_id: String,
+        input_epoch: u64,
+        seq: u64,
+        lease_id: u64,
+        gesture: SystemTouchpadGesture,
+    },
     #[serde(rename = "pointer.button", rename_all = "camelCase")]
     PointerButton {
         session_id: String,
@@ -496,6 +546,14 @@ pub enum ClientMessage {
         request_id: String,
         base_revision: u64,
         layout_patch: DeckLayoutPatch,
+    },
+    #[serde(rename = "deck.apply_preset", rename_all = "camelCase")]
+    DeckApplyPreset {
+        session_id: String,
+        request_id: String,
+        preset: StarterPresetId,
+        #[serde(default)]
+        voice_preset: Option<VoicePresetKind>,
     },
     #[serde(rename = "input.cancel", rename_all = "camelCase")]
     InputCancel {

@@ -1003,7 +1003,12 @@ export function InstanceWorkspace({
           )}
           {instance.kind === 'axonkeyMobile' && (
             <Suspense fallback={null}>
-              <MobileDeviceConnectionCard native={native} />
+              <MobileDeviceConnectionCard
+                native={native}
+                instanceId={instance.id}
+                controller={controller}
+                onToast={onToast}
+              />
             </Suspense>
           )}
         </aside>
