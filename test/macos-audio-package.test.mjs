@@ -8,6 +8,14 @@ test('macOS audio package is built from pinned BlackHole source', () => {
   const build = read('scripts/build-macos-audio-driver.sh')
   assert.match(build, /BLACKHOLE_TAG="v0\.7\.1"/)
   assert.match(build, /BLACKHOLE_COMMIT="e2b22aaaba4e507a097131704bf96dabc004d9cf"/)
+  assert.match(build, /GIT_TERMINAL_PROMPT=0/)
+  assert.match(build, /-c credential\.helper=/)
+  assert.match(build, /-c http\.version=HTTP\/1\.1/)
+  assert.match(
+    build,
+    /https:\/\/codeload\.github\.com\/ExistentialAudio\/BlackHole\/tar\.gz\/\$\{BLACKHOLE_COMMIT\}/,
+  )
+  assert.match(build, /git get-tar-commit-id/)
   assert.match(build, /PRODUCT_BUNDLE_IDENTIFIER="com\.hd838a\.MiRemoteV2ch"/)
   assert.doesNotMatch(build, /remote-mic-app/)
 })
