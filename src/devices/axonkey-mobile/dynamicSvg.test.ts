@@ -111,59 +111,118 @@ defineTest('packBentoTiles places 1x1, 2x1, 1x2, and 2x2 tiles using dense row-m
   )
 })
 
-defineTest('normalizePageZones handles Classic Remote, legacy grid, and orphan tile rescue', () => {
-  const classicPage: MobileDeckPage = {
-    id: 'classic-remote',
-    name: '经典遥控器',
-    layout: 'remote',
-    columns: 3,
-    tiles: [
-      makeTile('remote.esc', '退出', { icon: 'esc', accent: 'rose' }),
-      makeTile('remote.menu', '菜单', { icon: 'search', accent: 'blue' }),
-      makeTile('remote.home', '主页', { icon: 'command' }),
-      makeTile('remote.back', '返回', { icon: 'undo' }),
-      makeTile('remote.up', '上', { icon: 'arrow-up' }),
-      makeTile('remote.vol_up', '音量+', { icon: 'volume-up' }),
-      makeTile('remote.left', '左', { icon: 'arrow-left' }),
-      makeTile('remote.ok', '确认', { icon: 'enter', accent: 'blue' }),
-      makeTile('remote.right', '右', { icon: 'arrow-right' }),
-      makeTile('remote.mute', '静音', { icon: 'volume-mute' }),
-      makeTile('remote.down', '下', { icon: 'arrow-down' }),
-      makeTile('remote.vol_down', '音量-', { icon: 'volume-mute' }),
-      makeTile('remote.q1', 'Q1'),
-      makeTile('remote.q2', 'Q2'),
-      makeTile('remote.q3', 'Q3'),
-      makeTile('remote.q4', 'Q4'),
-    ],
-  }
+defineTest(
+  'normalizePageZones handles Plan B Siri Remote, legacy dpad-3x3 corner rescue, and orphan tile rescue',
+  () => {
+    const classicPage: MobileDeckPage = {
+      id: 'classic-remote',
+      name: '经典遥控器',
+      layout: 'remote',
+      columns: 3,
+      tiles: [
+        makeTile('remote.esc', '退出', { icon: 'esc', accent: 'rose' }),
+        makeTile('remote.menu', '菜单', { icon: 'search', accent: 'blue' }),
+        makeTile('remote.home', '主页', { icon: 'command' }),
+        makeTile('remote.back', '返回', { icon: 'undo' }),
+        makeTile('remote.up', '上', { icon: 'arrow-up' }),
+        makeTile('remote.vol_up', '音量+', { icon: 'volume-up' }),
+        makeTile('remote.left', '左', { icon: 'arrow-left' }),
+        makeTile('remote.ok', '确认', { icon: 'enter', accent: 'blue' }),
+        makeTile('remote.right', '右', { icon: 'arrow-right' }),
+        makeTile('remote.mute', '静音', { icon: 'volume-mute' }),
+        makeTile('remote.down', '下', { icon: 'arrow-down' }),
+        makeTile('remote.vol_down', '音量-', { icon: 'volume-down' }),
+        makeTile('remote.q1', 'Q1'),
+        makeTile('remote.q2', 'Q2'),
+        makeTile('remote.q3', 'Q3'),
+        makeTile('remote.q4', 'Q4'),
+      ],
+    }
 
-  const classicZones = normalizePageZones(classicPage)
-  assertEqual(classicZones.length, 3)
-  assertEqual(classicZones[0].kind, 'bento-grid')
-  assertEqual(classicZones[0].columns, 3)
-  assertDeepEqual(classicZones[0].tileIds, ['remote.esc', 'remote.menu', 'remote.home'])
-  assertEqual(classicZones[1].kind, 'dpad-3x3')
-  assertEqual(classicZones[1].tileIds.length, 9)
-  assertEqual(classicZones[1].tileIds[4], 'remote.ok')
-  assertEqual(classicZones[2].kind, 'bento-grid')
-  assertEqual(classicZones[2].columns, 2)
-  assertDeepEqual(classicZones[2].tileIds, ['remote.q1', 'remote.q2', 'remote.q3', 'remote.q4'])
+    const classicZones = normalizePageZones(classicPage)
+    assertEqual(classicZones.length, 4)
+    assertEqual(classicZones[0].kind, 'bento-grid')
+    assertEqual(classicZones[0].columns, 3)
+    assertDeepEqual(classicZones[0].tileIds, ['remote.esc', 'remote.menu', 'remote.home'])
+    assertEqual(classicZones[1].kind, 'dpad-3x3')
+    assertDeepEqual(classicZones[1].tileIds, [
+      '',
+      'remote.up',
+      '',
+      'remote.left',
+      'remote.ok',
+      'remote.right',
+      '',
+      'remote.down',
+      '',
+    ])
+    assertEqual(classicZones[2].kind, 'bento-grid')
+    assertEqual(classicZones[2].columns, 4)
+    assertDeepEqual(classicZones[2].tileIds, ['remote.back', 'remote.mute', 'remote.vol_down', 'remote.vol_up'])
+    assertEqual(classicZones[3].kind, 'bento-grid')
+    assertEqual(classicZones[3].columns, 2)
+    assertDeepEqual(classicZones[3].tileIds, ['remote.q1', 'remote.q2', 'remote.q3', 'remote.q4'])
 
-  // Orphan rescue when only pointer-pad is declared in zones
-  const mixedWithOrphan: MobileDeckPage = {
-    id: 'mixed-1',
-    name: '混排页',
-    columns: 4,
-    tiles: [makeTile('t1', '键1'), makeTile('t2', '键2')],
-    zones: [{ id: 'z-pad', kind: 'pointer-pad', pointerMode: 'trackpad', tileIds: [] }],
-  }
-  const rescued = normalizePageZones(mixedWithOrphan)
-  assertEqual(rescued.length, 2)
-  assertEqual(rescued[0].kind, 'pointer-pad')
-  assertEqual(rescued[1].kind, 'bento-grid')
-  assertEqual(rescued[1].columns, 4)
-  assertDeepEqual(rescued[1].tileIds, ['t1', 't2'])
-})
+    // Legacy explicit dpad-3x3 with non-empty corner slots [0, 2, 6, 8] must rescue corners right below the ring!
+    const legacyDpadPage: MobileDeckPage = {
+      id: 'legacy-dpad-corners',
+      name: '旧版九宫格',
+      columns: 3,
+      tiles: [
+        makeTile('c.tl', '返回'),
+        makeTile('c.up', '上', { icon: 'arrow-up' }),
+        makeTile('c.tr', '音量+'),
+        makeTile('c.left', '左', { icon: 'arrow-left' }),
+        makeTile('c.ok', '确定', { icon: 'enter' }),
+        makeTile('c.right', '右', { icon: 'arrow-right' }),
+        makeTile('c.bl', '静音'),
+        makeTile('c.down', '下', { icon: 'arrow-down' }),
+        makeTile('c.br', '音量-'),
+        makeTile('c.q1', '快捷1'),
+      ],
+      zones: [
+        {
+          id: 'z-ring',
+          kind: 'dpad-3x3',
+          tileIds: ['c.tl', 'c.up', 'c.tr', 'c.left', 'c.ok', 'c.right', 'c.bl', 'c.down', 'c.br'],
+        },
+        {
+          id: 'z-bottom',
+          kind: 'bento-grid',
+          columns: 2,
+          tileIds: ['c.q1'],
+        },
+      ],
+    }
+    const rescuedLegacy = normalizePageZones(legacyDpadPage)
+    assertEqual(rescuedLegacy.length, 3)
+    assertEqual(rescuedLegacy[0].kind, 'dpad-3x3')
+    assertDeepEqual(rescuedLegacy[0].tileIds, ['', 'c.up', '', 'c.left', 'c.ok', 'c.right', '', 'c.down', ''])
+    assertEqual(rescuedLegacy[1].kind, 'bento-grid')
+    assertEqual(rescuedLegacy[1].columns, 4)
+    assertDeepEqual(rescuedLegacy[1].tileIds, ['c.tl', 'c.tr', 'c.bl', 'c.br'])
+    assertDeepEqual(rescuedLegacy[2].tileIds, ['c.q1'])
+
+    const ringSvg = synthesizeMobileDescriptorSvg(makeBaseSnapshot([legacyDpadPage]))
+    assertOk(ringSvg.includes('r="88"'), 'dpad-3x3 must render outer concentric circular clickpad ring (r=88)')
+    assertOk(ringSvg.includes('r="36"'), 'dpad-3x3 must render inner circular confirm button (r=36)')
+
+    // Orphan rescue when only pointer-pad is declared in zones
+    const mixedWithOrphan: MobileDeckPage = {
+      id: 'mixed-1',
+      name: '混排页',
+      columns: 4,
+      tiles: [makeTile('t1', '键1'), makeTile('t2', '键2')],
+      zones: [{ id: 'z-pad', kind: 'pointer-pad', pointerMode: 'trackpad', tileIds: [] }],
+    }
+    const rescued = normalizePageZones(mixedWithOrphan)
+    assertEqual(rescued.length, 2)
+    assertEqual(rescued[0].kind, 'pointer-pad')
+    assertEqual(rescued[1].kind, 'bento-grid')
+    assertEqual(rescued[1].columns, 4)
+    assertDeepEqual(rescued[1].tileIds, ['t1', 't2'])
+  },
+)
 
 defineTest('XML escaping and special tile IDs pass strict parseRuntimeDescriptorSvg validation', () => {
   assertEqual(

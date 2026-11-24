@@ -27,7 +27,7 @@ export const deviceDescriptors = {
     },
     "viewBox": {
       "width": 320,
-      "height": 600
+      "height": 598
     },
     "inputs": [
       {
@@ -40,10 +40,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 1,
-        "path": "M 46 48 H 102 A 12 12 0 0 1 114 60 V 82 A 12 12 0 0 1 102 94 H 46 A 12 12 0 0 1 34 82 V 60 A 12 12 0 0 1 46 48 Z",
+        "path": "M 46 44 H 100.67 A 12 12 0 0 1 112.67 56 V 78 A 12 12 0 0 1 100.67 90 H 46 A 12 12 0 0 1 34 78 V 56 A 12 12 0 0 1 46 44 Z",
         "anchor": {
-          "x": 74,
-          "y": 71
+          "x": 73.33,
+          "y": 67
         }
       },
       {
@@ -56,10 +56,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 2,
-        "path": "M 132 48 H 188 A 12 12 0 0 1 200 60 V 82 A 12 12 0 0 1 188 94 H 132 A 12 12 0 0 1 120 82 V 60 A 12 12 0 0 1 132 48 Z",
+        "path": "M 132.67 44 H 187.33 A 12 12 0 0 1 199.33 56 V 78 A 12 12 0 0 1 187.33 90 H 132.67 A 12 12 0 0 1 120.67 78 V 56 A 12 12 0 0 1 132.67 44 Z",
         "anchor": {
           "x": 160,
-          "y": 71
+          "y": 67
         }
       },
       {
@@ -72,26 +72,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 3,
-        "path": "M 218 48 H 274 A 12 12 0 0 1 286 60 V 82 A 12 12 0 0 1 274 94 H 218 A 12 12 0 0 1 206 82 V 60 A 12 12 0 0 1 218 48 Z",
+        "path": "M 219.33 44 H 274 A 12 12 0 0 1 286 56 V 78 A 12 12 0 0 1 274 90 H 219.33 A 12 12 0 0 1 207.33 78 V 56 A 12 12 0 0 1 219.33 44 Z",
         "anchor": {
-          "x": 246,
-          "y": 71
-        }
-      },
-      {
-        "id": "remote.back",
-        "stableId": "remote.back",
-        "label": "返回",
-        "short": "返回",
-        "icon": "back",
-        "kind": "button",
-        "threshold": 0.55,
-        "releaseThreshold": 0.35,
-        "order": 4,
-        "path": "M 54 114 H 102 A 14 14 0 0 1 116 128 V 176 A 14 14 0 0 1 102 190 H 54 A 14 14 0 0 1 40 176 V 128 A 14 14 0 0 1 54 114 Z",
-        "anchor": {
-          "x": 78,
-          "y": 152
+          "x": 246.67,
+          "y": 67
         }
       },
       {
@@ -103,27 +87,11 @@ export const deviceDescriptors = {
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
-        "order": 5,
-        "path": "M 136 114 H 184 A 14 14 0 0 1 198 128 V 176 A 14 14 0 0 1 184 190 H 136 A 14 14 0 0 1 122 176 V 128 A 14 14 0 0 1 136 114 Z",
+        "order": 4,
+        "path": "M 104.23 135.87 A 85 85 0 0 1 215.77 135.87 L 187.55 168.3 A 42 42 0 0 0 132.45 168.3 Z",
         "anchor": {
           "x": 160,
-          "y": 152
-        }
-      },
-      {
-        "id": "remote.vol_up",
-        "stableId": "remote.vol_up",
-        "label": "音量加",
-        "short": "音量+",
-        "icon": "volumeUp",
-        "kind": "button",
-        "threshold": 0.55,
-        "releaseThreshold": 0.35,
-        "order": 6,
-        "path": "M 218 114 H 266 A 14 14 0 0 1 280 128 V 176 A 14 14 0 0 1 266 190 H 218 A 14 14 0 0 1 204 176 V 128 A 14 14 0 0 1 218 114 Z",
-        "anchor": {
-          "x": 242,
-          "y": 152
+          "y": 136.5
         }
       },
       {
@@ -135,11 +103,11 @@ export const deviceDescriptors = {
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
-        "order": 7,
-        "path": "M 54 196 H 102 A 14 14 0 0 1 116 210 V 258 A 14 14 0 0 1 102 272 H 54 A 14 14 0 0 1 40 258 V 210 A 14 14 0 0 1 54 196 Z",
+        "order": 5,
+        "path": "M 95.85 255.77 A 85 85 0 0 1 95.85 144.23 L 128.3 172.45 A 42 42 0 0 0 128.3 227.55 Z",
         "anchor": {
-          "x": 78,
-          "y": 234
+          "x": 96.5,
+          "y": 200
         }
       },
       {
@@ -151,11 +119,11 @@ export const deviceDescriptors = {
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
-        "order": 8,
-        "path": "M 136 196 H 184 A 14 14 0 0 1 198 210 V 258 A 14 14 0 0 1 184 272 H 136 A 14 14 0 0 1 122 258 V 210 A 14 14 0 0 1 136 196 Z",
+        "order": 6,
+        "path": "M 124 200 A 36 36 0 1 1 196 200 A 36 36 0 1 1 124 200 Z",
         "anchor": {
           "x": 160,
-          "y": 234
+          "y": 200
         }
       },
       {
@@ -167,11 +135,43 @@ export const deviceDescriptors = {
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
-        "order": 9,
-        "path": "M 218 196 H 266 A 14 14 0 0 1 280 210 V 258 A 14 14 0 0 1 266 272 H 218 A 14 14 0 0 1 204 258 V 210 A 14 14 0 0 1 218 196 Z",
+        "order": 7,
+        "path": "M 224.15 144.23 A 85 85 0 0 1 224.15 255.77 L 191.7 227.55 A 42 42 0 0 0 191.7 172.45 Z",
         "anchor": {
-          "x": 242,
-          "y": 234
+          "x": 223.5,
+          "y": 200
+        }
+      },
+      {
+        "id": "remote.down",
+        "stableId": "remote.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 215.77 264.13 A 85 85 0 0 1 104.23 264.13 L 132.45 231.7 A 42 42 0 0 0 187.55 231.7 Z",
+        "anchor": {
+          "x": 160,
+          "y": 263.5
+        }
+      },
+      {
+        "id": "remote.back",
+        "stableId": "remote.back",
+        "label": "返回",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 46 310 H 79 A 12 12 0 0 1 91 322 V 344 A 12 12 0 0 1 79 356 H 46 A 12 12 0 0 1 34 344 V 322 A 12 12 0 0 1 46 310 Z",
+        "anchor": {
+          "x": 62.5,
+          "y": 333
         }
       },
       {
@@ -184,26 +184,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 10,
-        "path": "M 54 278 H 102 A 14 14 0 0 1 116 292 V 340 A 14 14 0 0 1 102 354 H 54 A 14 14 0 0 1 40 340 V 292 A 14 14 0 0 1 54 278 Z",
+        "path": "M 111 310 H 144 A 12 12 0 0 1 156 322 V 344 A 12 12 0 0 1 144 356 H 111 A 12 12 0 0 1 99 344 V 322 A 12 12 0 0 1 111 310 Z",
         "anchor": {
-          "x": 78,
-          "y": 316
-        }
-      },
-      {
-        "id": "remote.down",
-        "stableId": "remote.down",
-        "label": "方向下",
-        "short": "下",
-        "icon": "down",
-        "kind": "button",
-        "threshold": 0.55,
-        "releaseThreshold": 0.35,
-        "order": 11,
-        "path": "M 136 278 H 184 A 14 14 0 0 1 198 292 V 340 A 14 14 0 0 1 184 354 H 136 A 14 14 0 0 1 122 340 V 292 A 14 14 0 0 1 136 278 Z",
-        "anchor": {
-          "x": 160,
-          "y": 316
+          "x": 127.5,
+          "y": 333
         }
       },
       {
@@ -215,11 +199,27 @@ export const deviceDescriptors = {
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,
-        "order": 12,
-        "path": "M 218 278 H 266 A 14 14 0 0 1 280 292 V 340 A 14 14 0 0 1 266 354 H 218 A 14 14 0 0 1 204 340 V 292 A 14 14 0 0 1 218 278 Z",
+        "order": 11,
+        "path": "M 176 310 H 209 A 12 12 0 0 1 221 322 V 344 A 12 12 0 0 1 209 356 H 176 A 12 12 0 0 1 164 344 V 322 A 12 12 0 0 1 176 310 Z",
         "anchor": {
-          "x": 242,
-          "y": 316
+          "x": 192.5,
+          "y": 333
+        }
+      },
+      {
+        "id": "remote.vol_up",
+        "stableId": "remote.vol_up",
+        "label": "音量加",
+        "short": "音量+",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 241 310 H 274 A 12 12 0 0 1 286 322 V 344 A 12 12 0 0 1 274 356 H 241 A 12 12 0 0 1 229 344 V 322 A 12 12 0 0 1 241 310 Z",
+        "anchor": {
+          "x": 257.5,
+          "y": 333
         }
       },
       {
@@ -232,10 +232,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 13,
-        "path": "M 47 374 H 143 A 13 13 0 0 1 156 387 V 415 A 13 13 0 0 1 143 428 H 47 A 13 13 0 0 1 34 415 V 387 A 13 13 0 0 1 47 374 Z",
+        "path": "M 48 368 H 142 A 14 14 0 0 1 156 382 V 408 A 14 14 0 0 1 142 422 H 48 A 14 14 0 0 1 34 408 V 382 A 14 14 0 0 1 48 368 Z",
         "anchor": {
           "x": 95,
-          "y": 401
+          "y": 395
         }
       },
       {
@@ -248,10 +248,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 14,
-        "path": "M 177 374 H 273 A 13 13 0 0 1 286 387 V 415 A 13 13 0 0 1 273 428 H 177 A 13 13 0 0 1 164 415 V 387 A 13 13 0 0 1 177 374 Z",
+        "path": "M 178 368 H 272 A 14 14 0 0 1 286 382 V 408 A 14 14 0 0 1 272 422 H 178 A 14 14 0 0 1 164 408 V 382 A 14 14 0 0 1 178 368 Z",
         "anchor": {
           "x": 225,
-          "y": 401
+          "y": 395
         }
       },
       {
@@ -264,10 +264,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 15,
-        "path": "M 47 436 H 143 A 13 13 0 0 1 156 449 V 477 A 13 13 0 0 1 143 490 H 47 A 13 13 0 0 1 34 477 V 449 A 13 13 0 0 1 47 436 Z",
+        "path": "M 48 430 H 142 A 14 14 0 0 1 156 444 V 470 A 14 14 0 0 1 142 484 H 48 A 14 14 0 0 1 34 470 V 444 A 14 14 0 0 1 48 430 Z",
         "anchor": {
           "x": 95,
-          "y": 463
+          "y": 457
         }
       },
       {
@@ -280,10 +280,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 16,
-        "path": "M 177 436 H 273 A 13 13 0 0 1 286 449 V 477 A 13 13 0 0 1 273 490 H 177 A 13 13 0 0 1 164 477 V 449 A 13 13 0 0 1 177 436 Z",
+        "path": "M 178 430 H 272 A 14 14 0 0 1 286 444 V 470 A 14 14 0 0 1 272 484 H 178 A 14 14 0 0 1 164 470 V 444 A 14 14 0 0 1 178 430 Z",
         "anchor": {
           "x": 225,
-          "y": 463
+          "y": 457
         }
       },
       {
@@ -296,10 +296,10 @@ export const deviceDescriptors = {
         "threshold": 0.55,
         "releaseThreshold": 0.35,
         "order": 17,
-        "path": "M 49 504 H 271 A 15 15 0 0 1 286 519 V 543 A 15 15 0 0 1 271 558 H 49 A 15 15 0 0 1 34 543 V 519 A 15 15 0 0 1 49 504 Z",
+        "path": "M 49 498 H 271 A 15 15 0 0 1 286 513 V 533 A 15 15 0 0 1 271 548 H 49 A 15 15 0 0 1 34 533 V 513 A 15 15 0 0 1 49 498 Z",
         "anchor": {
           "x": 160,
-          "y": 531
+          "y": 523
         }
       }
     ]

@@ -73,65 +73,31 @@ export interface PackedBentoGrid {
 const VOICE_KEY_ID = 'mobile.voice'
 
 const CLASSIC_TOP_IDS = ['remote.esc', 'remote.menu', 'remote.home'] as const
-const CLASSIC_DPAD_SLOTS = [
-  'remote.back',
+const CLASSIC_RING_SLOTS = [
+  '',
   'remote.up',
-  'remote.vol_up',
+  '',
   'remote.left',
   'remote.ok',
   'remote.right',
-  'remote.mute',
+  '',
   'remote.down',
-  'remote.vol_down',
+  '',
 ] as const
+const CLASSIC_MEDIA_IDS = ['remote.back', 'remote.mute', 'remote.vol_down', 'remote.vol_up'] as const
+const DPAD_CORNER_INDICES = [0, 2, 6, 8] as const
+const DPAD_CARDINAL_INDICES = [1, 3, 4, 5, 7] as const
 
-const ACCENT_PALETTE: Record<
-  TileAccent,
-  { fill: string; stroke: string; labelFill: string; subFill: string; badgeBg: string }
-> = {
-  slate: {
-    fill: '#182030',
-    stroke: '#2e3c56',
-    labelFill: '#e2e8f0',
-    subFill: '#94a3b8',
-    badgeBg: '#253147',
-  },
-  blue: {
-    fill: '#15233b',
-    stroke: '#2d4e82',
-    labelFill: '#bfdbfe',
-    subFill: '#60a5fa',
-    badgeBg: '#1e3559',
-  },
-  emerald: {
-    fill: '#112721',
-    stroke: '#235949',
-    labelFill: '#a7f3d0',
-    subFill: '#34d399',
-    badgeBg: '#193b32',
-  },
-  amber: {
-    fill: '#261e13',
-    stroke: '#594322',
-    labelFill: '#fde68a',
-    subFill: '#fbbf24',
-    badgeBg: '#382c1a',
-  },
-  rose: {
-    fill: '#28161e',
-    stroke: '#5e2b3d',
-    labelFill: '#fecdd3',
-    subFill: '#fb7185',
-    badgeBg: '#3b202c',
-  },
-  violet: {
-    fill: '#1e1732',
-    stroke: '#463375',
-    labelFill: '#ddd6fe',
-    subFill: '#a78bfa',
-    badgeBg: '#2d224a',
-  },
-}
+// Plan B Monolithic Machined Space-Gray Keycap Tokens (Zero Rainbow Soup)
+const KEYCAP_FILL = '#1f2025'
+const KEYCAP_ELEVATED_FILL = '#272930'
+const KEYCAP_STROKE = '#2e3038'
+const KEYCAP_ELEVATED_STROKE = '#3a3d47'
+const WELL_FILL = '#191a1f'
+const WELL_STROKE = '#25272e'
+const INK_PRIMARY = '#f2f2f7'
+const INK_SECONDARY = '#8e8e93'
+const INK_MUTED = '#58585e'
 
 function clampColumns(columns?: number): 2 | 3 | 4 {
   if (columns === 2 || columns === 3 || columns === 4) return columns
@@ -241,23 +207,72 @@ export function normalizePageZones(page: MobileDeckPage): MobileDeckZone[] {
   const defaultCols = clampColumns(page.columns)
 
   if (page.zones && page.zones.length > 0) {
-    const zones: MobileDeckZone[] = page.zones.map((zone, idx) => ({
-      id: zone.id?.trim() || `${page.id}-zone-${idx + 1}`,
-      kind:
+    const zones: MobileDeckZone[] = []
+
+    page.zones.forEach((zone, idx) => {
+      const zoneId = zone.id?.trim() || `${page.id}-zone-${idx + 1}`
+      const kind: DeckZoneKind =
         zone.kind === 'dpad-3x3' ||
         zone.kind === 'pointer-pad' ||
         zone.kind === 'gesture-pad' ||
         zone.kind === 'bento-grid'
           ? zone.kind
-          : 'bento-grid',
-      ...(zone.columns !== undefined ? { columns: clampColumns(zone.columns) } : {}),
-      ...(zone.pointerMode !== undefined ? { pointerMode: zone.pointerMode } : {}),
-      ...(zone.padHeight === 'compact' || zone.padHeight === 'standard' || zone.padHeight === 'tall'
-        ? { padHeight: zone.padHeight }
-        : {}),
-      ...(typeof zone.showButtons === 'boolean' ? { showButtons: zone.showButtons } : {}),
-      tileIds: Array.isArray(zone.tileIds) ? zone.tileIds.map(id => (typeof id === 'string' ? id.trim() : '')) : [],
-    }))
+          : 'bento-grid'
+      const rawTileIds = Array.isArray(zone.tileIds)
+        ? zone.tileIds.map(id => (typeof id === 'string' ? id.trim() : ''))
+        : []
+
+      if (kind === 'dpad-3x3') {
+        const ringSlots = [
+          '',
+          rawTileIds[1] ?? '',
+          '',
+          rawTileIds[3] ?? '',
+          rawTileIds[4] ?? '',
+          rawTileIds[5] ?? '',
+          '',
+          rawTileIds[7] ?? '',
+          '',
+        ]
+        const inRing = new Set(ringSlots.filter(Boolean))
+        const rescuedCorners: string[] = []
+        for (const cornerIdx of DPAD_CORNER_INDICES) {
+          const cid = rawTileIds[cornerIdx] ?? ''
+          if (cid && tileIdSet.has(cid) && !inRing.has(cid) && !rescuedCorners.includes(cid)) {
+            rescuedCorners.push(cid)
+          }
+        }
+
+        zones.push({
+          id: zoneId,
+          kind: 'dpad-3x3',
+          tileIds: ringSlots,
+        })
+
+        if (rescuedCorners.length > 0) {
+          const cornerCols = rescuedCorners.length === 4 ? 4 : rescuedCorners.length === 3 ? 3 : 2
+          zones.push({
+            id: `${zoneId}-corners`,
+            kind: 'bento-grid',
+            columns: cornerCols,
+            tileIds: rescuedCorners,
+          })
+        }
+        return
+      }
+
+      zones.push({
+        id: zoneId,
+        kind,
+        ...(zone.columns !== undefined ? { columns: clampColumns(zone.columns) } : {}),
+        ...(zone.pointerMode !== undefined ? { pointerMode: zone.pointerMode } : {}),
+        ...(zone.padHeight === 'compact' || zone.padHeight === 'standard' || zone.padHeight === 'tall'
+          ? { padHeight: zone.padHeight }
+          : {}),
+        ...(typeof zone.showButtons === 'boolean' ? { showButtons: zone.showButtons } : {}),
+        tileIds: rawTileIds,
+      })
+    })
 
     const referenced = new Set<string>()
     for (const zone of zones) {
@@ -298,9 +313,10 @@ export function normalizePageZones(page: MobileDeckPage): MobileDeckZone[] {
 
   if (page.layout === 'remote' || page.id === 'classic-remote') {
     const topIds = CLASSIC_TOP_IDS.filter(id => tileIdSet.has(id))
-    const hasDpadTiles = CLASSIC_DPAD_SLOTS.some(id => tileIdSet.has(id))
-    const dpadSlots = CLASSIC_DPAD_SLOTS.map(id => (tileIdSet.has(id) ? id : ''))
-    const used = new Set<string>([...topIds, ...dpadSlots.filter(Boolean)])
+    const ringSlots = CLASSIC_RING_SLOTS.map(id => (id && tileIdSet.has(id) ? id : ''))
+    const hasRingTiles = ringSlots.some(Boolean)
+    const mediaIds = CLASSIC_MEDIA_IDS.filter(id => tileIdSet.has(id))
+    const used = new Set<string>([...topIds, ...ringSlots.filter(Boolean), ...mediaIds])
     const remaining = validTileIds.filter(id => !used.has(id))
 
     const synthesized: MobileDeckZone[] = []
@@ -312,11 +328,19 @@ export function normalizePageZones(page: MobileDeckPage): MobileDeckZone[] {
         tileIds: [...topIds],
       })
     }
-    if (hasDpadTiles) {
+    if (hasRingTiles) {
       synthesized.push({
         id: `${page.id}-dpad`,
         kind: 'dpad-3x3',
-        tileIds: dpadSlots,
+        tileIds: ringSlots,
+      })
+    }
+    if (mediaIds.length > 0) {
+      synthesized.push({
+        id: `${page.id}-media`,
+        kind: 'bento-grid',
+        columns: mediaIds.length === 4 ? 4 : mediaIds.length === 3 ? 3 : 2,
+        tileIds: [...mediaIds],
       })
     }
     if (remaining.length > 0) {
@@ -404,6 +428,33 @@ function fmt(value: number): string {
 function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
   const rx = Math.max(0, Math.min(r, w / 2, h / 2))
   return `M ${fmt(x + rx)} ${fmt(y)} H ${fmt(x + w - rx)} A ${fmt(rx)} ${fmt(rx)} 0 0 1 ${fmt(x + w)} ${fmt(y + rx)} V ${fmt(y + h - rx)} A ${fmt(rx)} ${fmt(rx)} 0 0 1 ${fmt(x + w - rx)} ${fmt(y + h)} H ${fmt(x + rx)} A ${fmt(rx)} ${fmt(rx)} 0 0 1 ${fmt(x)} ${fmt(y + h - rx)} V ${fmt(y + rx)} A ${fmt(rx)} ${fmt(rx)} 0 0 1 ${fmt(x + rx)} ${fmt(y)} Z`
+}
+
+function circlePath(cx: number, cy: number, r: number): string {
+  return `M ${fmt(cx - r)} ${fmt(cy)} A ${fmt(r)} ${fmt(r)} 0 1 1 ${fmt(cx + r)} ${fmt(cy)} A ${fmt(r)} ${fmt(r)} 0 1 1 ${fmt(cx - r)} ${fmt(cy)} Z`
+}
+
+function annularSectorPath(
+  cx: number,
+  cy: number,
+  rInner: number,
+  rOuter: number,
+  startDeg: number,
+  endDeg: number,
+): string {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const a1 = toRad(startDeg)
+  const a2 = toRad(endDeg)
+  const x1Out = cx + rOuter * Math.cos(a1)
+  const y1Out = cy + rOuter * Math.sin(a1)
+  const x2Out = cx + rOuter * Math.cos(a2)
+  const y2Out = cy + rOuter * Math.sin(a2)
+  const x2In = cx + rInner * Math.cos(a2)
+  const y2In = cy + rInner * Math.sin(a2)
+  const x1In = cx + rInner * Math.cos(a1)
+  const y1In = cy + rInner * Math.sin(a1)
+  const largeArc = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
+  return `M ${fmt(x1Out)} ${fmt(y1Out)} A ${fmt(rOuter)} ${fmt(rOuter)} 0 ${largeArc} 1 ${fmt(x2Out)} ${fmt(y2Out)} L ${fmt(x2In)} ${fmt(y2In)} A ${fmt(rInner)} ${fmt(rInner)} 0 ${largeArc} 0 ${fmt(x1In)} ${fmt(y1In)} Z`
 }
 
 function sanitizeDomId(rawId: string, usedIds: Set<string>): string {
@@ -512,11 +563,9 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
   const contentX = 34
   const contentWidth = 252
   const zoneGap = 12
-  let cursorY = 52
+  let cursorY = 50
 
-  const isClassicRemote =
-    (selectedPage.layout === 'remote' || selectedPage.id === 'classic-remote') &&
-    (!selectedPage.zones || selectedPage.zones.length === 0)
+  const isClassicRemote = selectedPage.layout === 'remote' || selectedPage.id === 'classic-remote'
 
   zones.forEach((zone, zoneIdx) => {
     if (zoneIdx > 0) cursorY += zoneGap
@@ -524,24 +573,29 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     if (zone.kind === 'pointer-pad') {
       const showButtons = zone.showButtons !== false
       const padH = zone.padHeight === 'compact' ? 96 : zone.padHeight === 'tall' ? 164 : 124
-      const innerH = showButtons ? padH - 42 : padH - 20
-      const innerCenterY = cursorY + 10 + innerH / 2
-      const padTitle = zone.pointerMode === 'relative' ? '内嵌体感空鼠区' : '内嵌触控板区'
-      const padSub = zone.pointerMode === 'relative' ? '按住离合挥动 · 轻点左键' : '单指移动 · 双指滚轮 · 轻点左键'
+      const innerH = showButtons ? padH - 36 : padH - 16
+      const innerCenterY = cursorY + 8 + innerH / 2
       const cx = contentX + contentWidth / 2
       bodyFragments.push(
         `  <g class="am-pointer-pad">`,
-        `    <rect x="${contentX}" y="${fmt(cursorY)}" width="${contentWidth}" height="${padH}" rx="18" fill="url(#am-pad)" stroke="#293852" stroke-width="1.25" />`,
-        `    <rect x="${contentX + 10}" y="${fmt(cursorY + 10)}" width="${contentWidth - 20}" height="${innerH}" rx="12" fill="none" stroke="#1e293b" stroke-width="1" stroke-dasharray="3 3" />`,
-        `    <text x="${fmt(cx)}" y="${fmt(innerCenterY - 4)}" fill="#cbd5e1" font-size="12.5" font-weight="600" text-anchor="middle">${escapeXml(padTitle)}</text>`,
-        `    <text x="${fmt(cx)}" y="${fmt(innerCenterY + 14)}" fill="#64748b" font-size="10" text-anchor="middle">${escapeXml(padSub)}</text>`,
+        `    <rect x="${contentX}" y="${fmt(cursorY)}" width="${contentWidth}" height="${padH}" rx="18" fill="${WELL_FILL}" stroke="${WELL_STROKE}" stroke-width="1.2" />`,
       )
+      if (zone.pointerMode === 'relative') {
+        bodyFragments.push(
+          `    <text x="${fmt(cx)}" y="${fmt(innerCenterY + 4)}" fill="${INK_SECONDARY}" font-size="11.5" font-weight="500" text-anchor="middle">按住移鼠</text>`,
+        )
+      } else {
+        bodyFragments.push(
+          `    <line x1="${fmt(cx - 8)}" y1="${fmt(innerCenterY)}" x2="${fmt(cx + 8)}" y2="${fmt(innerCenterY)}" stroke="${INK_MUTED}" stroke-width="1.2" opacity="0.45" />`,
+          `    <line x1="${fmt(cx)}" y1="${fmt(innerCenterY - 8)}" x2="${fmt(cx)}" y2="${fmt(innerCenterY + 8)}" stroke="${INK_MUTED}" stroke-width="1.2" opacity="0.45" />`,
+        )
+      }
       if (showButtons) {
         bodyFragments.push(
-          `    <line x1="${contentX + 14}" y1="${fmt(cursorY + padH - 24)}" x2="${contentX + contentWidth - 14}" y2="${fmt(cursorY + padH - 24)}" stroke="#1e293b" stroke-width="1" />`,
-          `    <line x1="${fmt(cx)}" y1="${fmt(cursorY + padH - 21)}" x2="${fmt(cx)}" y2="${fmt(cursorY + padH - 7)}" stroke="#1e293b" stroke-width="1" />`,
-          `    <text x="${fmt(contentX + contentWidth * 0.26)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">左键</text>`,
-          `    <text x="${fmt(contentX + contentWidth * 0.74)}" y="${fmt(cursorY + padH - 10)}" fill="#64748b" font-size="9.5" text-anchor="middle">右键</text>`,
+          `    <line x1="${contentX + 14}" y1="${fmt(cursorY + padH - 24)}" x2="${contentX + contentWidth - 14}" y2="${fmt(cursorY + padH - 24)}" stroke="${WELL_STROKE}" stroke-width="1" />`,
+          `    <line x1="${fmt(cx)}" y1="${fmt(cursorY + padH - 21)}" x2="${fmt(cx)}" y2="${fmt(cursorY + padH - 7)}" stroke="${WELL_STROKE}" stroke-width="1" />`,
+          `    <text x="${fmt(contentX + contentWidth * 0.26)}" y="${fmt(cursorY + padH - 10)}" fill="${INK_SECONDARY}" font-size="9.5" text-anchor="middle">左键</text>`,
+          `    <text x="${fmt(contentX + contentWidth * 0.74)}" y="${fmt(cursorY + padH - 10)}" fill="${INK_SECONDARY}" font-size="9.5" text-anchor="middle">右键</text>`,
         )
       }
       bodyFragments.push(`  </g>`)
@@ -554,7 +608,7 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
       const wellW = 256
       const rowH = zone.padHeight === 'compact' ? 40 : zone.padHeight === 'tall' ? 52 : 46
       const rowGap = 6
-      const topPad = 26
+      const topPad = 24
       const yUp = cursorY + topPad
       const yMid = yUp + rowH + rowGap
       const yDown = yMid + rowH + rowGap
@@ -583,10 +637,10 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
 
       bodyFragments.push(
         `  <g class="am-gesture-pad">`,
-        `    <rect x="${wellX}" y="${fmt(cursorY)}" width="${wellW}" height="${fmt(wellH)}" rx="20" fill="#111725" stroke="#283753" stroke-width="1.25" />`,
-        `    <text x="160" y="${fmt(cursorY + 17)}" fill="#64748b" font-size="9.5" font-weight="600" text-anchor="middle">手势触发垫 · 点击任意手势绑定动作</text>`,
-        `    <circle cx="160" cy="${fmt(compassCy)}" r="13" fill="#0d1320" stroke="#24324c" stroke-width="1.1" />`,
-        `    <circle cx="160" cy="${fmt(compassCy)}" r="3" fill="#475569" />`,
+        `    <rect x="${wellX}" y="${fmt(cursorY)}" width="${wellW}" height="${fmt(wellH)}" rx="20" fill="${WELL_FILL}" stroke="${WELL_STROKE}" stroke-width="1.2" />`,
+        `    <text x="160" y="${fmt(cursorY + 16)}" fill="${INK_SECONDARY}" font-size="9.5" font-weight="500" text-anchor="middle">手势垫</text>`,
+        `    <circle cx="160" cy="${fmt(compassCy)}" r="12" fill="#141518" stroke="${KEYCAP_STROKE}" stroke-width="1" />`,
+        `    <circle cx="160" cy="${fmt(compassCy)}" r="2.5" fill="${INK_MUTED}" />`,
         `  </g>`,
       )
 
@@ -600,8 +654,8 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
         if (!tile || renderedInputIds.has(tile.id)) {
           bodyFragments.push(
             `  <g class="am-gesture-slot-empty">`,
-            `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="#0f1420" stroke="#1b2436" stroke-width="1" stroke-dasharray="3 3" opacity="0.6" />`,
-            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="#475569" font-size="10.5" text-anchor="middle">${escapeXml(`${glyph} ${defaultLabel}`)}</text>`,
+            `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="#16171b" stroke="${WELL_STROKE}" stroke-width="1" stroke-dasharray="3 3" opacity="0.65" />`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="${INK_MUTED}" font-size="10.5" text-anchor="middle">${escapeXml(`${glyph} ${defaultLabel}`)}</text>`,
             `  </g>`,
           )
           continue
@@ -612,22 +666,21 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
         const rawLabel = tile.label?.trim() || defaultLabel
         const capTitle = `${glyph} ${rawLabel}`
         const silkscreen = (tile.actionSummary?.trim() || tile.subtitle?.trim() || '').trim()
-        const palette = ACCENT_PALETTE[tile.accent] ?? ACCENT_PALETTE.slate
         const fittedTitle = fitSvgText(capTitle, w - 12, 11.5)
         const fittedSub = silkscreen ? fitSvgText(silkscreen, w - 12, 9) : ''
 
         bodyFragments.push(`  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`)
         bodyFragments.push(
-          `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="${palette.fill}" stroke="${palette.stroke}" stroke-width="1.25" />`,
+          `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="${KEYCAP_FILL}" stroke="${KEYCAP_STROKE}" stroke-width="1.15" />`,
         )
         if (fittedSub) {
           bodyFragments.push(
-            `    <text x="${fmt(cx)}" y="${fmt(cy - 2)}" fill="${palette.labelFill}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
-            `    <text x="${fmt(cx)}" y="${fmt(cy + 12)}" fill="${palette.subFill}" font-size="9" text-anchor="middle">${escapeXml(fittedSub)}</text>`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy - 2)}" fill="${INK_PRIMARY}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 12)}" fill="${INK_SECONDARY}" font-size="9" text-anchor="middle">${escapeXml(fittedSub)}</text>`,
           )
         } else {
           bodyFragments.push(
-            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="${palette.labelFill}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
+            `    <text x="${fmt(cx)}" y="${fmt(cy + 4)}" fill="${INK_PRIMARY}" font-size="11.5" font-weight="600" text-anchor="middle">${escapeXml(fittedTitle)}</text>`,
           )
         }
         bodyFragments.push(`  </g>`)
@@ -652,31 +705,87 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     }
 
     if (zone.kind === 'dpad-3x3') {
-      const wellX = 32
-      const wellW = 256
-      const wellH = 256
-      const padStart = 40
-      const cell = 76
-      const gap = 6
-      const rx = 14
+      // Plan B Concentric Circular Tactile Clickpad Ring (触控圆盘)
+      const ringBlockH = 196
+      const cx = 160
+      const cy = cursorY + ringBlockH / 2
+      const outerR = 88
+      const innerOkR = 36
+      const sectorRIn = 42
+      const sectorROut = 85
+      const rMid = (sectorRIn + sectorROut) / 2 // 63.5
 
       bodyFragments.push(
-        `  <rect x="${wellX}" y="${fmt(cursorY)}" width="${wellW}" height="${wellH}" rx="20" fill="#121723" stroke="#232e44" stroke-width="1.2" />`,
+        `  <g class="am-clickpad-ring">`,
+        `    <circle cx="${cx}" cy="${fmt(cy)}" r="92" fill="${WELL_FILL}" stroke="${WELL_STROKE}" stroke-width="1.2" />`,
+        `    <circle cx="${cx}" cy="${fmt(cy)}" r="${outerR}" fill="url(#am-ring)" stroke="${KEYCAP_ELEVATED_STROKE}" stroke-width="1.4" />`,
+        `    <circle cx="${cx}" cy="${fmt(cy)}" r="40" fill="#141518" stroke="${KEYCAP_STROKE}" stroke-width="1" />`,
+        `  </g>`,
       )
 
-      for (let slot = 0; slot < 9; slot++) {
-        const r = Math.floor(slot / 3)
-        const c = slot % 3
-        const x = padStart + c * (cell + gap)
-        const y = cursorY + 8 + r * (cell + gap)
-        const cx = x + cell / 2
-        const cy = y + cell / 2
+      for (const slot of DPAD_CARDINAL_INDICES) {
         const rawId = zone.tileIds[slot]?.trim() ?? ''
         const tile = rawId ? tileById.get(rawId) : undefined
 
+        if (slot === 4) {
+          // Center Concave Confirm Circle
+          if (!tile || renderedInputIds.has(tile.id)) {
+            bodyFragments.push(
+              `  <circle cx="${cx}" cy="${fmt(cy)}" r="${innerOkR}" fill="${KEYCAP_FILL}" stroke="${KEYCAP_STROKE}" stroke-width="1.2" />`,
+            )
+            continue
+          }
+          renderedInputIds.add(tile.id)
+          const domId = sanitizeDomId(tile.id, usedDomIds)
+          const safeLabel = tile.label?.trim() || '确定'
+          const centerTitle =
+            tile.id === 'remote.ok' && (safeLabel === '确认' || safeLabel === '确定')
+              ? 'OK'
+              : fitSvgText(safeLabel, 54, 12.5)
+          const fontSize = centerTitle === 'OK' ? '14.5' : '12'
+
+          bodyFragments.push(
+            `  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`,
+            `    <circle cx="${cx}" cy="${fmt(cy)}" r="${innerOkR}" fill="url(#am-ok)" stroke="${KEYCAP_ELEVATED_STROKE}" stroke-width="1.4" />`,
+            `    <text x="${cx}" y="${fmt(cy + 5)}" fill="${INK_PRIMARY}" font-size="${fontSize}" font-weight="650" text-anchor="middle">${escapeXml(centerTitle)}</text>`,
+            `  </g>`,
+          )
+
+          inputRecords.push({
+            id: tile.id,
+            domId,
+            label: safeLabel,
+            short: deriveShortLabel(tile, safeLabel),
+            icon: mapMobileIconToRemoteIcon(tile.icon, tile.id),
+            anchorX: cx,
+            anchorY: cy,
+            regionPath: circlePath(cx, cy, innerOkR),
+          })
+          continue
+        }
+
+        // 4 Cardinal Quadrants on the Outer Ring
+        const spec =
+          slot === 1
+            ? { startDeg: -131, endDeg: -49, ax: cx, ay: cy - rMid }
+            : slot === 3
+              ? { startDeg: 139, endDeg: 221, ax: cx - rMid, ay: cy }
+              : slot === 5
+                ? { startDeg: -41, endDeg: 41, ax: cx + rMid, ay: cy }
+                : { startDeg: 49, endDeg: 131, ax: cx, ay: cy + rMid }
+
+        const chevronPath =
+          slot === 1
+            ? `M ${fmt(spec.ax - 5.5)} ${fmt(spec.ay + 2.5)} L ${fmt(spec.ax)} ${fmt(spec.ay - 3)} L ${fmt(spec.ax + 5.5)} ${fmt(spec.ay + 2.5)}`
+            : slot === 7
+              ? `M ${fmt(spec.ax - 5.5)} ${fmt(spec.ay - 2.5)} L ${fmt(spec.ax)} ${fmt(spec.ay + 3)} L ${fmt(spec.ax + 5.5)} ${fmt(spec.ay - 2.5)}`
+              : slot === 3
+                ? `M ${fmt(spec.ax + 2.5)} ${fmt(spec.ay - 5.5)} L ${fmt(spec.ax - 3)} ${fmt(spec.ay)} L ${fmt(spec.ax + 2.5)} ${fmt(spec.ay + 5.5)}`
+                : `M ${fmt(spec.ax - 2.5)} ${fmt(spec.ay - 5.5)} L ${fmt(spec.ax + 3)} ${fmt(spec.ay)} L ${fmt(spec.ax - 2.5)} ${fmt(spec.ay + 5.5)}`
+
         if (!tile || renderedInputIds.has(tile.id)) {
           bodyFragments.push(
-            `  <rect x="${fmt(x)}" y="${fmt(y)}" width="${cell}" height="${cell}" rx="${rx}" fill="#0f1420" stroke="#1b2436" stroke-width="1" stroke-dasharray="3 3" opacity="0.55" />`,
+            `  <path d="${chevronPath}" stroke="${INK_MUTED}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />`,
           )
           continue
         }
@@ -684,64 +793,14 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
         renderedInputIds.add(tile.id)
         const domId = sanitizeDomId(tile.id, usedDomIds)
         const safeLabel = tile.label?.trim() || tile.id
-        const silkscreen = (tile.actionSummary?.trim() || tile.subtitle?.trim() || '').trim()
-        const palette = ACCENT_PALETTE[tile.accent] ?? ACCENT_PALETTE.slate
-        const isCenterOk = slot === 4 && (tile.id === 'remote.ok' || tile.accent === 'blue')
-        const isCardinalArrow =
-          (slot === 1 && (tile.icon === 'arrow-up' || tile.id === 'remote.up')) ||
-          (slot === 3 && (tile.icon === 'arrow-left' || tile.id === 'remote.left')) ||
-          (slot === 5 && (tile.icon === 'arrow-right' || tile.id === 'remote.right')) ||
-          (slot === 7 && (tile.icon === 'arrow-down' || tile.id === 'remote.down'))
+        const regionPath = annularSectorPath(cx, cy, sectorRIn, sectorROut, spec.startDeg, spec.endDeg)
 
-        const capFill = isCenterOk ? 'url(#am-ok)' : isCardinalArrow ? 'url(#am-dpad-cap)' : palette.fill
-        const capStroke = isCenterOk ? '#4f8ff7' : isCardinalArrow ? '#3d4e70' : palette.stroke
-        const capStrokeW = isCenterOk ? '1.6' : '1.25'
-
-        bodyFragments.push(`  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`)
         bodyFragments.push(
-          `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${cell}" height="${cell}" rx="${rx}" fill="${capFill}" stroke="${capStroke}" stroke-width="${capStrokeW}" />`,
+          `  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`,
+          `    <path d="${regionPath}" fill="transparent" />`,
+          `    <path d="${chevronPath}" stroke="${INK_PRIMARY}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
+          `  </g>`,
         )
-
-        if (isCardinalArrow) {
-          const arrowY = silkscreen ? cy - 5 : cy
-          if (slot === 1) {
-            bodyFragments.push(
-              `    <path d="M${fmt(cx)} ${fmt(arrowY - 8)}L${fmt(cx + 8)} ${fmt(arrowY + 4)}H${fmt(cx - 8)}Z" fill="#f8fafc" />`,
-            )
-          } else if (slot === 7) {
-            bodyFragments.push(
-              `    <path d="M${fmt(cx)} ${fmt(arrowY + 8)}L${fmt(cx + 8)} ${fmt(arrowY - 4)}H${fmt(cx - 8)}Z" fill="#f8fafc" />`,
-            )
-          } else if (slot === 3) {
-            bodyFragments.push(
-              `    <path d="M${fmt(cx - 8)} ${fmt(arrowY)}L${fmt(cx + 4)} ${fmt(arrowY - 8)}V${fmt(arrowY + 8)}Z" fill="#f8fafc" />`,
-            )
-          } else if (slot === 5) {
-            bodyFragments.push(
-              `    <path d="M${fmt(cx + 8)} ${fmt(arrowY)}L${fmt(cx - 4)} ${fmt(arrowY - 8)}V${fmt(arrowY + 8)}Z" fill="#f8fafc" />`,
-            )
-          }
-          if (silkscreen) {
-            bodyFragments.push(
-              `    <text x="${fmt(cx)}" y="${fmt(y + cell - 12)}" fill="#94a3b8" font-size="9.5" text-anchor="middle">${escapeXml(fitSvgText(silkscreen, cell - 12, 9.5))}</text>`,
-            )
-          }
-        } else {
-          const displayTitle = isCenterOk && tile.id === 'remote.ok' ? 'OK' : fitSvgText(safeLabel, cell - 12, 12.5)
-          const titleY = silkscreen ? cy - 2 : cy + 5
-          const titleColor = isCenterOk ? '#ffffff' : palette.labelFill
-          const titleSize = isCenterOk && displayTitle === 'OK' ? '15' : '12.5'
-          bodyFragments.push(
-            `    <text x="${fmt(cx)}" y="${fmt(titleY)}" fill="${titleColor}" font-size="${titleSize}" font-weight="650" text-anchor="middle">${escapeXml(displayTitle)}</text>`,
-          )
-          if (silkscreen) {
-            const subColor = isCenterOk ? '#bfdbfe' : palette.subFill
-            bodyFragments.push(
-              `    <text x="${fmt(cx)}" y="${fmt(titleY + 16)}" fill="${subColor}" font-size="9.5" text-anchor="middle">${escapeXml(fitSvgText(silkscreen, cell - 12, 9.5))}</text>`,
-            )
-          }
-        }
-        bodyFragments.push(`  </g>`)
 
         inputRecords.push({
           id: tile.id,
@@ -749,13 +808,13 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
           label: safeLabel,
           short: deriveShortLabel(tile, safeLabel),
           icon: mapMobileIconToRemoteIcon(tile.icon, tile.id),
-          anchorX: cx,
-          anchorY: cy,
-          regionPath: roundedRectPath(x, y, cell, cell, rx),
+          anchorX: spec.ax,
+          anchorY: spec.ay,
+          regionPath,
         })
       }
 
-      cursorY += wellH
+      cursorY += ringBlockH
       return
     }
 
@@ -772,12 +831,12 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     }
 
     if (zoneTiles.length === 0) {
-      const emptyH = 68
+      const emptyH = 64
       const cx = contentX + contentWidth / 2
       bodyFragments.push(
         `  <g class="am-empty-grid">`,
-        `    <rect x="${contentX}" y="${fmt(cursorY)}" width="${contentWidth}" height="${emptyH}" rx="14" fill="#111724" stroke="#1e293b" stroke-width="1.1" stroke-dasharray="4 4" />`,
-        `    <text x="${fmt(cx)}" y="${fmt(cursorY + 38)}" fill="#64748b" font-size="11" text-anchor="middle">空白网格区块（可在手机端添加按键）</text>`,
+        `    <rect x="${contentX}" y="${fmt(cursorY)}" width="${contentWidth}" height="${emptyH}" rx="14" fill="${WELL_FILL}" stroke="${WELL_STROKE}" stroke-width="1.1" stroke-dasharray="4 4" />`,
+        `    <text x="${fmt(cx)}" y="${fmt(cursorY + 36)}" fill="${INK_SECONDARY}" font-size="11" text-anchor="middle">空白按键网格</text>`,
         `  </g>`,
       )
       cursorY += emptyH
@@ -787,9 +846,9 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     const packed = packBentoTiles(zoneTiles, cols)
     const gap = 8
     const cellW = (contentWidth - gap * (cols - 1)) / cols
-    const isCompactUtilityRow = isClassicRemote && zoneIdx === 0 && packed.totalRows === 1
-    const cellH = isCompactUtilityRow ? 50 : 62
-    const rx = isCompactUtilityRow ? 12 : 14
+    const isCompactRow = isClassicRemote && packed.totalRows === 1 && (zoneIdx === 0 || cols === 4)
+    const cellH = isCompactRow ? 46 : 56
+    const rx = isCompactRow ? 12 : 14
 
     for (const item of packed.items) {
       const { tile, col, row, colSpan, rowSpan } = item
@@ -802,56 +861,15 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
 
       const domId = sanitizeDomId(tile.id, usedDomIds)
       const safeLabel = tile.label?.trim() || tile.id
-      const silkscreen = (tile.actionSummary?.trim() || tile.subtitle?.trim() || '').trim()
-      const palette = ACCENT_PALETTE[tile.accent] ?? ACCENT_PALETTE.slate
+      const labelFontSize = rowSpan === 2 && colSpan === 2 ? 13.5 : cols === 4 && colSpan === 1 ? 11 : 12
+      const fittedLabel = fitSvgText(safeLabel, w - 12, labelFontSize)
 
-      const labelFontSize = rowSpan === 2 && colSpan === 2 ? 14 : cols === 4 && colSpan === 1 ? 11 : 12.5
-      const subFontSize = cols === 4 && colSpan === 1 ? 8.5 : 9.5
-      const fittedLabel = fitSvgText(safeLabel, w - 14, labelFontSize)
-      const fittedSub = silkscreen ? fitSvgText(silkscreen, w - 14, subFontSize) : ''
-
-      bodyFragments.push(`  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`)
       bodyFragments.push(
-        `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="${palette.fill}" stroke="${palette.stroke}" stroke-width="1.25" />`,
+        `  <g id="${domId}" data-ak-key="${escapeXml(tile.id)}" data-ak-role="input">`,
+        `    <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(w)}" height="${fmt(h)}" rx="${rx}" fill="${KEYCAP_FILL}" stroke="${KEYCAP_STROKE}" stroke-width="1.15" />`,
+        `    <text x="${fmt(cx)}" y="${fmt(cy + 4.5)}" fill="${INK_PRIMARY}" font-size="${labelFontSize}" font-weight="600" text-anchor="middle">${escapeXml(fittedLabel)}</text>`,
+        `  </g>`,
       )
-
-      if (tile.mode === 'hold' && w >= 68) {
-        const badgeW = 30
-        const badgeX = x + w - badgeW - 6
-        const badgeY = y + 6
-        bodyFragments.push(
-          `    <rect x="${fmt(badgeX)}" y="${fmt(badgeY)}" width="${badgeW}" height="13" rx="4" fill="${palette.badgeBg}" />`,
-          `    <text x="${fmt(badgeX + badgeW / 2)}" y="${fmt(badgeY + 9.5)}" fill="${palette.labelFill}" font-size="7.5" font-weight="700" text-anchor="middle">HOLD</text>`,
-        )
-      }
-
-      if (rowSpan === 2) {
-        // Tall 1x2 strip or 2x2 hero pad: spacious centered hardware typography
-        const spanTag = `${colSpan}×${rowSpan}`
-        bodyFragments.push(
-          `    <text x="${fmt(x + 9)}" y="${fmt(y + 16)}" fill="${palette.subFill}" font-size="8.5" font-weight="600" opacity="0.8">${spanTag}</text>`,
-        )
-        const mainY = fittedSub ? cy + 1 : cy + 5
-        bodyFragments.push(
-          `    <text x="${fmt(cx)}" y="${fmt(mainY)}" fill="${palette.labelFill}" font-size="${labelFontSize}" font-weight="650" text-anchor="middle">${escapeXml(fittedLabel)}</text>`,
-        )
-        if (fittedSub) {
-          bodyFragments.push(
-            `    <text x="${fmt(cx)}" y="${fmt(mainY + 18)}" fill="${palette.subFill}" font-size="${subFontSize}" text-anchor="middle">${escapeXml(fittedSub)}</text>`,
-          )
-        }
-      } else if (fittedSub) {
-        bodyFragments.push(
-          `    <text x="${fmt(cx)}" y="${fmt(cy - 2)}" fill="${palette.labelFill}" font-size="${labelFontSize}" font-weight="600" text-anchor="middle">${escapeXml(fittedLabel)}</text>`,
-          `    <text x="${fmt(cx)}" y="${fmt(cy + 13)}" fill="${palette.subFill}" font-size="${subFontSize}" text-anchor="middle">${escapeXml(fittedSub)}</text>`,
-        )
-      } else {
-        bodyFragments.push(
-          `    <text x="${fmt(cx)}" y="${fmt(cy + 4.5)}" fill="${palette.labelFill}" font-size="${labelFontSize}" font-weight="600" text-anchor="middle">${escapeXml(fittedLabel)}</text>`,
-        )
-      }
-
-      bodyFragments.push(`  </g>`)
 
       inputRecords.push({
         id: tile.id,
@@ -869,27 +887,23 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     cursorY += gridHeight
   })
 
-  // Dedicated bottom Voice Key (mobile.voice)
+  // Dedicated bottom Voice Key (mobile.voice) — calm Plan B elevated pill, zero technical jargon
   const voiceY = cursorY + 14
-  const voiceH = 52
+  const voiceH = 50
   const voiceRx = 15
   const voiceCx = contentX + contentWidth / 2
   const voiceCy = voiceY + voiceH / 2
-  const voiceSummary = snapshot.voiceBindingSummary?.trim() ?? ''
-  const voiceDisplayLabel = voiceSummary
-    ? `语音键 · 按住说话 (${fitSvgText(voiceSummary, 72, 11)})`
-    : '语音键 · 按住说话'
 
   bodyFragments.push(
     `  <g id="key-voice" data-ak-key="${VOICE_KEY_ID}" data-ak-role="input">`,
-    `    <rect x="${contentX}" y="${fmt(voiceY)}" width="${contentWidth}" height="${voiceH}" rx="${voiceRx}" fill="url(#am-voice)" stroke="#2d6a7d" stroke-width="1.4" />`,
-    `    <g transform="translate(${fmt(voiceSummary ? 68 : 96)} ${fmt(voiceY + 16)})" stroke="#5eead4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">`,
+    `    <rect x="${contentX}" y="${fmt(voiceY)}" width="${contentWidth}" height="${voiceH}" rx="${voiceRx}" fill="${KEYCAP_ELEVATED_FILL}" stroke="${KEYCAP_ELEVATED_STROKE}" stroke-width="1.3" />`,
+    `    <g transform="translate(114 ${fmt(voiceY + 15)})" stroke="${INK_PRIMARY}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">`,
     `      <rect x="5" y="1" width="6" height="10" rx="3" />`,
     `      <path d="M2 8.5a6 6 0 0 0 12 0" />`,
     `      <path d="M8 14.5v3.5" />`,
     `      <path d="M5.5 18h5" />`,
     `    </g>`,
-    `    <text x="${fmt(voiceSummary ? 170 : 172)}" y="${fmt(voiceCy + 4.5)}" fill="#ccfbf1" font-size="12.5" font-weight="600" text-anchor="middle">${escapeXml(voiceDisplayLabel)}</text>`,
+    `    <text x="168" y="${fmt(voiceCy + 4.5)}" fill="${INK_PRIMARY}" font-size="12.5" font-weight="600" text-anchor="middle">按住说话</text>`,
     `  </g>`,
   )
 
@@ -954,33 +968,24 @@ export function synthesizeMobileDescriptorSvg(snapshot: DeckSnapshot, targetPage
     `  </metadata>`,
     `  <defs>`,
     `    <linearGradient id="am-body" x1="0" y1="0" x2="0" y2="1">`,
-    `      <stop offset="0%" stop-color="#22293a" />`,
-    `      <stop offset="100%" stop-color="#111622" />`,
+    `      <stop offset="0%" stop-color="#272930" />`,
+    `      <stop offset="100%" stop-color="#18191e" />`,
     `    </linearGradient>`,
-    `    <linearGradient id="am-dpad-cap" x1="0" y1="0" x2="0" y2="1">`,
-    `      <stop offset="0%" stop-color="#242e45" />`,
-    `      <stop offset="100%" stop-color="#182032" />`,
+    `    <linearGradient id="am-ring" x1="0" y1="0" x2="0" y2="1">`,
+    `      <stop offset="0%" stop-color="#25272f" />`,
+    `      <stop offset="100%" stop-color="#1c1d23" />`,
     `    </linearGradient>`,
     `    <linearGradient id="am-ok" x1="0" y1="0" x2="0" y2="1">`,
-    `      <stop offset="0%" stop-color="#2f5699" />`,
-    `      <stop offset="100%" stop-color="#1d3561" />`,
-    `    </linearGradient>`,
-    `    <linearGradient id="am-pad" x1="0" y1="0" x2="0" y2="1">`,
-    `      <stop offset="0%" stop-color="#151d2c" />`,
-    `      <stop offset="100%" stop-color="#0f1522" />`,
-    `    </linearGradient>`,
-    `    <linearGradient id="am-voice" x1="0" y1="0" x2="1" y2="1">`,
-    `      <stop offset="0%" stop-color="#143340" />`,
-    `      <stop offset="50%" stop-color="#152b44" />`,
-    `      <stop offset="100%" stop-color="#17243b" />`,
+    `      <stop offset="0%" stop-color="#2d3039" />`,
+    `      <stop offset="100%" stop-color="#21232a" />`,
     `    </linearGradient>`,
     `  </defs>`,
-    `  <rect x="14" y="8" width="292" height="${totalHeight - 16}" rx="34" fill="url(#am-body)" stroke="#3b4963" stroke-width="2" />`,
-    `  <rect x="24" y="18" width="272" height="${totalHeight - 36}" rx="26" fill="#0d111a" stroke="#1e293b" stroke-width="1.2" />`,
-    `  <rect x="128" y="25" width="64" height="5" rx="2.5" fill="#1e293b" />`,
-    `  <text x="160" y="42" fill="#64748b" font-size="10" font-weight="600" text-anchor="middle">${escapeXml(fitSvgText(safePageName, 220, 10))}</text>`,
+    `  <rect x="14" y="8" width="292" height="${totalHeight - 16}" rx="34" fill="url(#am-body)" stroke="#383b44" stroke-width="1.8" />`,
+    `  <rect x="24" y="18" width="272" height="${totalHeight - 36}" rx="26" fill="#141518" stroke="#22242b" stroke-width="1.2" />`,
+    `  <rect x="128" y="25" width="64" height="5" rx="2.5" fill="#272930" />`,
+    `  <text x="160" y="41" fill="${INK_SECONDARY}" font-size="10" font-weight="500" text-anchor="middle">${escapeXml(fitSvgText(safePageName, 220, 10))}</text>`,
     ...bodyFragments,
-    `  <rect x="124" y="${fmt(homePillY)}" width="72" height="4" rx="2" fill="#1e293b" />`,
+    `  <rect x="124" y="${fmt(homePillY)}" width="72" height="4" rx="2" fill="#272930" />`,
     `  <g data-ak-regions="true" fill="transparent" pointer-events="none">`,
     regionsXml,
     `  </g>`,

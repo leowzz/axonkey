@@ -478,10 +478,17 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             &mut self.last_managed_keys,
             behaviors.keys().cloned().collect(),
         );
-        if let Ok(Some((rev, snap))) = self
-            .deck
-            .sync_from_managed_profile_with_previous(behaviors, &prev_keys)
-        {
+        let is_explicit_blank_profile = behaviors.is_empty()
+            && prev_keys.is_empty()
+            && (self.context.profile_name.starts_with("纯净空白")
+                || self.context.profile_name.starts_with("空白配置"));
+        let sync_result = if is_explicit_blank_profile {
+            self.deck.clear_all_bindings()
+        } else {
+            self.deck
+                .sync_from_managed_profile_with_previous(behaviors, &prev_keys)
+        };
+        if let Ok(Some((rev, snap))) = sync_result {
             self.cancel_voice_internal();
             self.clear_all_ui_presses();
             let next_epoch = self.next_epoch;

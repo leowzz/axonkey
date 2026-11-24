@@ -227,31 +227,33 @@ impl DeckStore {
         previous_managed_keys: &std::collections::HashSet<String>,
     ) -> Result<Option<(u64, DeckSnapshot)>, String> {
         let mut changed = false;
-        for removed_key in previous_managed_keys {
-            if behaviors.contains_key(removed_key) {
-                continue;
-            }
-            let fallback = self
-                .baseline_bindings
-                .get(removed_key)
-                .cloned()
-                .unwrap_or_default();
-            let same = match self.bindings.get(removed_key) {
-                Some(p) => {
-                    p.tap == fallback.tap
-                        && p.double == fallback.double
-                        && p.long == fallback.long
-                        && p.hold_keys == fallback.hold_keys
-                }
-                None => fallback.is_empty(),
-            };
-            if !same {
-                if fallback.is_empty() && self.preset_applied {
-                    self.bindings.remove(removed_key);
-                } else {
-                    self.bindings.insert(removed_key.clone(), fallback);
-                }
+        if behaviors.is_empty() && !previous_managed_keys.is_empty() {
+            let had_non_empty = self.bindings.values().any(|b| !b.is_empty());
+            if had_non_empty || !self.preset_applied {
+                self.bindings.clear();
+                self.baseline_bindings.clear();
+                self.preset_applied = true;
                 changed = true;
+            }
+        } else {
+            for removed_key in previous_managed_keys {
+                if behaviors.contains_key(removed_key) {
+                    continue;
+                }
+                let already_empty = self
+                    .bindings
+                    .get(removed_key)
+                    .map(|b| b.is_empty())
+                    .unwrap_or(true);
+                if !already_empty {
+                    if removed_key == VOICE_KEY_ID && !self.preset_applied {
+                        self.bindings
+                            .insert(VOICE_KEY_ID.into(), TileActionBindings::default());
+                    } else {
+                        self.bindings.remove(removed_key);
+                    }
+                    changed = true;
+                }
             }
         }
         for (key, trig) in behaviors {
@@ -279,6 +281,20 @@ impl DeckStore {
         if !changed {
             return Ok(None);
         }
+        self.revision += 1;
+        self.rehydrate_tile_metadata();
+        self.save()?;
+        Ok(Some((self.revision, self.snapshot.clone())))
+    }
+
+    pub fn clear_all_bindings(&mut self) -> Result<Option<(u64, DeckSnapshot)>, String> {
+        let had_non_empty = self.bindings.values().any(|b| !b.is_empty());
+        if !had_non_empty && self.preset_applied {
+            return Ok(None);
+        }
+        self.bindings.clear();
+        self.baseline_bindings.clear();
+        self.preset_applied = true;
         self.revision += 1;
         self.rehydrate_tile_metadata();
         self.save()?;
@@ -686,6 +702,71 @@ pub fn dto_map_to_trigger_behaviors(
         .collect()
 }
 
+fn classic_remote_default_zones() -> Vec<MobileDeckZone> {
+    vec![
+        MobileDeckZone {
+            id: "classic-top".into(),
+            kind: DeckZoneKind::BentoGrid,
+            columns: Some(3),
+            pointer_mode: None,
+            pad_height: None,
+            show_buttons: None,
+            tile_ids: vec![
+                "remote.esc".into(),
+                "remote.menu".into(),
+                "remote.home".into(),
+            ],
+        },
+        MobileDeckZone {
+            id: "classic-ring".into(),
+            kind: DeckZoneKind::Dpad3x3,
+            columns: None,
+            pointer_mode: None,
+            pad_height: None,
+            show_buttons: None,
+            tile_ids: vec![
+                "".into(),
+                "remote.up".into(),
+                "".into(),
+                "remote.left".into(),
+                "remote.ok".into(),
+                "remote.right".into(),
+                "".into(),
+                "remote.down".into(),
+                "".into(),
+            ],
+        },
+        MobileDeckZone {
+            id: "classic-media".into(),
+            kind: DeckZoneKind::BentoGrid,
+            columns: Some(4),
+            pointer_mode: None,
+            pad_height: None,
+            show_buttons: None,
+            tile_ids: vec![
+                "remote.back".into(),
+                "remote.mute".into(),
+                "remote.vol_down".into(),
+                "remote.vol_up".into(),
+            ],
+        },
+        MobileDeckZone {
+            id: "classic-quick".into(),
+            kind: DeckZoneKind::BentoGrid,
+            columns: Some(2),
+            pointer_mode: None,
+            pad_height: None,
+            show_buttons: None,
+            tile_ids: vec![
+                "remote.q1".into(),
+                "remote.q2".into(),
+                "remote.q3".into(),
+                "remote.q4".into(),
+            ],
+        },
+    ]
+}
+
 fn tile_with_span(
     id: &str,
     label: &str,
@@ -927,7 +1008,7 @@ fn classic_remote_page_and_bindings(
         layout: PageLayout::Remote,
         columns: 3,
         tiles,
-        zones: Vec::new(),
+        zones: classic_remote_default_zones(),
     };
     (page, bindings)
 }
@@ -1600,30 +1681,30 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
                 layout: PageLayout::Remote,
                 columns: 3,
                 tiles: vec![
-                    tile("remote.esc", "退出/中断", "esc", TileAccent::Rose, 1),
-                    tile("remote.menu", "命令菜单", "search", TileAccent::Blue, 1),
+                    tile("remote.esc", "退出/中断", "esc", TileAccent::Slate, 1),
+                    tile("remote.menu", "命令菜单", "search", TileAccent::Slate, 1),
                     tile("remote.up", "上", "arrow-up", TileAccent::Slate, 1),
                     tile("remote.down", "下", "arrow-down", TileAccent::Slate, 1),
                     tile("remote.left", "左", "arrow-left", TileAccent::Slate, 1),
                     tile("remote.right", "右", "arrow-right", TileAccent::Slate, 1),
-                    tile("remote.ok", "确认", "enter", TileAccent::Blue, 1),
+                    tile("remote.ok", "确认", "enter", TileAccent::Slate, 1),
                     tile("remote.back", "返回", "undo", TileAccent::Slate, 1),
                     tile("remote.home", "主页/对话", "command", TileAccent::Slate, 1),
                     tile("remote.vol_up", "音量+", "volume-up", TileAccent::Slate, 1),
                     tile(
                         "remote.vol_down",
                         "音量-",
-                        "volume-mute",
+                        "volume-down",
                         TileAccent::Slate,
                         1,
                     ),
                     tile("remote.mute", "静音", "volume-mute", TileAccent::Slate, 1),
-                    tile("remote.q1", "继续执行", "sparkles", TileAccent::Blue, 1),
-                    tile("remote.q2", "接受变更", "check", TileAccent::Emerald, 1),
-                    tile("remote.q3", "撤销", "undo", TileAccent::Amber, 1),
-                    tile("remote.q4", "播放/暂停", "play", TileAccent::Violet, 1),
+                    tile("remote.q1", "继续执行", "sparkles", TileAccent::Slate, 1),
+                    tile("remote.q2", "接受变更", "check", TileAccent::Slate, 1),
+                    tile("remote.q3", "撤销", "undo", TileAccent::Slate, 1),
+                    tile("remote.q4", "播放/暂停", "play", TileAccent::Slate, 1),
                 ],
-                zones: Vec::new(),
+                zones: classic_remote_default_zones(),
             },
             MobileDeckPage {
                 id: "vibe-coding".into(),
@@ -1631,14 +1712,20 @@ fn default_mobile_deck() -> (DeckSnapshot, HashMap<String, TileActionBindings>) 
                 layout: PageLayout::Grid,
                 columns: 3,
                 tiles: vec![
-                    tile("tile.continue", "继续执行", "sparkles", TileAccent::Blue, 2),
-                    tile("tile.enter", "确认", "enter", TileAccent::Emerald, 1),
-                    tile("tile.accept", "接受变更", "check", TileAccent::Emerald, 1),
-                    tile("tile.undo", "撤销", "undo", TileAccent::Amber, 1),
-                    tile("tile.esc", "中断", "esc", TileAccent::Rose, 1),
+                    tile(
+                        "tile.continue",
+                        "继续执行",
+                        "sparkles",
+                        TileAccent::Slate,
+                        2,
+                    ),
+                    tile("tile.enter", "确认", "enter", TileAccent::Slate, 1),
+                    tile("tile.accept", "接受变更", "check", TileAccent::Slate, 1),
+                    tile("tile.undo", "撤销", "undo", TileAccent::Slate, 1),
+                    tile("tile.esc", "中断", "esc", TileAccent::Slate, 1),
                     tile("tile.copy", "复制", "copy", TileAccent::Slate, 1),
                     tile("tile.paste", "粘贴", "clipboard", TileAccent::Slate, 1),
-                    tile("tile.terminal", "终端", "terminal", TileAccent::Violet, 1),
+                    tile("tile.terminal", "终端", "terminal", TileAccent::Slate, 1),
                 ],
                 zones: Vec::new(),
             },
@@ -1794,9 +1881,42 @@ mod tests {
         let path = dir.join("mobile-deck.json");
         let mut store = DeckStore::load(path.clone()).unwrap();
 
-        // Default pages have empty zones, which must be omitted in serialized JSON
+        // Default classic-remote page ships with the 4 Plan B Siri Remote zones (top 3, ring 5-slot, media 4, quick 2),
+        // while vibe-coding has empty zones which must be omitted in serialized JSON.
         let default_json = serde_json::to_value(store.snapshot()).unwrap();
-        assert!(default_json["pages"][0].get("zones").is_none());
+        let default_zones = default_json["pages"][0]["zones"].as_array().unwrap();
+        assert_eq!(default_zones.len(), 4);
+        assert_eq!(default_zones[0]["kind"], "bento-grid");
+        assert_eq!(default_zones[0]["columns"], 3);
+        assert_eq!(default_zones[1]["kind"], "dpad-3x3");
+        assert_eq!(
+            default_zones[1]["tileIds"],
+            serde_json::json!([
+                "",
+                "remote.up",
+                "",
+                "remote.left",
+                "remote.ok",
+                "remote.right",
+                "",
+                "remote.down",
+                ""
+            ])
+        );
+        assert_eq!(default_zones[2]["kind"], "bento-grid");
+        assert_eq!(default_zones[2]["columns"], 4);
+        assert_eq!(
+            default_zones[2]["tileIds"],
+            serde_json::json!([
+                "remote.back",
+                "remote.mute",
+                "remote.vol_down",
+                "remote.vol_up"
+            ])
+        );
+        assert_eq!(default_zones[3]["kind"], "bento-grid");
+        assert_eq!(default_zones[3]["columns"], 2);
+        assert!(default_json["pages"][1].get("zones").is_none());
         assert_eq!(default_json["pages"][0]["tiles"][0]["rowSpan"], 1);
 
         // Legacy tile JSON omitting rowSpan must deserialize with row_span == 1

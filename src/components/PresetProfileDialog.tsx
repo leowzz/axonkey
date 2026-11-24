@@ -71,7 +71,9 @@ export function PresetProfileDialog({
                       </span>
                       {preset.quick && <span className="preset-profile-badge">快捷交互窗</span>}
                     </div>
-                    <span className="preset-profile-count">已配 {keyCount} 键</span>
+                    <span className="preset-profile-count">
+                      {keyCount === 0 ? '空白起步（0 键）' : `已配 ${keyCount} 键`}
+                    </span>
                   </div>
 
                   {preset.description && <p className="preset-profile-desc">{preset.description}</p>}

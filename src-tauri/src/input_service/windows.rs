@@ -1870,14 +1870,40 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
     }
 }
 
+fn normalize_injected_virtual_key(key: u16) -> u16 {
+    match key {
+        0x10 => 0xa0, // VK_SHIFT -> VK_LSHIFT
+        0x11 => 0xa2, // VK_CONTROL -> VK_LCONTROL
+        0x12 => 0xa4, // VK_MENU -> VK_LMENU
+        other => other,
+    }
+}
+
+fn is_extended_virtual_key(vk: u16) -> bool {
+    matches!(
+        vk,
+        0x21..=0x28 // PageUp, PageDown, End, Home, Left, Up, Right, Down
+        | 0x2d      // Insert
+        | 0x2e      // Delete
+        | 0x5b      // VK_LWIN
+        | 0x5c      // VK_RWIN
+        | 0x6f      // VK_DIVIDE
+        | 0x90      // VK_NUMLOCK
+        | 0xa3      // VK_RCONTROL
+        | 0xa5 // VK_RMENU
+    ) || (unsafe { MapVirtualKeyW(u32::from(vk), 4) } >> 8) == 0xe0
+}
+
 fn virtual_key_input(key: u16) -> Input {
-    let extended = unsafe { MapVirtualKeyW(key as u32, 4) } >> 8 == 0xe0;
+    let vk = normalize_injected_virtual_key(key);
+    let scan_code = unsafe { MapVirtualKeyW(u32::from(vk), 0) as u16 };
+    let extended = is_extended_virtual_key(vk);
     Input {
         kind: 1,
         value: InputValue {
             keyboard: KeyboardInput {
-                virtual_key: key,
-                scan_code: 0,
+                virtual_key: vk,
+                scan_code,
                 flags: u32::from(extended),
                 time: 0,
                 extra_info: 0,
@@ -2350,6 +2376,7 @@ thread_local! {
     static ABSOLUTE_MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_BUTTON_EVENTS: std::cell::RefCell<Vec<(u32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static UNICODE_EVENTS: std::cell::RefCell<Vec<(u16, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static VIRTUAL_KEY_EDGES: std::cell::RefCell<Vec<(u16, u16, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 fn wheel_horizontal(direction: WheelDirection) -> bool {
@@ -2583,7 +2610,12 @@ pub(super) fn inject_virtual_key_edge(key: &str, down: bool) -> Result<(), Strin
     }
     #[cfg(test)]
     {
-        let _ = inputs;
+        VIRTUAL_KEY_EDGES.with(|events| {
+            events.borrow_mut().extend(inputs.iter().map(|input| {
+                let kb = unsafe { input.value.keyboard };
+                (kb.virtual_key, kb.scan_code, kb.flags)
+            }));
+        });
         return Ok(());
     }
     #[cfg(not(test))]
@@ -2827,8 +2859,17 @@ extern "system" {
 
 #[cfg(not(target_os = "windows"))]
 #[allow(non_snake_case)]
-unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 {
-    0
+unsafe fn MapVirtualKeyW(code: u32, map_type: u32) -> u32 {
+    match (code, map_type) {
+        (0xa0, 0) => 0x2a,
+        (0xa2 | 0xa3, 0) => 0x1d,
+        (0xa4 | 0xa5, 0) => 0x38,
+        (0xa3, 4) => 0xe01d,
+        (0xa5, 4) => 0xe038,
+        (0x5b, 0) => 0x5b,
+        (0x5c, 0) => 0x5c,
+        _ => 0,
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -3839,7 +3880,7 @@ mod tests {
         MOUSE_KEY_BATCHES.with(|events| {
             assert_eq!(
                 events.borrow().concat(),
-                vec![(0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2)]
+                vec![(0xa2, 0), (0x56, 0), (0x56, 2), (0xa2, 2)]
             )
         });
     }
@@ -4060,7 +4101,7 @@ mod tests {
         MOUSE_KEY_BATCHES.with(|batches| {
             assert_eq!(
                 *batches.borrow(),
-                vec![vec![(0x11, 0), (0x43, 0), (0x43, 2), (0x11, 2)]]
+                vec![vec![(0xa2, 0), (0x43, 0), (0x43, 2), (0xa2, 2)]]
             );
         });
     }
@@ -5056,6 +5097,65 @@ mod tests {
             let moves = events.borrow();
             assert_eq!(moves.len(), 1);
             assert_eq!(moves[0].2, 0x0001 | 0x8000 | 0x4000);
+        });
+    }
+
+    #[test]
+    fn virtual_key_edge_normalizes_left_modifiers_populates_scan_code_and_sets_extended_flags() {
+        VIRTUAL_KEY_EDGES.with(|events| events.borrow_mut().clear());
+
+        // Generic "Alt" must resolve to VK_LMENU (0xA4) with physical Left Alt scan code (0x38)
+        // and non-extended flags (0 on down, KEYEVENTF_KEYUP=0x0002 on up) so WH_KEYBOARD_LL hooks (e.g. Doubao) accept it!
+        inject_virtual_key_edge("Alt", true).unwrap();
+        inject_virtual_key_edge("Alt", false).unwrap();
+
+        // "RAlt" must resolve to VK_RMENU (0xA5) + KEYEVENTF_EXTENDEDKEY (0x0001) + non-zero scan code!
+        inject_virtual_key_edge("RAlt", true).unwrap();
+        inject_virtual_key_edge("RAlt", false).unwrap();
+
+        // Generic "Ctrl" and "Shift" normalize to VK_LCONTROL (0xA2) and VK_LSHIFT (0xA0)
+        inject_virtual_key_edge("Ctrl", true).unwrap();
+        inject_virtual_key_edge("Shift", true).unwrap();
+
+        // "RCtrl", "Win", and navigation/arrow keys set KEYEVENTF_EXTENDEDKEY (0x0001)
+        inject_virtual_key_edge("RCtrl", true).unwrap();
+        inject_virtual_key_edge("Win", true).unwrap();
+        inject_virtual_key_edge("ArrowUp", true).unwrap();
+        inject_virtual_key_edge("PageDown", false).unwrap();
+
+        VIRTUAL_KEY_EDGES.with(|events| {
+            let recorded = events.borrow();
+            assert_eq!(recorded.len(), 10);
+
+            // Alt down & up -> VK_LMENU (0xA4), scan_code == 0x38 (non-zero!), flags 0 / 2
+            assert_eq!(recorded[0].0, 0xa4);
+            assert_eq!(recorded[0].1, 0x38);
+            assert_eq!(recorded[0].2, 0x0000);
+            assert_eq!(recorded[1].0, 0xa4);
+            assert_eq!(recorded[1].1, 0x38);
+            assert_eq!(recorded[1].2, 0x0002);
+
+            // RAlt down & up -> VK_RMENU (0xA5), non-zero scan_code, KEYEVENTF_EXTENDEDKEY (0x0001 / 0x0003)
+            assert_eq!(recorded[2].0, 0xa5);
+            assert_ne!(recorded[2].1, 0);
+            assert_eq!(recorded[2].2, 0x0001);
+            assert_eq!(recorded[3].0, 0xa5);
+            assert_ne!(recorded[3].1, 0);
+            assert_eq!(recorded[3].2, 0x0001 | 0x0002);
+
+            // Ctrl -> VK_LCONTROL (0xA2), Shift -> VK_LSHIFT (0xA0)
+            assert_eq!(recorded[4].0, 0xa2);
+            assert_ne!(recorded[4].1, 0);
+            assert_eq!(recorded[4].2, 0x0000);
+            assert_eq!(recorded[5].0, 0xa0);
+            assert_ne!(recorded[5].1, 0);
+            assert_eq!(recorded[5].2, 0x0000);
+
+            // RCtrl (0xA3), Win (0x5B), ArrowUp (0x26), PageDown up (0x22) -> KEYEVENTF_EXTENDEDKEY
+            assert_eq!((recorded[6].0, recorded[6].2), (0xa3, 0x0001));
+            assert_eq!((recorded[7].0, recorded[7].2), (0x5b, 0x0001));
+            assert_eq!((recorded[8].0, recorded[8].2), (0x26, 0x0001));
+            assert_eq!((recorded[9].0, recorded[9].2), (0x22, 0x0001 | 0x0002));
         });
     }
 }

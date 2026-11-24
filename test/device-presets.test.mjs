@@ -38,7 +38,8 @@ function compile(path, imports = {}, globals = {}) {
     document: { activeElement: null, querySelector: () => null },
     HTMLElement: class {},
     ...globals,
-    require: name => (name in imports ? imports[name] : name === 'reicon-react' ? reiconReact : resolveFileRequire(name)),
+    require: name =>
+      name in imports ? imports[name] : name === 'reicon-react' ? reiconReact : resolveFileRequire(name),
   })
   return module.exports
 }
@@ -101,7 +102,13 @@ test('cloud presets override bundled defaults when present for the current platf
         quick: false,
         prompt_mode: false,
         sort_order: 5,
-        behaviors: { confirm: { click: [{ id: 'a1', enabled: true, type: 'mouse', button: 'left' }], doubleClick: [], longPress: [] } },
+        behaviors: {
+          confirm: {
+            click: [{ id: 'a1', enabled: true, type: 'mouse', button: 'left' }],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
       },
       {
         id: 'cloud-all',
@@ -113,7 +120,13 @@ test('cloud presets override bundled defaults when present for the current platf
         quick: false,
         prompt_mode: false,
         sort_order: 20,
-        behaviors: { confirm: { click: [{ id: 'a2', enabled: true, type: 'mouse', button: 'right' }], doubleClick: [], longPress: [] } },
+        behaviors: {
+          confirm: {
+            click: [{ id: 'a2', enabled: true, type: 'mouse', button: 'right' }],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
       },
     ],
   }
@@ -128,11 +141,7 @@ test('cloud presets override bundled defaults when present for the current platf
   assert.equal(winPresets[0].slug, 'win-only')
 
   // When cloud presets exist only for another platform, fall back cleanly to bundled presets
-  const emptyMacFallback = getPresetsForDevice(
-    'rc003',
-    { ...cloudModel, presets: [cloudModel.presets[0]] },
-    'macos',
-  )
+  const emptyMacFallback = getPresetsForDevice('rc003', { ...cloudModel, presets: [cloudModel.presets[0]] }, 'macos')
   assert.equal(emptyMacFallback[0].source, 'bundled')
 })
 
@@ -182,6 +191,65 @@ test('PresetProfileDialog displays preset sources and wires copy/overwrite actio
     act(() => buttons[1].props.onClick())
     assert.deepEqual(overwritten, ['media-reading'])
     assert.deepEqual(copied, ['media-reading'])
+  } finally {
+    act(() => view.unmount())
+  }
+})
+
+test('axonkeyMobile bundled presets offer all 5 v5 presets including blank-canvas in PresetProfileDialog', () => {
+  const presets = getPresetsForDevice('axonkeyMobile', { presets: undefined }, 'windows')
+  assert.deepEqual(
+    presets.map(item => item.slug),
+    ['vibe-remote', 'ai-coding', 'media-reading', 'presentation', 'blank-canvas'],
+  )
+  const defaultPreset = pickDefaultPreset(presets)
+  assert.equal(defaultPreset?.slug, 'vibe-remote')
+
+  const aiCoding = presets.find(item => item.slug === 'ai-coding')
+  assert.ok(aiCoding.behaviors['remote.ok'])
+  assert.ok(aiCoding.behaviors['tile.continue'])
+  assert.ok(aiCoding.behaviors['mobile.voice'])
+
+  const blank = presets.find(item => item.slug === 'blank-canvas')
+  assert.equal(countConfiguredInputs(blank.behaviors), 0)
+  const materializedBlank = materializePresetToProfile(blank, { existingNames: ['默认配置'] })
+  assert.equal(materializedBlank.name, '纯净空白起步')
+  assert.deepEqual(materializedBlank.behaviors, {})
+
+  const { PresetProfileDialog } = compile('src/components/PresetProfileDialog.tsx')
+  const copied = []
+  const overwritten = []
+  const modal = { showModal() {}, close() {} }
+  let view
+  act(() => {
+    view = Renderer.create(
+      React.createElement(PresetProfileDialog, {
+        deviceName: 'Axonkey Mobile',
+        platform: 'windows',
+        inputs: packageFor('axonkeyMobile').inputs,
+        presets,
+        activeProfileName: '默认配置',
+        activeProfileIsQuick: false,
+        onCopyAsNew: preset => copied.push(preset.slug),
+        onOverwriteCurrent: preset => overwritten.push(preset.slug),
+        onClose() {},
+      }),
+      { createNodeMock: node => (node.type === 'dialog' ? modal : null) },
+    )
+  })
+  try {
+    const renderedText = text(view.root)
+    assert.ok(renderedText.includes('通用遥控与豆包语音'))
+    assert.ok(renderedText.includes('AI 编程副屏'))
+    assert.ok(renderedText.includes('纯净空白起步'))
+    assert.ok(renderedText.includes('空白起步（0 键）'))
+    const cards = view.root.findAllByType('article')
+    assert.equal(cards.length, 5)
+    const blankButtons = cards[4].findAllByType('button')
+    act(() => blankButtons[0].props.onClick())
+    act(() => blankButtons[1].props.onClick())
+    assert.deepEqual(overwritten, ['blank-canvas'])
+    assert.deepEqual(copied, ['blank-canvas'])
   } finally {
     act(() => view.unmount())
   }
