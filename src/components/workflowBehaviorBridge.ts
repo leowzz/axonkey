@@ -163,6 +163,20 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
       },
     ]
   }
+  if (preset === 'clipboardOverlay') {
+    const action = step.properties.action === 'copyText' ? 'copyText' : 'paste'
+    return [
+      {
+        ...step,
+        properties: {
+          ...step.properties,
+          behaviorType: 'clipboardOverlay',
+          enabled: true,
+          action,
+        },
+      },
+    ]
+  }
   const choices = workflowActionChoiceStep(preset)
   if (choices?.preset === preset)
     return [

@@ -62,9 +62,16 @@ export function LegacyMappingEditor<Id extends string>({
     )
     const replacement = nodes.map(node => workflowStepBehavior(node)!)
     if (preset === 'customKey') replacement[0] = { id: replacement[0].id, type: 'shortcut', keys: [], enabled: true }
-    if (nodes.some(node => node.properties.draftGroup) || preset === 'customKey' || preset === 'delay') {
-      setEdit({ behavior: replacement[0], replacement, mode })
-    } else save(mode === 'replace' ? replacement : [...list, ...replacement])
+    const effectiveMode = preset === 'clipboardOverlay' ? 'replace' : mode
+    const baseList = list.some(item => item.type === 'clipboardOverlay' && item.enabled !== false) ? [] : list
+    if (
+      nodes.some(node => node.properties.draftGroup) ||
+      preset === 'customKey' ||
+      preset === 'delay' ||
+      preset === 'clipboardOverlay'
+    ) {
+      setEdit({ behavior: replacement[0], replacement, mode: effectiveMode })
+    } else save(effectiveMode === 'replace' ? replacement : [...baseList, ...replacement])
   }
 
   return (
@@ -96,7 +103,9 @@ export function LegacyMappingEditor<Id extends string>({
           trigger={trigger}
           behaviors={list}
           onApplyCommonBehavior={preset => applyPreset(preset, 'replace')}
-          onAddAdvancedBehavior={type => applyPreset(type === 'key' ? 'customKey' : type, 'append')}
+          onAddAdvancedBehavior={type =>
+            applyPreset(type === 'key' ? 'customKey' : type, type === 'clipboardOverlay' ? 'replace' : 'append')
+          }
           onRemoveBehavior={id => {
             if (save(list.filter(item => item.id !== id))) {
               editorRef.current?.querySelector<HTMLButtonElement>('.behavior-sequence-actions button')?.focus()
@@ -138,15 +147,18 @@ export function LegacyMappingEditor<Id extends string>({
                 const behavior = normalizeBehavior(value)
                 if (!behavior) return
                 if (behavior.type === 'switchProfile') onRequestProfileSwitch(button.id, trigger, behavior)
-                else {
+                else if (behavior.type === 'clipboardOverlay' && behavior.enabled !== false) {
+                  if (!save([behavior])) return
+                } else {
                   const replacement = edit.replacement?.map(item => (item.id === behavior.id ? behavior : item)) ?? [
                     behavior,
                   ]
+                  const baseList = list.filter(item => !(item.type === 'clipboardOverlay' && item.enabled !== false))
                   const next =
                     edit.mode === 'replace'
                       ? replacement
                       : edit.mode === 'append'
-                        ? [...list, ...replacement]
+                        ? [...baseList, ...replacement]
                         : list.map(item => (item.id === behavior.id ? behavior : item))
                   if (!save(next)) return
                 }

@@ -30,7 +30,7 @@ export function conciseSlotShort(slot: Pick<QuickOverlayKeySlot, 'short' | 'labe
   return mouseTrimmed.replace(/键$/, '').trim() || slot.short || slot.label
 }
 
-export function slotKindClass(kind?: 'prompt' | 'action' | 'sequence'): string {
+export function slotKindClass(kind?: 'prompt' | 'action' | 'sequence' | 'clipboard'): string {
   if (!kind) return ''
   return ` kind-${kind}`
 }

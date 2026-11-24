@@ -81,6 +81,7 @@ import type {
   Behavior,
   BehaviorMap,
   ButtonId,
+  ClipboardOverlayAction,
   ImportedMapping,
   InputId,
   TriggerBehaviors,
@@ -2864,6 +2865,24 @@ function AppController({
     })
   }
 
+  const previewDeviceClipboardOverlay = (triggerInputId: string, action: ClipboardOverlayAction = 'paste') => {
+    if (!nativeRuntime) {
+      setToast('桌面应用中可打开顶层剪贴板交互窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+      return
+    }
+    void invoke('preview_clipboard_overlay', {
+      sourceId: isMouse ? 'mouse' : `legacy-${selectedDeviceId}`,
+      deviceKind: selectedDeviceId,
+      deviceName: isMouse ? '系统鼠标' : selectedDevice.name,
+      triggerInput: triggerInputId,
+      action,
+    }).catch(() => {
+      setToast('无法打开剪贴板交互窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+    })
+  }
+
   const mappingQuickOverlayContext: QuickOverlayEditorContext = {
     currentProfileId: activeProfileId,
     profiles: snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
@@ -2878,6 +2897,7 @@ function AppController({
     onCreateQuickProfile: name => createQuickMappingProfileInline(name),
     onEditProfile: setQuickProfileEditRequest,
     onPreviewProfile: (targetId, triggerInputId) => previewDeviceQuickProfile(targetId, triggerInputId),
+    onPreviewClipboard: (triggerInputId, action) => previewDeviceClipboardOverlay(triggerInputId, action),
   }
 
   const mappingInputWarnings = inspectBehaviorMapWarnings(
