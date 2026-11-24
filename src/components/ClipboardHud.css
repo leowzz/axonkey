@@ -11,30 +11,27 @@
 .clipboard-hud-shell {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 13px 14px 12px;
+  padding: 10px 10px 8px;
   box-sizing: border-box;
-  border-radius: 16px;
-  border: 1px solid rgb(255 255 255 / 92%);
-  color: #1e293b;
-  background: linear-gradient(164deg, rgb(253 254 255 / 95%), rgb(236 241 248 / 92%));
-  backdrop-filter: blur(22px) saturate(160%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  background: var(--surface);
   box-shadow:
-    0 18px 42px rgb(15 23 42 / 22%),
-    0 2px 8px rgb(15 23 42 / 8%),
-    inset 0 1px 0 #ffffff;
+    0 4px 12px rgb(15 23 42 / 10%),
+    0 1px 2px rgb(15 23 42 / 6%);
   user-select: none;
-  animation: clipboard-hud-in 110ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: clipboard-hud-in 80ms ease-out;
 }
 
 @keyframes clipboard-hud-in {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.99);
   }
 }
 
@@ -51,7 +48,7 @@
   gap: 8px;
   flex: 0 0 auto;
   min-width: 0;
-  padding: 0 2px;
+  padding: 2px 4px;
 }
 
 .clipboard-hud-identity {
@@ -62,22 +59,10 @@
   flex: 1 1 auto;
 }
 
-.clipboard-hud-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  color: #2563eb;
-  background: rgb(37 99 235 / 12%);
-  flex: 0 0 auto;
-}
-
 .clipboard-hud-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -86,36 +71,27 @@
 .clipboard-hud-pill.is-preview {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
-  border-radius: 999px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
   font-size: 11px;
-  font-weight: 650;
-  color: #b45309;
-  background: rgb(245 158 11 / 16%);
-  border: 1px solid rgb(245 158 11 / 32%);
+  font-weight: 500;
+  color: var(--ink-secondary);
+  background: var(--surface-subtle);
   flex: 0 0 auto;
 }
 
 .clipboard-hud-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 11.5px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: #475569;
-  background: rgb(15 23 42 / 7%);
+  color: var(--muted);
   flex: 0 0 auto;
 }
 
 .clipboard-hud-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 0 0 auto;
 }
 
@@ -124,44 +100,42 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
-  border: 1px solid rgb(15 23 42 / 10%);
-  border-radius: 8px;
-  color: #475569;
-  background: rgb(255 255 255 / 72%);
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
   cursor: pointer;
   transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
+    background-color 100ms ease,
+    color 100ms ease;
 }
 
 .clipboard-hud-clear {
-  gap: 4px;
-  padding: 0 9px;
+  padding: 0 7px;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .clipboard-hud-close {
-  width: 26px;
+  width: 24px;
   padding: 0;
 }
 
-.clipboard-hud-clear:hover,
-.clipboard-hud-clear:focus-visible {
-  color: #b91c1c;
-  background: #fef2f2;
-  border-color: rgb(239 68 68 / 36%);
-  outline: none;
+.clipboard-hud-clear:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
-.clipboard-hud-close:hover,
+.clipboard-hud-close:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.clipboard-hud-clear:focus-visible,
 .clipboard-hud-close:focus-visible {
-  color: #0f172a;
-  background: #ffffff;
-  border-color: rgb(37 99 235 / 40%);
-  outline: none;
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
 }
 
 .clipboard-hud-list {
@@ -171,62 +145,57 @@
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 2px;
+  gap: 2px;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(15 23 42 / 14%) transparent;
 }
 
 .clipboard-hud-row {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid rgb(15 23 42 / 6%);
-  border-radius: 11px;
-  background: rgb(255 255 255 / 62%);
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
   text-align: left;
   color: inherit;
   cursor: pointer;
   flex: 0 0 auto;
-  transition:
-    background-color 110ms ease,
-    border-color 110ms ease,
-    box-shadow 110ms ease;
+  transition: background-color 90ms ease;
 }
 
-.clipboard-hud-row:hover,
+.clipboard-hud-row:hover {
+  background: var(--surface-subtle);
+}
+
 .clipboard-hud-row:focus-visible {
-  background: rgb(255 255 255 / 88%);
-  border-color: rgb(37 99 235 / 26%);
-  outline: none;
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 
 .clipboard-hud-row.is-selected {
-  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
-  border-color: rgb(37 99 235 / 55%);
-  box-shadow: 0 2px 10px rgb(37 99 235 / 12%);
+  background: var(--blue-soft);
 }
 
 .clipboard-hud-index {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  padding: 0 5px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  min-width: 16px;
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
-  color: #64748b;
-  background: rgb(15 23 42 / 6%);
+  color: var(--muted);
+  background: transparent;
 }
 
 .clipboard-hud-row.is-selected .clipboard-hud-index {
-  color: #ffffff;
-  background: #2563eb;
+  color: var(--blue);
+  font-weight: 600;
 }
 
 .clipboard-hud-body {
@@ -234,13 +203,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .clipboard-hud-text {
   font-size: 13px;
-  line-height: 1.42;
-  color: #1e293b;
+  line-height: 1.45;
+  color: var(--ink-secondary);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -249,7 +218,7 @@
 }
 
 .clipboard-hud-row.is-selected .clipboard-hud-text {
-  color: #0f172a;
+  color: var(--ink);
   font-weight: 500;
   white-space: pre-wrap;
   -webkit-line-clamp: 4;
@@ -257,22 +226,16 @@
 
 .clipboard-hud-meta {
   font-size: 11px;
-  color: #64748b;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .clipboard-hud-confirm-badge {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 1px;
-  padding: 2px 7px;
-  border-radius: 6px;
   font-size: 11px;
-  font-weight: 650;
-  color: #1d4ed8;
-  background: rgb(37 99 235 / 12%);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--blue);
   white-space: nowrap;
 }
 
@@ -282,51 +245,51 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   padding: 24px 16px;
   text-align: center;
 }
 
 .clipboard-hud-empty p {
   margin: 0;
-  font-size: 14px;
-  font-weight: 650;
-  color: #334155;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-secondary);
 }
 
 .clipboard-hud-empty span {
   font-size: 12px;
-  color: #64748b;
+  color: var(--muted);
 }
 
 .clipboard-hud-footer {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 2px 4px 0;
-  font-size: 11.5px;
-  color: #64748b;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 4px 4px 0;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .clipboard-hud-footer span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .clipboard-hud-footer kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  padding: 1px 5px;
-  border-radius: 5px;
-  border: 1px solid rgb(15 23 42 / 14%);
-  background: rgb(255 255 255 / 78%);
+  min-width: 16px;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 3px;
+  background: var(--surface-subtle);
   font-family: inherit;
   font-size: 10.5px;
-  font-weight: 650;
-  color: #334155;
+  font-weight: 500;
+  color: var(--ink-secondary);
 }

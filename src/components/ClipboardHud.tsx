@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ClipboardList, CornerDownLeft, Trash2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { ClipboardHudEntry, ClipboardOverlayPayload } from './quickOverlayModel'
 import './ClipboardHud.css'
 
@@ -47,9 +47,6 @@ export function ClipboardHud({
       <aside className="clipboard-hud-shell" role="dialog" aria-label={isCopy ? '剪贴板浮窗（仅复制）' : '剪贴板浮窗'}>
         <header className="clipboard-hud-header">
           <div className="clipboard-hud-identity">
-            <span className="clipboard-hud-icon" aria-hidden="true">
-              <ClipboardList size={15} />
-            </span>
             <strong className="clipboard-hud-title">{isCopy ? '剪贴板 · 仅复制' : '剪贴板'}</strong>
             {preview && <span className="clipboard-hud-pill is-preview">预览</span>}
             {entries.length > 0 && <span className="clipboard-hud-count">{entries.length}</span>}
@@ -63,8 +60,7 @@ export function ClipboardHud({
                 title="清空剪贴板历史"
                 onClick={onClear}
               >
-                <Trash2 size={13} aria-hidden="true" />
-                <span>清空</span>
+                清空
               </button>
             )}
             <button
@@ -75,7 +71,7 @@ export function ClipboardHud({
               title="关闭（Esc）"
               onClick={onDismiss}
             >
-              <X size={15} aria-hidden="true" />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -108,12 +104,7 @@ export function ClipboardHud({
                     <span className="clipboard-hud-text">{display}</span>
                     {showMeta && <span className="clipboard-hud-meta">{entry.text.length} 字符</span>}
                   </div>
-                  {isSelected && (
-                    <span className="clipboard-hud-confirm-badge">
-                      <CornerDownLeft size={11} aria-hidden="true" />
-                      <span>{isCopy ? 'OK 复制' : 'OK 粘贴'}</span>
-                    </span>
-                  )}
+                  {isSelected && <span className="clipboard-hud-confirm-badge">{isCopy ? 'OK 复制' : 'OK 粘贴'}</span>}
                 </button>
               )
             })}
