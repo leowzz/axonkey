@@ -17,6 +17,8 @@ const LABEL: &str = "quick-overlay";
 const EVENT: &str = "axonkey-quick-overlay";
 const WIDTH: f64 = 880.0;
 const HEIGHT: f64 = 660.0;
+const CLIPBOARD_WIDTH: f64 = 420.0;
+const CLIPBOARD_HEIGHT: f64 = 460.0;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -26,6 +28,14 @@ static STATE: LazyLock<Mutex<SessionState>> = LazyLock::new(|| Mutex::new(Sessio
 #[cfg(test)]
 static TEST_ACTIVE_REVISIONS: LazyLock<Mutex<std::collections::HashSet<u64>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardOverlayState {
+    pub action: crate::input_service::ClipboardOverlayAction,
+    pub entries: Vec<crate::clipboard_history::ClipboardEntry>,
+    pub selected_index: usize,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +53,17 @@ pub struct QuickOverlaySession {
     #[serde(default)]
     pub prompt_mode: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub clipboard: Option<ClipboardOverlayState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub descriptor_svg: Option<String>,
+}
+
+fn window_dimensions(session: &QuickOverlaySession) -> (f64, f64) {
+    if session.clipboard.is_some() {
+        (CLIPBOARD_WIDTH, CLIPBOARD_HEIGHT)
+    } else {
+        (WIDTH, HEIGHT)
+    }
 }
 
 #[derive(Default)]
@@ -186,33 +206,41 @@ pub(crate) fn open(
     prompt_mode: bool,
 ) -> u64 {
     let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
+    open_session(QuickOverlaySession {
+        revision: 0,
+        source_id,
+        device_kind,
+        device_name,
+        profile_id,
+        profile_name,
+        trigger_input,
+        behaviors,
+        pressed: Vec::new(),
+        preview,
+        prompt_mode,
+        clipboard: None,
+        descriptor_svg,
+    })
+}
+
+pub(crate) fn open_session(mut input: QuickOverlaySession) -> u64 {
+    input.revision = 0;
     let session = {
         let mut state = STATE.lock().unwrap();
-        state.replace(QuickOverlaySession {
-            revision: 0,
-            source_id,
-            device_kind,
-            device_name,
-            profile_id,
-            profile_name,
-            trigger_input,
-            behaviors,
-            pressed: Vec::new(),
-            preview,
-            prompt_mode,
-            descriptor_svg,
-        })
+        state.replace(input)
     };
     let revision = session.revision;
+    let (width, height) = window_dimensions(&session);
     log::info!(
         target: "axonkey::quick_overlay",
-        "Quick overlay opened: revision={} source={:?} kind={:?} profile={:?} trigger={:?} preview={}",
+        "Quick overlay opened: revision={} source={:?} kind={:?} profile={:?} trigger={:?} preview={} clipboard={}",
         revision,
         session.source_id,
         session.device_kind,
         session.profile_name,
         session.trigger_input,
         session.preview,
+        session.clipboard.is_some(),
     );
     if let Some(app) = APP.get() {
         let handle = app.clone();
@@ -232,7 +260,7 @@ pub(crate) fn open(
             let _ = handle.emit_to(LABEL, EVENT, Some(payload));
             // Present immediately on the cursor's screen so macOS WebKit never throttles
             // a hidden/off-Space WebView before `reveal_quick_overlay` can fire.
-            present_window_on_cursor_monitor(&window, true);
+            present_window_on_cursor_monitor(&window, width, height, true);
         });
     }
     revision
@@ -258,6 +286,29 @@ pub(crate) fn set_pressed(revision: u64, pressed: Vec<String>) {
     }
 }
 
+pub(crate) fn set_clipboard_selected(revision: u64, selected_index: usize) {
+    if !is_revision_active(revision) {
+        return;
+    }
+    let updated = {
+        let mut state = STATE.lock().unwrap();
+        let Some(current) = state.current.as_mut().filter(|s| s.revision == revision) else {
+            return;
+        };
+        let Some(clipboard) = current.clipboard.as_mut() else {
+            return;
+        };
+        if clipboard.selected_index == selected_index {
+            return;
+        }
+        clipboard.selected_index = selected_index;
+        current.clone()
+    };
+    if let Some(app) = APP.get() {
+        let _ = app.emit_to(LABEL, EVENT, Some(updated));
+    }
+}
+
 pub(crate) fn close_revision(revision: u64) -> Option<QuickOverlaySession> {
     if revision == 0 {
         return None;
@@ -268,6 +319,17 @@ pub(crate) fn close_revision(revision: u64) -> Option<QuickOverlaySession> {
         hide_window_if_idle();
     }
     removed
+}
+
+pub(crate) fn close_if_clipboard_mode() -> bool {
+    let revision = STATE
+        .lock()
+        .unwrap()
+        .current
+        .as_ref()
+        .filter(|s| s.clipboard.is_some())
+        .map(|s| s.revision);
+    revision.is_some_and(|rev| close_revision(rev).is_some())
 }
 
 extern "C" fn dismiss_on_escape() -> bool {
@@ -328,7 +390,12 @@ fn hide_window_if_idle() {
     });
 }
 
-fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder: bool) {
+fn present_window_on_cursor_monitor(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    force_reorder: bool,
+) {
     #[cfg(target_os = "macos")]
     {
         if let Ok(ns_win) = window.ns_window() {
@@ -341,7 +408,7 @@ fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder
                 ) -> u32;
             }
             let status =
-                unsafe { axonkey_show_quick_overlay_window(ns_win, WIDTH, HEIGHT, force_reorder) };
+                unsafe { axonkey_show_quick_overlay_window(ns_win, width, height, force_reorder) };
             log::info!(
                 target: "axonkey::quick_overlay",
                 "macOS quick overlay shown: visible={} active_space={} recovered={} accessory={}",
@@ -392,8 +459,8 @@ fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder
                     let scale = if dpi > 0 { dpi as f64 / 96.0 } else { 1.0 };
                     let work_w = (info.rcWork.right - info.rcWork.left).max(360);
                     let work_h = (info.rcWork.bottom - info.rcWork.top).max(280);
-                    let w = ((WIDTH * scale).round() as i32).min(work_w - 32);
-                    let h = ((HEIGHT * scale).round() as i32).min(work_h - 32);
+                    let w = ((width * scale).round() as i32).min(work_w - 32);
+                    let h = ((height * scale).round() as i32).min(work_h - 32);
                     let x = info.rcWork.left + (work_w - w) / 2;
                     let y = info.rcWork.top + (work_h - h) / 2 - 12;
                     let _ = SetWindowPos(
@@ -412,6 +479,7 @@ fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
         let app = window.app_handle();
         let monitor = app
             .cursor_position()
@@ -422,20 +490,24 @@ fn present_window_on_cursor_monitor(window: &tauri::WebviewWindow, force_reorder
             let area = monitor.work_area();
             let scale = monitor.scale_factor();
             let _ = window.set_position(tauri::PhysicalPosition::new(
-                area.position.x + ((area.size.width as f64 - WIDTH * scale) / 2.0).round() as i32,
-                area.position.y + ((area.size.height as f64 - HEIGHT * scale) / 2.0).round() as i32,
+                area.position.x + ((area.size.width as f64 - width * scale) / 2.0).round() as i32,
+                area.position.y + ((area.size.height as f64 - height * scale) / 2.0).round() as i32,
             ));
         }
         let _ = window.show();
     }
 }
 
-fn reveal_window_on_active_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
+fn reveal_window_on_active_monitor(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
     let win = window.clone();
     window
         .app_handle()
         .run_on_main_thread(move || {
-            present_window_on_cursor_monitor(&win, false);
+            present_window_on_cursor_monitor(&win, width, height, false);
         })
         .map_err(|e| e.to_string())
 }
@@ -458,14 +530,17 @@ pub async fn reveal_quick_overlay(
     if window.label() != LABEL {
         return Err("Invalid quick overlay window".into());
     }
-    if !STATE
+    let Some((width, height)) = STATE
         .lock()
         .map_err(|e| e.to_string())?
-        .is_current(revision)
-    {
+        .current
+        .as_ref()
+        .filter(|s| s.revision == revision)
+        .map(window_dimensions)
+    else {
         return Ok(());
-    }
-    reveal_window_on_active_monitor(&window)
+    };
+    reveal_window_on_active_monitor(&window, width, height)
 }
 
 #[tauri::command]
@@ -509,6 +584,82 @@ pub async fn preview_quick_overlay(
 }
 
 #[tauri::command]
+pub async fn preview_clipboard_overlay(
+    window: tauri::WebviewWindow,
+    source_id: String,
+    device_kind: String,
+    device_name: String,
+    trigger_input: String,
+    action: Option<crate::input_service::ClipboardOverlayAction>,
+) -> Result<u64, String> {
+    if window.label() != "main" {
+        return Err("Preview must be opened from the main window".into());
+    }
+    crate::clipboard_history::sync_now();
+    let entries = crate::clipboard_history::entries();
+    Ok(open_session(QuickOverlaySession {
+        revision: 0,
+        source_id,
+        device_kind,
+        device_name,
+        profile_id: "__clipboard__".into(),
+        profile_name: "剪贴板".into(),
+        trigger_input,
+        behaviors: serde_json::json!({}),
+        pressed: Vec::new(),
+        preview: true,
+        prompt_mode: false,
+        clipboard: Some(ClipboardOverlayState {
+            action: action.unwrap_or_default(),
+            entries,
+            selected_index: 0,
+        }),
+        descriptor_svg: None,
+    }))
+}
+
+#[tauri::command]
+pub async fn select_clipboard_overlay_item(
+    window: tauri::WebviewWindow,
+    revision: u64,
+    index: usize,
+) -> Result<(), String> {
+    if window.label() != LABEL {
+        return Err("Invalid quick overlay window".into());
+    }
+    let Some(session) = close_revision(revision) else {
+        return Ok(());
+    };
+    let Some(clipboard) = session.clipboard else {
+        return Ok(());
+    };
+    let Some(entry) = clipboard.entries.get(index) else {
+        return Ok(());
+    };
+    let behavior = match clipboard.action {
+        crate::input_service::ClipboardOverlayAction::Paste => {
+            crate::input_service::NativeBehavior::Paste {
+                enabled: true,
+                text: entry.text.clone(),
+            }
+        }
+        crate::input_service::ClipboardOverlayAction::CopyText => {
+            crate::input_service::NativeBehavior::CopyText {
+                enabled: true,
+                text: entry.text.clone(),
+                title: None,
+            }
+        }
+    };
+    spawn_quick_sequence(
+        window.app_handle().clone(),
+        session.source_id,
+        vec![behavior],
+    );
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn trigger_quick_overlay_input(
     window: tauri::WebviewWindow,
     revision: u64,
@@ -520,7 +671,7 @@ pub async fn trigger_quick_overlay_input(
     let Some(session) = close_revision(revision) else {
         return Ok(());
     };
-    if session.trigger_input == input_id {
+    if session.clipboard.is_some() || session.trigger_input == input_id {
         return Ok(());
     }
     let settings: crate::input_service::NativeSettings =
@@ -550,8 +701,15 @@ pub async fn trigger_quick_overlay_input(
     if sequence.is_empty() {
         return Ok(());
     }
-    let app = window.app_handle().clone();
-    let source_id = session.source_id;
+    spawn_quick_sequence(window.app_handle().clone(), session.source_id, sequence);
+    Ok(())
+}
+
+fn spawn_quick_sequence(
+    app: tauri::AppHandle,
+    source_id: String,
+    sequence: Vec<crate::input_service::NativeBehavior>,
+) {
     std::thread::spawn(move || {
         // Brief pause after panel dismissal ensures the foreground window receives injected input cleanly.
         std::thread::sleep(Duration::from_millis(20));
@@ -572,6 +730,7 @@ pub async fn trigger_quick_overlay_input(
                     break;
                 }
                 crate::input_service::NativeBehavior::QuickOverlay { .. }
+                | crate::input_service::NativeBehavior::ClipboardOverlay { .. }
                 | crate::input_service::NativeBehavior::Disabled { .. } => {}
                 _ => {
                     #[cfg(target_os = "macos")]
@@ -584,7 +743,6 @@ pub async fn trigger_quick_overlay_input(
             }
         }
     });
-    Ok(())
 }
 
 #[cfg(test)]
@@ -606,6 +764,7 @@ mod tests {
             pressed: vec![],
             preview: false,
             prompt_mode: false,
+            clipboard: None,
             descriptor_svg: None,
         });
         let second = state.replace(QuickOverlaySession {
@@ -620,6 +779,7 @@ mod tests {
             pressed: vec![],
             preview: false,
             prompt_mode: true,
+            clipboard: None,
             descriptor_svg: None,
         });
         assert!(second.revision > first.revision);
@@ -630,5 +790,69 @@ mod tests {
         assert!(state.is_current(second.revision));
         assert!(state.clear_if_revision(second.revision).is_some());
         assert!(!state.is_current(second.revision));
+    }
+
+    #[test]
+    fn close_if_clipboard_mode_only_closes_clipboard_sessions() {
+        static GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = GLOBAL_LOCK.lock().unwrap();
+
+        let regular_rev = open(
+            "dev-1".into(),
+            "rc003".into(),
+            "客厅遥控器".into(),
+            "p1".into(),
+            "常用".into(),
+            "menu".into(),
+            serde_json::json!({}),
+            false,
+            false,
+        );
+        assert!(!close_if_clipboard_mode());
+        assert!(is_revision_active(regular_rev));
+        assert!(close_revision(regular_rev).is_some());
+
+        let clipboard_rev = open_session(QuickOverlaySession {
+            revision: 0,
+            source_id: "dev-1".into(),
+            device_kind: "rc003".into(),
+            device_name: "客厅遥控器".into(),
+            profile_id: "__clipboard__".into(),
+            profile_name: "剪贴板".into(),
+            trigger_input: "menu".into(),
+            behaviors: serde_json::json!({}),
+            pressed: vec![],
+            preview: false,
+            prompt_mode: false,
+            clipboard: Some(ClipboardOverlayState {
+                action: crate::input_service::ClipboardOverlayAction::Paste,
+                entries: vec![
+                    crate::clipboard_history::ClipboardEntry {
+                        text: "one".into(),
+                        copied_at_ms: 1,
+                    },
+                    crate::clipboard_history::ClipboardEntry {
+                        text: "two".into(),
+                        copied_at_ms: 2,
+                    },
+                ],
+                selected_index: 0,
+            }),
+            descriptor_svg: None,
+        });
+        assert!(is_revision_active(clipboard_rev));
+        set_clipboard_selected(clipboard_rev, 1);
+        assert_eq!(
+            STATE
+                .lock()
+                .unwrap()
+                .current
+                .as_ref()
+                .and_then(|s| s.clipboard.as_ref())
+                .map(|c| c.selected_index),
+            Some(1)
+        );
+        assert!(close_if_clipboard_mode());
+        assert!(!is_revision_active(clipboard_rev));
     }
 }

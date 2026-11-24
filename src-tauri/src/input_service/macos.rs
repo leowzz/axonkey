@@ -1096,16 +1096,6 @@ struct MacInputState {
     epoch: Option<Instant>,
 }
 
-fn find_quick_overlay_profile_id(behaviors: &[NativeBehavior]) -> Option<&str> {
-    behaviors.iter().find_map(|behavior| match behavior {
-        NativeBehavior::QuickOverlay {
-            enabled: true,
-            profile_id,
-        } if !profile_id.trim().is_empty() => Some(profile_id.trim()),
-        _ => None,
-    })
-}
-
 impl MacInputState {
     fn elapsed_ms(&mut self, now: Instant) -> u64 {
         let base = *self.epoch.get_or_insert(now);
@@ -1120,21 +1110,21 @@ impl MacInputState {
         behaviors: &[NativeBehavior],
         still_down: bool,
     ) -> bool {
-        let Some(profile_id) = find_quick_overlay_profile_id(behaviors) else {
+        let Some(trigger) = super::quick_mode::find_overlay_trigger(behaviors) else {
             return false;
         };
         let source_id = shared
             .instance
             .as_ref()
             .map_or("legacy-rc003", |instance| instance.id.as_str());
-        self.quick_mode.enter_from_settings(
+        self.quick_mode.enter_trigger(
             source_id,
             "rc003",
             "小米遥控器",
-            profile_id,
+            trigger,
             button,
             still_down,
-            settings,
+            &settings.quick_profiles,
         )
     }
 
@@ -1490,7 +1480,7 @@ impl MacInputState {
                 {
                     if has_enabled(&triggers.long_press) {
                         log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
-                        if find_quick_overlay_profile_id(&triggers.long_press).is_some() {
+                        if super::quick_mode::find_overlay_trigger(&triggers.long_press).is_some() {
                             press.long_fired = true;
                             deferred_quick.push((source.id, triggers.long_press.clone(), true));
                         } else {
@@ -1518,7 +1508,7 @@ impl MacInputState {
                 }
                 if let Some(due_at) = press.long_repeat_due_at {
                     if !has_enabled(&triggers.long_press)
-                        || find_quick_overlay_profile_id(&triggers.long_press).is_some()
+                        || super::quick_mode::find_overlay_trigger(&triggers.long_press).is_some()
                     {
                         press.long_repeat_due_at = None;
                     } else if now >= due_at {
@@ -1545,7 +1535,7 @@ impl MacInputState {
             if pending_click_is_due(state, now) {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
                 let pending = state.pending_click.take().unwrap();
-                if find_quick_overlay_profile_id(&triggers.click).is_some() {
+                if super::quick_mode::find_overlay_trigger(&triggers.click).is_some() {
                     deferred_quick.push((source.id, triggers.click.clone(), false));
                 } else {
                     record_remote_trigger(
@@ -1736,7 +1726,7 @@ fn supports_hardware_modifier_remap(source: &SourceKey) -> bool {
 }
 
 fn key_used_in_reachable_quick_profile(settings: &NativeSettings, key: &str) -> bool {
-    settings
+    let in_quick_profile = settings
         .behaviors
         .values()
         .flat_map(|t| t.iter())
@@ -1747,7 +1737,20 @@ fn key_used_in_reachable_quick_profile(settings: &NativeSettings, key: &str) -> 
             } => settings.quick_profiles.get(profile_id.trim()),
             _ => None,
         })
-        .any(|profile| profile.behaviors.get(key).is_some_and(has_custom_behavior))
+        .any(|profile| profile.behaviors.get(key).is_some_and(has_custom_behavior));
+    if in_quick_profile {
+        return true;
+    }
+    super::quick_mode::classify_clipboard_nav("rc003", key).is_some()
+        && settings.behaviors.iter().any(|(trigger_key, triggers)| {
+            trigger_key != key
+                && triggers.iter().any(|behavior| {
+                    matches!(
+                        behavior,
+                        NativeBehavior::ClipboardOverlay { enabled: true, .. }
+                    )
+                })
+        })
 }
 
 fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
@@ -1923,7 +1926,9 @@ fn execute_behaviors_with_hold(
             NativeBehavior::SwitchProfile {
                 direction, wrap, ..
             } => super::profile_switch::execute(device_id, *direction, *wrap),
-            NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::QuickOverlay { .. }
+            | NativeBehavior::ClipboardOverlay { .. }
+            | NativeBehavior::Disabled { .. } => {}
             NativeBehavior::OpenPath { .. }
             | NativeBehavior::OpenApp { .. }
             | NativeBehavior::OpenWebsite { .. }
@@ -1992,6 +1997,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::QuickOverlay { profile_id, .. } => {
             log::info!(target: "axonkey::input", "Mapped quick overlay: profile_id={profile_id:?}")
         }
+        NativeBehavior::ClipboardOverlay { action, .. } => {
+            log::info!(target: "axonkey::input", "Mapped clipboard overlay: action={action:?}")
+        }
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
@@ -2033,6 +2041,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::QuickOverlay { .. }
+        | NativeBehavior::ClipboardOverlay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }

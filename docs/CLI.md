@@ -238,14 +238,15 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 {"type":"httpRequest","method":"POST","url":"http://127.0.0.1:8123/api/webhook","headers":{"Content-Type":"application/json"},"body":"{\"action\":\"toggle\"}","title":"触发本机 Webhook"}
 {"type":"switchProfile","direction":"next","wrap":true}
 {"type":"quickOverlay","profileId":"<快捷配置 ID>"}
+{"type":"clipboardOverlay","action":"paste"}
 {"type":"disabled"}
 ```
 
 快捷键 token 使用统一格式。`Mod` 在 Windows 表示 `Ctrl`，在 macOS 表示 `Cmd`；也接受 `Command`、`Cmd`、`Option`、`Esc` 等常见别名。一个快捷键最多包含一个普通键，修饰键顺序会自动规范化。
 
-`typeText`、`paste`、`copyText`、`runCommand` 与 `httpRequest` 均支持可选 `title` 字段，用于在快捷交互窗及纯 Prompt 模式面板中展示更简洁的短标题。`typeText` 通过系统文字输入发送 Unicode 文本，不读取或修改剪贴板；`paste` 会替换剪贴板后执行粘贴；`copyText` 仅写入剪贴板而不发送粘贴快捷键。`openPath` 通过系统默认程序打开完整的绝对文件或文件夹路径，支持空格、中文和 UNC 路径。`runCommand` 支持可选绝对路径 `workingDirectory`，在后台线程非阻塞执行命令（macOS 使用 `/bin/zsh -lc`，Windows 使用隐藏窗口 PowerShell）；`httpRequest` 支持 `GET|POST|PUT|PATCH|DELETE`、可选 `headers`（最多 16 项）与可选 `body`，在后台异步发起 10 秒超时请求并支持 localhost / 局域网地址。`quickOverlay` 必须作为触发方式的唯一行为使用，`profileId` 支持配置 ID 或名称（解析后保存为配置 ID）。
+`typeText`、`paste`、`copyText`、`runCommand` 与 `httpRequest` 均支持可选 `title` 字段，用于在快捷交互窗及纯 Prompt 模式面板中展示更简洁的短标题。`typeText` 通过系统文字输入发送 Unicode 文本，不读取或修改剪贴板；`paste` 会替换剪贴板后执行粘贴；`copyText` 仅写入剪贴板而不发送粘贴快捷键。`openPath` 通过系统默认程序打开完整的绝对文件或文件夹路径，支持空格、中文和 UNC 路径。`runCommand` 支持可选绝对路径 `workingDirectory`，在后台线程非阻塞执行命令（macOS 使用 `/bin/zsh -lc`，Windows 使用隐藏窗口 PowerShell）；`httpRequest` 支持 `GET|POST|PUT|PATCH|DELETE`、可选 `headers`（最多 16 项）与可选 `body`，在后台异步发起 10 秒超时请求并支持 localhost / 局域网地址。`quickOverlay` 必须作为触发方式的唯一行为使用，`profileId` 支持配置 ID 或名称（解析后保存为配置 ID）。`clipboardOverlay` 同样必须作为触发方式的唯一行为使用，按下后在顶层唤起简洁的剪贴板历史列表浮窗（由新到旧排序），支持上下键/侧键/滚轮切换条目、确认键（OK）粘贴或复制当前选中项、返回/Esc 或再按触发键关闭；可选 `action` 为 `"paste"`（默认，确认后直接粘贴）或 `"copyText"`（确认后仅写入剪贴板）。
 
-包含 `copyText`、`runCommand`、`httpRequest`、`typeText` 或 `openPath` 的配置在后续文本序列、映射或备份导出时会自动使用对应的新版本格式（含最低版本 `minAppVersion`）；CLI 协议本身仍保持 `axonkey.cli/v1`。
+包含 `clipboardOverlay`、`copyText`、`runCommand`、`httpRequest`、`typeText` 或 `openPath` 的配置在后续文本序列、映射或备份导出时会自动使用对应的新版本格式（含最低版本 `minAppVersion`，其中含 `clipboardOverlay` 时为 `1.9.21`）；CLI 协议本身仍保持 `axonkey.cli/v1`。
 
 设备型号与按键 ID 以 `capabilities` 和 `keymap get` 返回值为准，实际设备实例以 `device list` 为准。触发方式为 `click`、`doubleClick`、`longPress`，省略时为 `click`。
 
@@ -298,7 +299,7 @@ axonkey-cli capture compile \
 用 mapping get 查看目标按键当前行为，用 --dry-run 预览变更。
 快捷键使用 Mod、Ctrl、Shift、Alt 等 token；Mod 会按系统转换。
 mapping set 的 --sequence 是按顺序执行的行为数组，空数组表示保留原始输入。
-switchProfile 和 quickOverlay 均必须是唯一行为；switchProfile 会应用到全部常规配置并由新配置继承。
+switchProfile、quickOverlay 和 clipboardOverlay 均必须是唯一行为；switchProfile 会应用到全部常规配置并由新配置继承。
 清除映射或删除配置必须显式传入 --yes。写入后用 mapping get/list 或 profile list 回读。
 ```
 

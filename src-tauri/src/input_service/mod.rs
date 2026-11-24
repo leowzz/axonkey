@@ -593,10 +593,24 @@ pub(super) enum NativeBehavior {
         #[serde(rename = "profileId")]
         profile_id: String,
     },
+    ClipboardOverlay {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        #[serde(default)]
+        action: ClipboardOverlayAction,
+    },
     Disabled {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ClipboardOverlayAction {
+    #[default]
+    Paste,
+    CopyText,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -694,6 +708,7 @@ impl NativeBehavior {
             | Self::HttpRequest { enabled, .. }
             | Self::SwitchProfile { enabled, .. }
             | Self::QuickOverlay { enabled, .. }
+            | Self::ClipboardOverlay { enabled, .. }
             | Self::Disabled { enabled } => *enabled,
         }
     }

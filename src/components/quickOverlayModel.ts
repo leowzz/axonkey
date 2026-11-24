@@ -9,6 +9,17 @@ import { packageFor } from '../devices/integration/model.ts'
 import { tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
 import type { DeviceSupportPackage, RemoteKeyRegion, RemoteView } from '../devices/types.ts'
 
+export type ClipboardHudEntry = {
+  text: string
+  copiedAtMs: number
+}
+
+export type ClipboardOverlayPayload = {
+  action: 'paste' | 'copyText'
+  entries: ClipboardHudEntry[]
+  selectedIndex: number
+}
+
 export type QuickOverlaySessionPayload = {
   revision: number
   sourceId: string
@@ -21,6 +32,7 @@ export type QuickOverlaySessionPayload = {
   pressed: string[]
   preview: boolean
   promptMode?: boolean
+  clipboard?: ClipboardOverlayPayload | null
   descriptorSvg?: string | null
 }
 
@@ -294,6 +306,9 @@ function compactActionText(step: Behavior, platform: Platform): string {
       return behaviorSummary(step, platform)
     }
   }
+  if (step.type === 'clipboardOverlay') {
+    return step.action === 'copyText' ? '剪贴板(复制)' : '剪贴板浮窗'
+  }
   return behaviorSummary(step, platform)
 }
 
@@ -347,6 +362,16 @@ export function summarizeQuickTrigger(
 
   if (active.length === 1) {
     const step = active[0]
+    if (step.type === 'clipboardOverlay') {
+      return {
+        trigger,
+        triggerLabel: label,
+        showTriggerTag,
+        kind: 'action',
+        badge: '剪贴板',
+        text: step.action === 'copyText' ? '剪贴板 · 仅复制' : '剪贴板浮窗',
+      }
+    }
     if (step.type === 'paste') {
       return {
         trigger,

@@ -11,6 +11,7 @@ import { iconFor } from '../../components/InputIcon'
 import type { MacPermissions, ManagedDriverAction, MappingEditorStyle, MappingInput, Platform } from '../../appTypes'
 import type {
   ButtonId,
+  ClipboardOverlayAction,
   SanitizedProfileBehaviors,
   SwitchProfileBehavior,
   TriggerBehaviors,
@@ -545,6 +546,24 @@ export function InstanceWorkspace({
     },
     [activeBehaviors, instance, native, onToast, profile.id, sanitizedProfiles],
   )
+  const previewClipboardOverlay = useCallback(
+    (triggerInputId: string, action: ClipboardOverlayAction = 'paste') => {
+      if (!native) {
+        onToast?.('桌面应用中可打开剪贴板浮窗预览')
+        return
+      }
+      void invoke('preview_clipboard_overlay', {
+        sourceId: instance.id,
+        deviceKind: instance.kind,
+        deviceName: instance.name,
+        triggerInput: triggerInputId,
+        action,
+      }).catch(() => {
+        onToast?.('无法打开剪贴板浮窗预览')
+      })
+    },
+    [instance.id, instance.kind, instance.name, native, onToast],
+  )
   const createQuickProfile = useCallback(
     async (name?: string, sourceProfileId?: string) => {
       let createdId: string | null = null
@@ -573,8 +592,17 @@ export function InstanceWorkspace({
       onCreateQuickProfile: createQuickProfile,
       onEditProfile: targetId => setEditingQuickProfileId(targetId),
       onPreviewProfile: (targetId, triggerInputId) => previewQuickProfile(targetId, triggerInputId),
+      onPreviewClipboard: (triggerInputId, action) => previewClipboardOverlay(triggerInputId, action),
     }),
-    [activeBehaviors, createQuickProfile, instance.profiles, previewQuickProfile, profile.id, sanitizedProfiles],
+    [
+      activeBehaviors,
+      createQuickProfile,
+      instance.profiles,
+      previewClipboardOverlay,
+      previewQuickProfile,
+      profile.id,
+      sanitizedProfiles,
+    ],
   )
   const mapped = Object.keys(activeBehaviors).filter(id =>
     Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),

@@ -3,6 +3,7 @@ mod app_storage;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
+mod clipboard_history;
 mod connection_troubleshoot;
 pub mod device_capture;
 mod devices;
@@ -2274,6 +2275,7 @@ pub fn run() {
         .setup(|app| {
             library_usage::initialize(app.handle());
             input_service::text_output::initialize(app.handle().clone());
+            clipboard_history::initialize(app.handle());
             use tauri::Manager;
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             app.manage(app_storage::AppConfigStore::open(
@@ -2394,6 +2396,10 @@ pub fn run() {
             quick_overlay::dismiss_quick_overlay,
             quick_overlay::preview_quick_overlay,
             quick_overlay::trigger_quick_overlay_input,
+            quick_overlay::preview_clipboard_overlay,
+            quick_overlay::select_clipboard_overlay_item,
+            clipboard_history::get_clipboard_history,
+            clipboard_history::clear_clipboard_history,
             ping,
             app_storage::load_app_config,
             app_storage::update_app_config,

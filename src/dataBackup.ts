@@ -1,7 +1,9 @@
 import {
+  clipboardOverlayMinAppVersion,
   commandBehaviorMinAppVersion,
   createEmptyBehaviorMap,
   minAppVersionForBehaviors,
+  newBehaviorMinAppVersion,
   normalizeBehavior,
   quickOverlayMinAppVersion,
   triggerTypes,
@@ -128,12 +130,17 @@ export function createDataBackup(
     ...document.savedBehaviors.flatMap(saved => saved.behaviors),
   ]
   const behaviorMinVersion = minAppVersionForBehaviors(behaviors)
-  const minAppVersion =
-    behaviorMinVersion === commandBehaviorMinAppVersion
-      ? commandBehaviorMinAppVersion
-      : document.profiles.some(profile => profile.quick)
-        ? quickOverlayMinAppVersion
-        : behaviorMinVersion
+  const versionOrder = [
+    newBehaviorMinAppVersion,
+    quickOverlayMinAppVersion,
+    commandBehaviorMinAppVersion,
+    clipboardOverlayMinAppVersion,
+  ]
+  const candidates = [
+    behaviorMinVersion,
+    document.profiles.some(profile => profile.quick) ? quickOverlayMinAppVersion : undefined,
+  ].filter((version): version is string => Boolean(version))
+  const minAppVersion = candidates.sort((a, b) => versionOrder.indexOf(b) - versionOrder.indexOf(a))[0]
   if (minAppVersion) {
     document.version = 3
     document.minAppVersion = minAppVersion

@@ -81,6 +81,7 @@ import type {
   Behavior,
   BehaviorMap,
   ButtonId,
+  ClipboardOverlayAction,
   ImportedMapping,
   InputId,
   TriggerBehaviors,
@@ -1025,6 +1026,14 @@ function AppController({
                   description: '按触发方式唤起快捷交互窗；必须为唯一行为',
                   exclusive: true,
                 },
+                {
+                  type: 'clipboardOverlay',
+                  optionalFields: ['action'],
+                  actions: ['paste', 'copyText'],
+                  description:
+                    '按触发方式唤起剪贴板浮窗列表（由新到旧），支持上下切换并按确认键粘贴或复制；必须为唯一行为',
+                  exclusive: true,
+                },
                 { type: 'disabled', fields: [] },
               ],
               devices: cliDevices.map(item => ({
@@ -1934,7 +1943,9 @@ function AppController({
                     ? { type, command: '' }
                     : type === 'httpRequest'
                       ? { type, method: 'POST', url: '' }
-                      : { type, ms: 300 },
+                      : type === 'clipboardOverlay'
+                        ? { type, action: 'paste' }
+                        : { type, ms: 300 },
           )
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
@@ -2089,6 +2100,7 @@ function AppController({
       case 'openWebsite':
       case 'runCommand':
       case 'httpRequest':
+      case 'clipboardOverlay':
         beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':
@@ -2854,6 +2866,24 @@ function AppController({
     })
   }
 
+  const previewDeviceClipboardOverlay = (triggerInputId: string, action: ClipboardOverlayAction = 'paste') => {
+    if (!nativeRuntime) {
+      setToast('桌面应用中可打开剪贴板浮窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+      return
+    }
+    void invoke('preview_clipboard_overlay', {
+      sourceId: isMouse ? 'mouse' : `legacy-${selectedDeviceId}`,
+      deviceKind: selectedDeviceId,
+      deviceName: isMouse ? '系统鼠标' : selectedDevice.name,
+      triggerInput: triggerInputId,
+      action,
+    }).catch(() => {
+      setToast('无法打开剪贴板浮窗预览')
+      window.setTimeout(() => setToast(''), 2000)
+    })
+  }
+
   const mappingQuickOverlayContext: QuickOverlayEditorContext = {
     currentProfileId: activeProfileId,
     profiles: snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
@@ -2868,6 +2898,7 @@ function AppController({
     onCreateQuickProfile: name => createQuickMappingProfileInline(name),
     onEditProfile: setQuickProfileEditRequest,
     onPreviewProfile: (targetId, triggerInputId) => previewDeviceQuickProfile(targetId, triggerInputId),
+    onPreviewClipboard: (triggerInputId, action) => previewDeviceClipboardOverlay(triggerInputId, action),
   }
 
   const mappingInputWarnings = inspectBehaviorMapWarnings(

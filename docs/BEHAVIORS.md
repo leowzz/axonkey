@@ -23,14 +23,14 @@
 
 行为库默认入口为完整的「内置」Tab，来源 Tab 顺序为「内置 | 推荐 | 社区 | 我的」（未接入账号时为「内置 | 我的」）。内置动作按高频与互斥原则归类为 6 组：**键盘**、**鼠标**、**媒体**、**文本**、**系统与命令**、**流程控制**，并在列表行内展示单行说明，点击条目主体直接添加，多步骤/已保存/云端条目提供独立详情预览入口。
 
-- **安全边界**：`runCommand` 与 `httpRequest` 仅限本地配置、已保存序列、`axonkey-cli`、本地备份导入导出及个人云同步使用；前后端与分享弹窗均禁止将此类包含本机命令或网络地址的序列公开提交或加载到公共社区库（`copyText` 属于无副作用纯文本剪贴板动作，允许公开分享）。
+- **安全边界**：`runCommand`、`httpRequest`、`quickOverlay` 与 `clipboardOverlay` 仅限本地配置、已保存序列、`axonkey-cli`、本地备份导入导出及个人云同步使用；前后端与分享弹窗均禁止将此类序列公开提交或加载到公共社区库（`copyText` 属于无副作用纯文本剪贴板动作，允许公开分享）。
 
 ## 最小兼容约定
 
-- `typeText` 与 `openPath` 引入的兼容门槛为 **1.8.11**（`newBehaviorMinAppVersion`）；`quickOverlay` 及 `paste`/`typeText` 短标题 `title` 为 **1.9.11**（`quickOverlayMinAppVersion`）；`copyText`、`runCommand`、`httpRequest` 的兼容门槛为 **1.9.19**（`commandBehaviorMinAppVersion`）。
+- `typeText` 与 `openPath` 引入的兼容门槛为 **1.8.11**（`newBehaviorMinAppVersion`）；`quickOverlay` 及 `paste`/`typeText` 短标题 `title` 为 **1.9.11**（`quickOverlayMinAppVersion`）；`copyText`、`runCommand`、`httpRequest` 的兼容门槛为 **1.9.19**（`commandBehaviorMinAppVersion`）；`clipboardOverlay` 的兼容门槛为 **1.9.21**（`clipboardOverlayMinAppVersion`）。
 - 只含旧行为：继续导出 `axonkey/1` 文本序列、映射 v2、备份 v2。
-- 含 `typeText`、`openPath`、`quickOverlay`、短标题或 `copyText`/`runCommand`/`httpRequest`（包括停用步骤）：导出 `axonkey/2` 文本序列、映射 v3、备份 v3；JSON 导出附带对应的最低版本 `minAppVersion`。
-- `axonkey/2` 序列新增指令为 `copy "文本" ["标题"]`、`cmd "命令" [cwd "目录"] [title "标题"]`、`http <METHOD> <URL> [header "Key" "Val"]... [body "正文"] [title "标题"]`。
+- 含 `typeText`、`openPath`、`quickOverlay`、短标题、`copyText`/`runCommand`/`httpRequest` 或 `clipboardOverlay`（包括停用步骤）：导出 `axonkey/2` 文本序列、映射 v3、备份 v3；JSON 导出附带对应的最低版本 `minAppVersion`。
+- `axonkey/2` 序列新增指令为 `copy "文本" ["标题"]`、`cmd "命令" [cwd "目录"] [title "标题"]`、`http <METHOD> <URL> [header "Key" "Val"]... [body "正文"] [title "标题"]`、`clipboard [copy]`。
 - 新客户端同时接受旧、新格式。旧客户端按其已有版本检查拒绝整个新格式，不会只导入剩余步骤；未知版本和未知指令同样拒绝。
 - 新客户端读取本地旧配置时，遇到不支持的行为会禁用整个对应触发序列并输出明确错误；备份导入和配置迁移整份拒绝，不丢弃未知步骤。原生设备存储已有严格枚举解码，旧服务无法解码新行为时拒绝整个配置。
 - 云端个人同步支持 `copyText`、`runCommand` 与 `httpRequest`，保留原始类型、参数、顺序与停用状态；公共社区行为库仅允许普通键鼠/文本/启动/延时与 `copyText`。

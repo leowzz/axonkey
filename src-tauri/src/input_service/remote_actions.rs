@@ -191,19 +191,27 @@ fn schedule<K: RemoteKey>(
             } => {
                 queue.push((due, Output::SwitchProfile(*direction, *wrap)));
             }
-            NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::QuickOverlay { .. }
+            | NativeBehavior::ClipboardOverlay { .. }
+            | NativeBehavior::Disabled { .. } => {}
         }
     }
 }
 
-fn find_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
-    actions.iter().find_map(|action| match action {
-        NativeBehavior::QuickOverlay {
-            enabled: true,
-            profile_id,
-        } if !profile_id.trim().is_empty() => Some(profile_id.trim()),
-        _ => None,
-    })
+enum OwnedOverlayTrigger {
+    QuickProfile(String),
+    Clipboard(super::ClipboardOverlayAction),
+}
+
+fn find_owned_overlay_trigger(actions: &[NativeBehavior]) -> Option<OwnedOverlayTrigger> {
+    match super::quick_mode::find_overlay_trigger(actions)? {
+        super::quick_mode::OverlayTrigger::QuickProfile(id) => {
+            Some(OwnedOverlayTrigger::QuickProfile(id.to_owned()))
+        }
+        super::quick_mode::OverlayTrigger::Clipboard(action) => {
+            Some(OwnedOverlayTrigger::Clipboard(action))
+        }
+    }
 }
 
 fn repeat_output<K>(action: RepeatableClick) -> Output<K> {
@@ -279,7 +287,7 @@ impl<K: RemoteKey> RemoteActions<K> {
         button: &'static str,
         still_down: bool,
     ) -> bool {
-        let Some(profile_id) = find_quick_overlay_profile_id(actions) else {
+        let Some(trigger) = find_owned_overlay_trigger(actions) else {
             return false;
         };
         let (id, kind, name) = (
@@ -287,15 +295,20 @@ impl<K: RemoteKey> RemoteActions<K> {
             self.source_meta().1.to_owned(),
             self.source_meta().2.to_owned(),
         );
-        self.quick_mode.enter_with_profiles(
-            &id,
-            &kind,
-            &name,
-            profile_id,
-            button,
-            still_down,
-            &self.quick_profiles,
-        )
+        match trigger {
+            OwnedOverlayTrigger::QuickProfile(profile_id) => self.quick_mode.enter_with_profiles(
+                &id,
+                &kind,
+                &name,
+                &profile_id,
+                button,
+                still_down,
+                &self.quick_profiles,
+            ),
+            OwnedOverlayTrigger::Clipboard(action) => self
+                .quick_mode
+                .enter_clipboard(&id, &kind, &name, action, button, still_down),
+        }
     }
 
     fn apply_quick_executions(
@@ -517,7 +530,7 @@ impl<K: RemoteKey> RemoteActions<K> {
         if let Some(executions) = self.quick_mode.tick(now_ms) {
             self.apply_quick_executions(executions, now);
         }
-        let mut quick_entries: Vec<(&'static str, String, bool)> = Vec::new();
+        let mut quick_entries: Vec<(&'static str, OwnedOverlayTrigger, bool)> = Vec::new();
         for (&button, state) in &mut self.buttons {
             if let Some(press) = state.press.as_mut() {
                 if !press.held.is_empty() {
@@ -530,11 +543,11 @@ impl<K: RemoteKey> RemoteActions<K> {
                     }
                 } else if enabled(&press.triggers.long_press) {
                     if !press.long_fired && now.duration_since(press.started) >= LONG_PRESS {
-                        if let Some(profile_id) =
-                            find_quick_overlay_profile_id(&press.triggers.long_press)
+                        if let Some(trigger) =
+                            find_owned_overlay_trigger(&press.triggers.long_press)
                         {
                             press.long_fired = true;
-                            quick_entries.push((button, profile_id.to_owned(), true));
+                            quick_entries.push((button, trigger, true));
                         } else {
                             schedule(
                                 &mut self.scheduled,
@@ -547,7 +560,8 @@ impl<K: RemoteKey> RemoteActions<K> {
                             press.next_repeat = now + Duration::from_millis(350);
                         }
                     } else if press.long_fired
-                        && find_quick_overlay_profile_id(&press.triggers.long_press).is_none()
+                        && super::quick_mode::find_overlay_trigger(&press.triggers.long_press)
+                            .is_none()
                         && now >= press.next_repeat
                     {
                         schedule(
@@ -567,28 +581,37 @@ impl<K: RemoteKey> RemoteActions<K> {
                 .is_some_and(|(due, _, _)| now >= *due)
             {
                 let (_, actions, sources) = state.pending.take().unwrap();
-                if let Some(profile_id) = find_quick_overlay_profile_id(&actions) {
-                    quick_entries.push((button, profile_id.to_owned(), false));
+                if let Some(trigger) = find_owned_overlay_trigger(&actions) {
+                    quick_entries.push((button, trigger, false));
                 } else {
                     schedule_click(&mut self.scheduled, &actions, button, &sources, now);
                 }
             }
         }
-        for (button, profile_id, still_down) in quick_entries {
+        for (button, trigger, still_down) in quick_entries {
             let (id, kind, name) = (
                 self.source_meta().0.to_owned(),
                 self.source_meta().1.to_owned(),
                 self.source_meta().2.to_owned(),
             );
-            let _ = self.quick_mode.enter_with_profiles(
-                &id,
-                &kind,
-                &name,
-                &profile_id,
-                button,
-                still_down,
-                &self.quick_profiles,
-            );
+            match trigger {
+                OwnedOverlayTrigger::QuickProfile(profile_id) => {
+                    let _ = self.quick_mode.enter_with_profiles(
+                        &id,
+                        &kind,
+                        &name,
+                        &profile_id,
+                        button,
+                        still_down,
+                        &self.quick_profiles,
+                    );
+                }
+                OwnedOverlayTrigger::Clipboard(action) => {
+                    let _ = self
+                        .quick_mode
+                        .enter_clipboard(&id, &kind, &name, action, button, still_down);
+                }
+            }
         }
         for release in self.releases.drain(..) {
             emit(release);
@@ -1219,5 +1242,64 @@ mod tests {
             keys(&mut actions, now + Duration::from_millis(220)),
             vec![(7, 5, true)]
         );
+    }
+
+    #[test]
+    fn clipboard_overlay_in_remote_actions_navigates_up_down_and_pastes_selected_or_cancels() {
+        crate::clipboard_history::set_entries_for_test(vec![
+            "第一段剪贴板".into(),
+            "第二段剪贴板".into(),
+            "第三段剪贴板".into(),
+        ]);
+        let config: NativeSettings = serde_json::from_value(json!({
+            "enabled": true,
+            "behaviors": {
+                "menu": { "click": [{ "type": "clipboardOverlay", "action": "paste" }] },
+                "confirm": { "click": [{ "type": "key", "key": "B" }] }
+            }
+        }))
+        .unwrap();
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.set_source("rc-1", "rc003", "客厅遥控器");
+        actions.synchronize(1, true);
+
+        // 1. Tap `menu` -> enters clipboard list HUD without emitting outputs.
+        actions.edge("menu", true, &config, now);
+        actions.edge("menu", false, &config, now + Duration::from_millis(20));
+        assert!(outputs(&mut actions, now + Duration::from_millis(20)).is_empty());
+
+        // 2. Tap `down` to select entry #2, then `confirm` -> emits Paste("第二段剪贴板") and exits.
+        actions.edge("down", true, &config, now + Duration::from_millis(50));
+        actions.edge("down", false, &config, now + Duration::from_millis(70));
+        assert!(outputs(&mut actions, now + Duration::from_millis(70)).is_empty());
+
+        actions.edge("confirm", true, &config, now + Duration::from_millis(100));
+        actions.edge("confirm", false, &config, now + Duration::from_millis(120));
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(120)),
+            [Output::Paste("第二段剪贴板".into())]
+        );
+
+        // 3. Subsequent press of `confirm` runs base profile Key("B") (`(7, 5, true)`).
+        actions.edge("confirm", true, &config, now + Duration::from_millis(170));
+        actions.edge("confirm", false, &config, now + Duration::from_millis(190));
+        assert_eq!(
+            keys(&mut actions, now + Duration::from_millis(190)),
+            vec![(7, 5, true), (7, 5, false)]
+        );
+
+        // 4. Re-enter via `menu`, tap `down`, `up`, then `back` -> cancels cleanly without outputs.
+        actions.edge("menu", true, &config, now + Duration::from_millis(240));
+        actions.edge("menu", false, &config, now + Duration::from_millis(260));
+        actions.edge("down", true, &config, now + Duration::from_millis(280));
+        actions.edge("down", false, &config, now + Duration::from_millis(300));
+        actions.edge("up", true, &config, now + Duration::from_millis(320));
+        actions.edge("up", false, &config, now + Duration::from_millis(340));
+        actions.edge("back", true, &config, now + Duration::from_millis(360));
+        actions.edge("back", false, &config, now + Duration::from_millis(380));
+        assert!(outputs(&mut actions, now + Duration::from_millis(380)).is_empty());
+
+        crate::clipboard_history::clear();
     }
 }

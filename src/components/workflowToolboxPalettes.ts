@@ -261,6 +261,13 @@ export function workflowToolboxPalettes(platform: Platform, quickOverlay = false
             recommendedFallback: true,
           },
           {
+            preset: 'clipboardOverlay' as const,
+            name: '剪贴板浮窗',
+            description: '唤起剪贴板列表浮层，上下切换并按确认键粘贴或复制',
+            keywords: 'clipboard history paste quick overlay 剪贴板 历史 粘贴 浮窗',
+            recommendedFallback: true,
+          },
+          {
             preset: 'switchProfile' as const,
             name: '切换配置文件',
             description: '切到上一个或下一个配置方案，支持边缘循环',

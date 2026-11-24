@@ -219,7 +219,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
           if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
           if (pendingLibraryAddition) current.step.properties.pendingLibraryAddition = pendingLibraryAddition
-          if (savedBehavior.type === 'quickOverlay' && savedBehavior.enabled !== false) {
+          if (
+            (savedBehavior.type === 'quickOverlay' || savedBehavior.type === 'clipboardOverlay') &&
+            savedBehavior.enabled !== false
+          ) {
             const branch = workflowBranches(api.editor.getDefinition())[current.trigger]
             branch.splice(0, branch.length, current.step)
           }
@@ -270,6 +273,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         isDuplicable: (step, source) =>
           step.type !== 'switchProfile' &&
           step.type !== 'quickOverlay' &&
+          step.type !== 'clipboardOverlay' &&
           !isTriggerRoot(step) &&
           !isWorkflowLaneDisabled(source),
         canInsertStep: (step, target) =>
@@ -277,15 +281,23 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           !isWorkflowLaneDisabled(target) &&
           (step.type === 'disabled' ||
             step.type === 'quickOverlay' ||
-            !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false)),
+            step.type === 'clipboardOverlay' ||
+            !target.some(
+              node =>
+                (node.type === 'quickOverlay' || node.type === 'clipboardOverlay') && node.properties.enabled !== false,
+            )),
         canMoveStep: (source, step, target) =>
           step.type !== 'switchProfile' &&
           step.type !== 'quickOverlay' &&
+          step.type !== 'clipboardOverlay' &&
           !isTriggerRoot(step) &&
           !target.some(isTriggerRoot) &&
           !isWorkflowLaneDisabled(source) &&
           !isWorkflowLaneDisabled(target) &&
-          !target.some(node => node.type === 'quickOverlay' && node.properties.enabled !== false),
+          !target.some(
+            node =>
+              (node.type === 'quickOverlay' || node.type === 'clipboardOverlay') && node.properties.enabled !== false,
+          ),
       },
       extensions: [
         fixedWorkflowViewport,
@@ -577,7 +589,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       }
       if (
         nodes.length === 1 &&
-        (nodes[0].type === 'disabled' || nodes[0].type === 'quickOverlay') &&
+        (nodes[0].type === 'disabled' || nodes[0].type === 'quickOverlay' || nodes[0].type === 'clipboardOverlay') &&
         nodes[0].properties.enabled !== false
       ) {
         branch.splice(0, branch.length, ...nodes)

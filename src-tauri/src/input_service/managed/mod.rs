@@ -1429,16 +1429,9 @@ impl Reader {
 
     fn absorb_quick_overlay_triggers(&mut self, sequence: &mut Vec<gesture::Execution>) {
         sequence.retain(|exec| {
-            let Some(first_enabled) = exec.behaviors.iter().find(|b| b.enabled()) else {
+            let Some(trigger) = super::quick_mode::find_overlay_trigger(&exec.behaviors) else {
                 return true;
             };
-            let NativeBehavior::QuickOverlay { profile_id, .. } = first_enabled else {
-                return true;
-            };
-            let target_id = profile_id.trim();
-            if target_id.is_empty() {
-                return false;
-            }
             if !exec.sources.is_empty() {
                 crate::library_usage::record_trigger(
                     &format!("{}:{}", self.config.instance.id, exec.input),
@@ -1447,23 +1440,34 @@ impl Reader {
             }
             self.holds.release_instance(&self.config.instance.id);
             let still_down = self.local_pressed.contains(&exec.input);
-            let entered = self.quick_mode.lock().unwrap().enter_with_profiles(
+            let mut mode = self.quick_mode.lock().unwrap();
+            let entered = mode.enter_trigger(
                 &self.config.instance.id,
                 &self.config.instance.kind,
                 &self.config.instance.name,
-                target_id,
+                trigger,
                 &exec.input,
                 still_down,
                 &self.quick_profiles,
             );
             if entered {
                 if let Some(oled) = &self.oled {
-                    let name = self
-                        .quick_profiles
-                        .get(target_id)
-                        .map(|p| p.name.clone())
-                        .unwrap_or_else(|| "快捷交互窗".into());
-                    oled.show_profile_toast("快捷交互窗".into(), name);
+                    match trigger {
+                        super::quick_mode::OverlayTrigger::QuickProfile(target_id) => {
+                            let name = self
+                                .quick_profiles
+                                .get(target_id)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| "快捷交互窗".into());
+                            oled.show_profile_toast("快捷交互窗".into(), name);
+                        }
+                        super::quick_mode::OverlayTrigger::Clipboard(_) => {
+                            oled.show_profile_toast(
+                                "剪贴板".into(),
+                                format!("{} 条记录", mode.active_slot_count()),
+                            );
+                        }
+                    }
                 }
             }
             false
@@ -2856,6 +2860,18 @@ fn spawn_action_worker(
                                 &execution.input,
                                 false,
                                 &profiles,
+                            );
+                            break;
+                        }
+                        NativeBehavior::ClipboardOverlay { action, .. } => {
+                            shared.holds.release_instance(&id);
+                            let _ = quick_mode.lock().unwrap().enter_clipboard(
+                                &id,
+                                &config.instance.kind,
+                                &config.instance.name,
+                                action,
+                                &execution.input,
+                                false,
                             );
                             break;
                         }

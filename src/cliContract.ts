@@ -2,6 +2,7 @@ import {
   normalizeApplicationPath,
   normalizeBehavior,
   normalizeBehaviorTitle,
+  normalizeClipboardOverlayAction,
   normalizeFilePath,
   normalizeHttpBody,
   normalizeHttpHeaders,
@@ -10,7 +11,7 @@ import {
   normalizeShellCommand,
   normalizeWebsiteUrl,
 } from './behaviorModel.ts'
-import type { Behavior, HttpRequestMethod } from './behaviorModel.ts'
+import type { Behavior, ClipboardOverlayAction, HttpRequestMethod } from './behaviorModel.ts'
 import type { DeviceId, InputId } from './devices/index.ts'
 import type { TriggerType } from './behaviorModel.ts'
 
@@ -43,6 +44,7 @@ export const cliBehaviorTypes = [
   'httpRequest',
   'switchProfile',
   'quickOverlay',
+  'clipboardOverlay',
   'disabled',
 ] as const
 
@@ -74,6 +76,7 @@ export type CliBehavior =
     })
   | (CliBehaviorBase & { type: 'switchProfile'; direction: 'previous' | 'next'; wrap: boolean })
   | (CliBehaviorBase & { type: 'quickOverlay'; profileId: string })
+  | (CliBehaviorBase & { type: 'clipboardOverlay'; action: ClipboardOverlayAction })
   | (CliBehaviorBase & { type: 'disabled' })
 
 /** Agent input may omit enabled; normalized responses always include it. */
@@ -94,6 +97,10 @@ export type CliBehaviorInput =
   | (Omit<Extract<CliBehavior, { type: 'httpRequest' }>, 'enabled'> & { enabled?: boolean })
   | (Omit<Extract<CliBehavior, { type: 'switchProfile' }>, 'enabled'> & { enabled?: boolean })
   | (Omit<Extract<CliBehavior, { type: 'quickOverlay' }>, 'enabled'> & { enabled?: boolean })
+  | (Omit<Extract<CliBehavior, { type: 'clipboardOverlay' }>, 'enabled' | 'action'> & {
+      enabled?: boolean
+      action?: ClipboardOverlayAction
+    })
   | (Omit<Extract<CliBehavior, { type: 'disabled' }>, 'enabled'> & { enabled?: boolean })
 
 export type CliBehaviorSequence = CliBehavior[]
@@ -406,6 +413,10 @@ export function normalizeCliBehavior(value: unknown, platform: CliPlatform): Cli
       const profileId = normalizeProfileReferenceId(value.profileId)
       return profileId ? { type: 'quickOverlay', profileId, enabled: isEnabled } : null
     }
+    case 'clipboardOverlay': {
+      const action = normalizeClipboardOverlayAction(value.action)
+      return action ? { type: 'clipboardOverlay', action, enabled: isEnabled } : null
+    }
     case 'disabled':
       return { type: 'disabled', enabled: isEnabled }
   }
@@ -475,6 +486,8 @@ export function behaviorToCliBehavior(value: Behavior, platform: CliPlatform): C
       return { ...base, type: 'switchProfile', direction: value.direction, wrap: value.wrap }
     case 'quickOverlay':
       return { ...base, type: 'quickOverlay', profileId: value.profileId }
+    case 'clipboardOverlay':
+      return { ...base, type: 'clipboardOverlay', action: value.action }
     case 'disabled':
       return { ...base, type: 'disabled' }
   }

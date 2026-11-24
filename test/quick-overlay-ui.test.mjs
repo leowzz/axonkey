@@ -319,6 +319,7 @@ test('Escape dismisses live and simulated quick overlays and removes its listene
     },
     require(name) {
       if (name === './quickOverlayModel') return { buildQuickOverlayView }
+      if (name === './ClipboardHud') return { ClipboardHud: () => null }
       if (name === './QuickOverlaySurface') return { QuickOverlaySurface: () => null }
       if (name.startsWith('../') || name.startsWith('@tauri-apps/')) return {}
       return require(name)
