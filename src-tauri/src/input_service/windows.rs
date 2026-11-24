@@ -1916,6 +1916,7 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         ),
         NativeBehavior::Delay { .. }
         | NativeBehavior::QuickOverlay { .. }
+        | NativeBehavior::ClipboardOverlay { .. }
         | NativeBehavior::Disabled { .. } => {}
     }
 }
@@ -2051,6 +2052,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::Delay { .. }
         | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::QuickOverlay { .. }
+        | NativeBehavior::ClipboardOverlay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }

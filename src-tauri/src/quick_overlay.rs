@@ -42,6 +42,10 @@ pub struct QuickOverlaySession {
     pub preview: bool,
     #[serde(default)]
     pub prompt_mode: bool,
+    #[serde(default)]
+    pub clipboard_mode: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clipboard_slots: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub descriptor_svg: Option<String>,
 }
@@ -186,33 +190,41 @@ pub(crate) fn open(
     prompt_mode: bool,
 ) -> u64 {
     let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
+    open_session(QuickOverlaySession {
+        revision: 0,
+        source_id,
+        device_kind,
+        device_name,
+        profile_id,
+        profile_name,
+        trigger_input,
+        behaviors,
+        pressed: Vec::new(),
+        preview,
+        prompt_mode,
+        clipboard_mode: false,
+        clipboard_slots: Vec::new(),
+        descriptor_svg,
+    })
+}
+
+pub(crate) fn open_session(mut input: QuickOverlaySession) -> u64 {
+    input.revision = 0;
     let session = {
         let mut state = STATE.lock().unwrap();
-        state.replace(QuickOverlaySession {
-            revision: 0,
-            source_id,
-            device_kind,
-            device_name,
-            profile_id,
-            profile_name,
-            trigger_input,
-            behaviors,
-            pressed: Vec::new(),
-            preview,
-            prompt_mode,
-            descriptor_svg,
-        })
+        state.replace(input)
     };
     let revision = session.revision;
     log::info!(
         target: "axonkey::quick_overlay",
-        "Quick overlay opened: revision={} source={:?} kind={:?} profile={:?} trigger={:?} preview={}",
+        "Quick overlay opened: revision={} source={:?} kind={:?} profile={:?} trigger={:?} preview={} clipboard={}",
         revision,
         session.source_id,
         session.device_kind,
         session.profile_name,
         session.trigger_input,
         session.preview,
+        session.clipboard_mode,
     );
     if let Some(app) = APP.get() {
         let handle = app.clone();
@@ -268,6 +280,17 @@ pub(crate) fn close_revision(revision: u64) -> Option<QuickOverlaySession> {
         hide_window_if_idle();
     }
     removed
+}
+
+pub(crate) fn close_if_clipboard_mode() -> bool {
+    let revision = STATE
+        .lock()
+        .unwrap()
+        .current
+        .as_ref()
+        .filter(|s| s.clipboard_mode)
+        .map(|s| s.revision);
+    revision.is_some_and(|rev| close_revision(rev).is_some())
 }
 
 extern "C" fn dismiss_on_escape() -> bool {
@@ -509,6 +532,46 @@ pub async fn preview_quick_overlay(
 }
 
 #[tauri::command]
+pub async fn preview_clipboard_overlay(
+    window: tauri::WebviewWindow,
+    source_id: String,
+    device_kind: String,
+    device_name: String,
+    trigger_input: String,
+    action: Option<crate::input_service::ClipboardOverlayAction>,
+) -> Result<u64, String> {
+    if window.label() != "main" {
+        return Err("Preview must be opened from the main window".into());
+    }
+    crate::clipboard_history::sync_now();
+    let entries = crate::clipboard_history::entries();
+    let (profile, clipboard_slots) = crate::input_service::quick_mode::build_clipboard_profile(
+        &device_kind,
+        &device_name,
+        &trigger_input,
+        action.unwrap_or_default(),
+        &entries,
+    );
+    let descriptor_svg = crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
+    Ok(open_session(QuickOverlaySession {
+        revision: 0,
+        source_id,
+        device_kind,
+        device_name,
+        profile_id: profile.id,
+        profile_name: profile.name,
+        trigger_input,
+        behaviors: profile.raw_behaviors,
+        pressed: Vec::new(),
+        preview: true,
+        prompt_mode: false,
+        clipboard_mode: true,
+        clipboard_slots,
+        descriptor_svg,
+    }))
+}
+
+#[tauri::command]
 pub async fn trigger_quick_overlay_input(
     window: tauri::WebviewWindow,
     revision: u64,
@@ -572,6 +635,7 @@ pub async fn trigger_quick_overlay_input(
                     break;
                 }
                 crate::input_service::NativeBehavior::QuickOverlay { .. }
+                | crate::input_service::NativeBehavior::ClipboardOverlay { .. }
                 | crate::input_service::NativeBehavior::Disabled { .. } => {}
                 _ => {
                     #[cfg(target_os = "macos")]
@@ -606,6 +670,8 @@ mod tests {
             pressed: vec![],
             preview: false,
             prompt_mode: false,
+            clipboard_mode: false,
+            clipboard_slots: Vec::new(),
             descriptor_svg: None,
         });
         let second = state.replace(QuickOverlaySession {
@@ -620,6 +686,8 @@ mod tests {
             pressed: vec![],
             preview: false,
             prompt_mode: true,
+            clipboard_mode: false,
+            clipboard_slots: Vec::new(),
             descriptor_svg: None,
         });
         assert!(second.revision > first.revision);
@@ -630,5 +698,46 @@ mod tests {
         assert!(state.is_current(second.revision));
         assert!(state.clear_if_revision(second.revision).is_some());
         assert!(!state.is_current(second.revision));
+    }
+
+    #[test]
+    fn close_if_clipboard_mode_only_closes_clipboard_sessions() {
+        static GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = GLOBAL_LOCK.lock().unwrap();
+
+        let regular_rev = open(
+            "dev-1".into(),
+            "rc003".into(),
+            "客厅遥控器".into(),
+            "p1".into(),
+            "常用".into(),
+            "menu".into(),
+            serde_json::json!({}),
+            false,
+            false,
+        );
+        assert!(!close_if_clipboard_mode());
+        assert!(is_revision_active(regular_rev));
+        assert!(close_revision(regular_rev).is_some());
+
+        let clipboard_rev = open_session(QuickOverlaySession {
+            revision: 0,
+            source_id: "dev-1".into(),
+            device_kind: "rc003".into(),
+            device_name: "客厅遥控器".into(),
+            profile_id: "__clipboard__".into(),
+            profile_name: "剪贴板历史".into(),
+            trigger_input: "menu".into(),
+            behaviors: serde_json::json!({}),
+            pressed: vec![],
+            preview: false,
+            prompt_mode: false,
+            clipboard_mode: true,
+            clipboard_slots: vec!["up".into()],
+            descriptor_svg: None,
+        });
+        assert!(is_revision_active(clipboard_rev));
+        assert!(close_if_clipboard_mode());
+        assert!(!is_revision_active(clipboard_rev));
     }
 }

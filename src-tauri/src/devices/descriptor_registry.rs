@@ -723,6 +723,28 @@ pub(crate) fn profile_key(kind: &str, key: &str) -> Option<&'static str> {
         .map(input_key)
 }
 
+pub(crate) fn clipboard_target_inputs(kind: &str, trigger_input: &str) -> Vec<String> {
+    let canonical_trigger = profile_key(kind, trigger_input).unwrap_or(trigger_input);
+    let Some(descriptor) = descriptor_for_kind(kind) else {
+        return Vec::new();
+    };
+    let mut candidates = descriptor
+        .inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, input)| !input.pending && input.kind != "axis")
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(index, input)| (input.order.unwrap_or(u32::MAX), *index));
+    let mut keys = Vec::with_capacity(candidates.len());
+    for (_, input) in candidates {
+        let key = input_key(input);
+        if key != canonical_trigger && !keys.iter().any(|existing| existing == key) {
+            keys.push(key.to_owned());
+        }
+    }
+    keys
+}
+
 pub(crate) fn primary_hardware(kind: &str) -> Option<(u16, u16)> {
     let descriptor = descriptor_for_kind(kind)?;
     descriptor.identities.iter().find_map(|identity| {

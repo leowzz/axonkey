@@ -191,19 +191,27 @@ fn schedule<K: RemoteKey>(
             } => {
                 queue.push((due, Output::SwitchProfile(*direction, *wrap)));
             }
-            NativeBehavior::QuickOverlay { .. } | NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::QuickOverlay { .. }
+            | NativeBehavior::ClipboardOverlay { .. }
+            | NativeBehavior::Disabled { .. } => {}
         }
     }
 }
 
-fn find_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
-    actions.iter().find_map(|action| match action {
-        NativeBehavior::QuickOverlay {
-            enabled: true,
-            profile_id,
-        } if !profile_id.trim().is_empty() => Some(profile_id.trim()),
-        _ => None,
-    })
+enum OwnedOverlayTrigger {
+    QuickProfile(String),
+    Clipboard(super::ClipboardOverlayAction),
+}
+
+fn find_owned_overlay_trigger(actions: &[NativeBehavior]) -> Option<OwnedOverlayTrigger> {
+    match super::quick_mode::find_overlay_trigger(actions)? {
+        super::quick_mode::OverlayTrigger::QuickProfile(id) => {
+            Some(OwnedOverlayTrigger::QuickProfile(id.to_owned()))
+        }
+        super::quick_mode::OverlayTrigger::Clipboard(action) => {
+            Some(OwnedOverlayTrigger::Clipboard(action))
+        }
+    }
 }
 
 fn repeat_output<K>(action: RepeatableClick) -> Output<K> {
@@ -279,7 +287,7 @@ impl<K: RemoteKey> RemoteActions<K> {
         button: &'static str,
         still_down: bool,
     ) -> bool {
-        let Some(profile_id) = find_quick_overlay_profile_id(actions) else {
+        let Some(trigger) = find_owned_overlay_trigger(actions) else {
             return false;
         };
         let (id, kind, name) = (
@@ -287,15 +295,20 @@ impl<K: RemoteKey> RemoteActions<K> {
             self.source_meta().1.to_owned(),
             self.source_meta().2.to_owned(),
         );
-        self.quick_mode.enter_with_profiles(
-            &id,
-            &kind,
-            &name,
-            profile_id,
-            button,
-            still_down,
-            &self.quick_profiles,
-        )
+        match trigger {
+            OwnedOverlayTrigger::QuickProfile(profile_id) => self.quick_mode.enter_with_profiles(
+                &id,
+                &kind,
+                &name,
+                &profile_id,
+                button,
+                still_down,
+                &self.quick_profiles,
+            ),
+            OwnedOverlayTrigger::Clipboard(action) => self
+                .quick_mode
+                .enter_clipboard(&id, &kind, &name, action, button, still_down),
+        }
     }
 
     fn apply_quick_executions(
@@ -517,7 +530,7 @@ impl<K: RemoteKey> RemoteActions<K> {
         if let Some(executions) = self.quick_mode.tick(now_ms) {
             self.apply_quick_executions(executions, now);
         }
-        let mut quick_entries: Vec<(&'static str, String, bool)> = Vec::new();
+        let mut quick_entries: Vec<(&'static str, OwnedOverlayTrigger, bool)> = Vec::new();
         for (&button, state) in &mut self.buttons {
             if let Some(press) = state.press.as_mut() {
                 if !press.held.is_empty() {
@@ -530,11 +543,11 @@ impl<K: RemoteKey> RemoteActions<K> {
                     }
                 } else if enabled(&press.triggers.long_press) {
                     if !press.long_fired && now.duration_since(press.started) >= LONG_PRESS {
-                        if let Some(profile_id) =
-                            find_quick_overlay_profile_id(&press.triggers.long_press)
+                        if let Some(trigger) =
+                            find_owned_overlay_trigger(&press.triggers.long_press)
                         {
                             press.long_fired = true;
-                            quick_entries.push((button, profile_id.to_owned(), true));
+                            quick_entries.push((button, trigger, true));
                         } else {
                             schedule(
                                 &mut self.scheduled,
@@ -547,7 +560,8 @@ impl<K: RemoteKey> RemoteActions<K> {
                             press.next_repeat = now + Duration::from_millis(350);
                         }
                     } else if press.long_fired
-                        && find_quick_overlay_profile_id(&press.triggers.long_press).is_none()
+                        && super::quick_mode::find_overlay_trigger(&press.triggers.long_press)
+                            .is_none()
                         && now >= press.next_repeat
                     {
                         schedule(
@@ -567,28 +581,37 @@ impl<K: RemoteKey> RemoteActions<K> {
                 .is_some_and(|(due, _, _)| now >= *due)
             {
                 let (_, actions, sources) = state.pending.take().unwrap();
-                if let Some(profile_id) = find_quick_overlay_profile_id(&actions) {
-                    quick_entries.push((button, profile_id.to_owned(), false));
+                if let Some(trigger) = find_owned_overlay_trigger(&actions) {
+                    quick_entries.push((button, trigger, false));
                 } else {
                     schedule_click(&mut self.scheduled, &actions, button, &sources, now);
                 }
             }
         }
-        for (button, profile_id, still_down) in quick_entries {
+        for (button, trigger, still_down) in quick_entries {
             let (id, kind, name) = (
                 self.source_meta().0.to_owned(),
                 self.source_meta().1.to_owned(),
                 self.source_meta().2.to_owned(),
             );
-            let _ = self.quick_mode.enter_with_profiles(
-                &id,
-                &kind,
-                &name,
-                &profile_id,
-                button,
-                still_down,
-                &self.quick_profiles,
-            );
+            match trigger {
+                OwnedOverlayTrigger::QuickProfile(profile_id) => {
+                    let _ = self.quick_mode.enter_with_profiles(
+                        &id,
+                        &kind,
+                        &name,
+                        &profile_id,
+                        button,
+                        still_down,
+                        &self.quick_profiles,
+                    );
+                }
+                OwnedOverlayTrigger::Clipboard(action) => {
+                    let _ = self
+                        .quick_mode
+                        .enter_clipboard(&id, &kind, &name, action, button, still_down);
+                }
+            }
         }
         for release in self.releases.drain(..) {
             emit(release);

@@ -158,14 +158,11 @@ fn quick_now_ms(epoch: &mut Option<Instant>, now: Instant) -> u64 {
         .unwrap_or(0)
 }
 
-fn immediate_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
+fn immediate_overlay_trigger(
+    actions: &[NativeBehavior],
+) -> Option<super::quick_mode::OverlayTrigger<'_>> {
     let first = actions.iter().find(|action| action.enabled())?;
-    match first {
-        NativeBehavior::QuickOverlay { profile_id, .. } if !profile_id.trim().is_empty() => {
-            Some(profile_id.trim())
-        }
-        _ => None,
-    }
+    super::quick_mode::find_overlay_trigger(std::slice::from_ref(first))
 }
 
 fn resolve_mouse_input(input: &str) -> &'static str {
@@ -191,9 +188,9 @@ fn resolve_mouse_input(input: &str) -> &'static str {
     "mouse.global.buttonMiddle"
 }
 
-fn try_enter_mouse_quick_mode(
+fn try_enter_mouse_overlay(
     shared: &Shared,
-    profile_id: &str,
+    trigger: super::quick_mode::OverlayTrigger<'_>,
     input: &'static str,
     still_down: bool,
 ) -> bool {
@@ -205,14 +202,14 @@ fn try_enter_mouse_quick_mode(
     let Ok(mut guard) = shared.quick_mode.lock() else {
         return false;
     };
-    guard.1.enter_from_settings(
+    guard.1.enter_trigger(
         "mouse",
         "mouse",
         "系统鼠标",
-        profile_id,
+        trigger,
         input,
         still_down,
-        &settings,
+        &settings.quick_profiles,
     )
 }
 
@@ -243,11 +240,11 @@ fn enqueue_or_enter_quick_mode(
     if actions.is_empty() || !current_job(shared, revision) {
         return;
     }
-    if let Some(profile_id) = immediate_quick_overlay_profile_id(&actions) {
+    if let Some(trigger) = immediate_overlay_trigger(&actions) {
         if !sources.is_empty() {
             crate::library_usage::record_trigger(input, &sources);
         }
-        let _ = try_enter_mouse_quick_mode(shared, profile_id, input, still_down);
+        let _ = try_enter_mouse_overlay(shared, trigger, input, still_down);
     } else {
         enqueue(shared, actions, sources, input, revision);
     }
@@ -329,6 +326,19 @@ impl MouseService {
                                             &settings,
                                         );
                                     }
+                                }
+                                break;
+                            } else if let NativeBehavior::ClipboardOverlay { action, .. } = behavior
+                            {
+                                if let Ok(mut guard) = state.quick_mode.lock() {
+                                    let _ = guard.1.enter_clipboard(
+                                        "mouse",
+                                        "mouse",
+                                        "系统鼠标",
+                                        *action,
+                                        job.input,
+                                        false,
+                                    );
                                 }
                                 break;
                             } else {
@@ -568,8 +578,11 @@ impl ScrollAccumulator {
             self.remainder = total;
             return true;
         }
-        if let Some(profile_id) = immediate_quick_overlay_profile_id(actions) {
-            let profile_id = profile_id.to_owned();
+        if let Some(trigger) = immediate_overlay_trigger(actions) {
+            let owned_trigger = match trigger {
+                super::quick_mode::OverlayTrigger::QuickProfile(id) => (Some(id.to_owned()), None),
+                super::quick_mode::OverlayTrigger::Clipboard(action) => (None, Some(action)),
+            };
             let sources = config
                 .settings
                 .behaviors
@@ -582,7 +595,25 @@ impl ScrollAccumulator {
             if !sources.is_empty() {
                 crate::library_usage::record_trigger(id, &sources);
             }
-            let _ = try_enter_mouse_quick_mode(shared, &profile_id, id, false);
+            match owned_trigger {
+                (Some(profile_id), None) => {
+                    let _ = try_enter_mouse_overlay(
+                        shared,
+                        super::quick_mode::OverlayTrigger::QuickProfile(&profile_id),
+                        id,
+                        false,
+                    );
+                }
+                (None, Some(action)) => {
+                    let _ = try_enter_mouse_overlay(
+                        shared,
+                        super::quick_mode::OverlayTrigger::Clipboard(action),
+                        id,
+                        false,
+                    );
+                }
+                _ => {}
+            }
             return true;
         }
         let job = Job {
@@ -731,7 +762,7 @@ impl ButtonTracker {
                     && now.duration_since(press.started) >= LONG_PRESS
                 {
                     press.long_fired = true;
-                    if immediate_quick_overlay_profile_id(&press.triggers.long_press).is_some() {
+                    if immediate_overlay_trigger(&press.triggers.long_press).is_some() {
                         enqueue_or_enter_quick_mode(
                             shared,
                             press.triggers.long_press.clone(),

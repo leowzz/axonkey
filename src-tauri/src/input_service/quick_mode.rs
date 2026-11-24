@@ -1,12 +1,140 @@
 //! Ephemeral single-shot profile session shared by all device input backends.
 use super::{
     managed::gesture::{Execution, Gestures, TriggerKind},
-    NativeBehavior, NativeSettings, QuickProfileConfig, TriggerBehaviors,
+    ClipboardOverlayAction, NativeBehavior, NativeSettings, QuickProfileConfig, TriggerBehaviors,
 };
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OverlayTrigger<'a> {
+    QuickProfile(&'a str),
+    Clipboard(ClipboardOverlayAction),
+}
+
+pub(crate) fn find_overlay_trigger(actions: &[NativeBehavior]) -> Option<OverlayTrigger<'_>> {
+    actions.iter().find_map(|action| match action {
+        NativeBehavior::QuickOverlay {
+            enabled: true,
+            profile_id,
+        } if !profile_id.trim().is_empty() => Some(OverlayTrigger::QuickProfile(profile_id.trim())),
+        NativeBehavior::ClipboardOverlay {
+            enabled: true,
+            action,
+        } => Some(OverlayTrigger::Clipboard(*action)),
+        _ => None,
+    })
+}
+
+pub(crate) fn clipboard_target_inputs(device_kind: &str, trigger_input: &str) -> Vec<String> {
+    if device_kind == "mouse" {
+        const SCOPED_CONTROLS: [&str; 9] = [
+            "buttonForward",
+            "buttonBack",
+            "buttonLeft",
+            "buttonRight",
+            "up",
+            "left",
+            "buttonMiddle",
+            "right",
+            "down",
+        ];
+        let scope = ["mouse.top.", "mouse.left.", "mouse.right."]
+            .into_iter()
+            .find(|prefix| trigger_input.starts_with(prefix));
+        if let Some(prefix) = scope {
+            return SCOPED_CONTROLS
+                .into_iter()
+                .map(|control| format!("{prefix}{control}"))
+                .filter(|id| id != trigger_input)
+                .collect();
+        }
+        return [
+            "mouse.global.buttonForward",
+            "mouse.global.buttonBack",
+            "mouse.global.buttonMiddle",
+        ]
+        .into_iter()
+        .filter(|id| *id != trigger_input)
+        .map(str::to_owned)
+        .collect();
+    }
+    crate::devices::descriptor_registry::clipboard_target_inputs(device_kind, trigger_input)
+}
+
+pub(crate) fn build_clipboard_profile(
+    device_kind: &str,
+    device_name: &str,
+    trigger_input: &str,
+    action: ClipboardOverlayAction,
+    entries: &[crate::clipboard_history::ClipboardEntry],
+) -> (QuickProfileConfig, Vec<String>) {
+    let targets = clipboard_target_inputs(device_kind, trigger_input);
+    let mut behaviors = HashMap::new();
+    let mut raw_map = serde_json::Map::new();
+    let mut clipboard_slots = Vec::new();
+    for (idx, (key, entry)) in targets.into_iter().zip(entries.iter()).enumerate() {
+        let step = match action {
+            ClipboardOverlayAction::Paste => NativeBehavior::Paste {
+                enabled: true,
+                text: entry.text.clone(),
+            },
+            ClipboardOverlayAction::CopyText => NativeBehavior::CopyText {
+                enabled: true,
+                text: entry.text.clone(),
+                title: None,
+            },
+        };
+        let raw_step = match action {
+            ClipboardOverlayAction::Paste => serde_json::json!({
+                "id": format!("clipboard-{idx}"),
+                "enabled": true,
+                "type": "paste",
+                "text": entry.text,
+            }),
+            ClipboardOverlayAction::CopyText => serde_json::json!({
+                "id": format!("clipboard-{idx}"),
+                "enabled": true,
+                "type": "copyText",
+                "text": entry.text,
+            }),
+        };
+        behaviors.insert(
+            key.clone(),
+            TriggerBehaviors {
+                click: vec![step],
+                ..TriggerBehaviors::default()
+            },
+        );
+        raw_map.insert(
+            key.clone(),
+            serde_json::json!({
+                "click": [raw_step],
+                "doubleClick": [],
+                "longPress": [],
+            }),
+        );
+        clipboard_slots.push(key);
+    }
+    let name = match action {
+        ClipboardOverlayAction::Paste => "剪贴板历史",
+        ClipboardOverlayAction::CopyText => "剪贴板 · 仅复制",
+    };
+    (
+        QuickProfileConfig {
+            id: "__clipboard__".into(),
+            name: name.into(),
+            device_id: Some(device_kind.to_owned()),
+            device_name: Some(device_name.to_owned()),
+            prompt_mode: false,
+            behaviors,
+            raw_behaviors: serde_json::Value::Object(raw_map),
+        },
+        clipboard_slots,
+    )
+}
 
 pub(crate) enum Intercept {
     PassThrough,
@@ -65,6 +193,90 @@ impl QuickMode {
         self.swallow_until_release.clear();
     }
 
+    pub fn active_slot_count(&self) -> usize {
+        self.session
+            .as_ref()
+            .map_or(0, |active| active.profile.behaviors.len())
+    }
+
+    pub fn enter_trigger(
+        &mut self,
+        source_id: &str,
+        fallback_kind: &str,
+        fallback_name: &str,
+        trigger: OverlayTrigger<'_>,
+        trigger_input: &str,
+        trigger_still_down: bool,
+        quick_profiles: &HashMap<String, QuickProfileConfig>,
+    ) -> bool {
+        match trigger {
+            OverlayTrigger::QuickProfile(profile_id) => self.enter_with_profiles(
+                source_id,
+                fallback_kind,
+                fallback_name,
+                profile_id,
+                trigger_input,
+                trigger_still_down,
+                quick_profiles,
+            ),
+            OverlayTrigger::Clipboard(action) => self.enter_clipboard(
+                source_id,
+                fallback_kind,
+                fallback_name,
+                action,
+                trigger_input,
+                trigger_still_down,
+            ),
+        }
+    }
+
+    pub fn enter_clipboard(
+        &mut self,
+        source_id: &str,
+        device_kind: &str,
+        device_name: &str,
+        action: ClipboardOverlayAction,
+        trigger_input: &str,
+        trigger_still_down: bool,
+    ) -> bool {
+        crate::clipboard_history::sync_now();
+        let entries = crate::clipboard_history::entries();
+        self.enter_clipboard_entries(
+            source_id,
+            device_kind,
+            device_name,
+            action,
+            trigger_input,
+            trigger_still_down,
+            &entries,
+        )
+    }
+
+    pub fn enter_clipboard_entries(
+        &mut self,
+        source_id: &str,
+        device_kind: &str,
+        device_name: &str,
+        action: ClipboardOverlayAction,
+        trigger_input: &str,
+        trigger_still_down: bool,
+        entries: &[crate::clipboard_history::ClipboardEntry],
+    ) -> bool {
+        let (profile, clipboard_slots) =
+            build_clipboard_profile(device_kind, device_name, trigger_input, action, entries);
+        self.activate_session(
+            source_id,
+            device_kind.to_owned(),
+            device_name.to_owned(),
+            profile,
+            trigger_input,
+            trigger_still_down,
+            true,
+            clipboard_slots,
+        );
+        true
+    }
+
     pub fn enter_from_settings(
         &mut self,
         source_id: &str,
@@ -94,7 +306,7 @@ impl QuickMode {
         profile_id: &str,
         trigger_input: &str,
         trigger_still_down: bool,
-        quick_profiles: &std::collections::HashMap<String, QuickProfileConfig>,
+        quick_profiles: &HashMap<String, QuickProfileConfig>,
     ) -> bool {
         let Some(profile) = quick_profiles.get(profile_id).cloned() else {
             log::warn!(
@@ -113,17 +325,50 @@ impl QuickMode {
             .device_name
             .clone()
             .unwrap_or_else(|| fallback_name.to_owned());
-        let revision = crate::quick_overlay::open(
-            source_id.to_owned(),
+        self.activate_session(
+            source_id,
             device_kind,
             device_name,
-            profile.id.clone(),
-            profile.name.clone(),
-            trigger_input.to_owned(),
-            profile.raw_behaviors.clone(),
+            profile,
+            trigger_input,
+            trigger_still_down,
             false,
-            profile.prompt_mode,
+            Vec::new(),
         );
+        true
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn activate_session(
+        &mut self,
+        source_id: &str,
+        device_kind: String,
+        device_name: String,
+        profile: QuickProfileConfig,
+        trigger_input: &str,
+        trigger_still_down: bool,
+        clipboard_mode: bool,
+        clipboard_slots: Vec<String>,
+    ) {
+        let descriptor_svg =
+            crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
+        let revision =
+            crate::quick_overlay::open_session(crate::quick_overlay::QuickOverlaySession {
+                revision: 0,
+                source_id: source_id.to_owned(),
+                device_kind,
+                device_name,
+                profile_id: profile.id.clone(),
+                profile_name: profile.name.clone(),
+                trigger_input: trigger_input.to_owned(),
+                behaviors: profile.raw_behaviors.clone(),
+                pressed: Vec::new(),
+                preview: false,
+                prompt_mode: profile.prompt_mode,
+                clipboard_mode,
+                clipboard_slots,
+                descriptor_svg,
+            });
         if let Some(previous) = self.session.take() {
             self.swallow_until_release.extend(previous.pressed);
         }
@@ -138,7 +383,6 @@ impl QuickMode {
             gestures: Gestures::default(),
             pressed: BTreeSet::new(),
         });
-        true
     }
 
     fn sync_external_dismissal(&mut self) {
