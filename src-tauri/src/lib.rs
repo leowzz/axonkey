@@ -2397,6 +2397,7 @@ pub fn run() {
             quick_overlay::preview_quick_overlay,
             quick_overlay::trigger_quick_overlay_input,
             quick_overlay::preview_clipboard_overlay,
+            quick_overlay::select_clipboard_overlay_item,
             clipboard_history::get_clipboard_history,
             clipboard_history::clear_clipboard_history,
             ping,

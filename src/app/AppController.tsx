@@ -1030,7 +1030,8 @@ function AppController({
                   type: 'clipboardOverlay',
                   optionalFields: ['action'],
                   actions: ['paste', 'copyText'],
-                  description: '按触发方式唤起剪贴板交互窗并将剪贴板历史铺到其他按键上；必须为唯一行为',
+                  description:
+                    '按触发方式唤起剪贴板浮窗列表（由新到旧），支持上下切换并按确认键粘贴或复制；必须为唯一行为',
                   exclusive: true,
                 },
                 { type: 'disabled', fields: [] },
@@ -2867,7 +2868,7 @@ function AppController({
 
   const previewDeviceClipboardOverlay = (triggerInputId: string, action: ClipboardOverlayAction = 'paste') => {
     if (!nativeRuntime) {
-      setToast('桌面应用中可打开顶层剪贴板交互窗预览')
+      setToast('桌面应用中可打开剪贴板浮窗预览')
       window.setTimeout(() => setToast(''), 2000)
       return
     }
@@ -2878,7 +2879,7 @@ function AppController({
       triggerInput: triggerInputId,
       action,
     }).catch(() => {
-      setToast('无法打开剪贴板交互窗预览')
+      setToast('无法打开剪贴板浮窗预览')
       window.setTimeout(() => setToast(''), 2000)
     })
   }

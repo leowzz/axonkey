@@ -9,6 +9,17 @@ import { packageFor } from '../devices/integration/model.ts'
 import { tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
 import type { DeviceSupportPackage, RemoteKeyRegion, RemoteView } from '../devices/types.ts'
 
+export type ClipboardHudEntry = {
+  text: string
+  copiedAtMs: number
+}
+
+export type ClipboardOverlayPayload = {
+  action: 'paste' | 'copyText'
+  entries: ClipboardHudEntry[]
+  selectedIndex: number
+}
+
 export type QuickOverlaySessionPayload = {
   revision: number
   sourceId: string
@@ -21,8 +32,7 @@ export type QuickOverlaySessionPayload = {
   pressed: string[]
   preview: boolean
   promptMode?: boolean
-  clipboardMode?: boolean
-  clipboardSlots?: string[]
+  clipboard?: ClipboardOverlayPayload | null
   descriptorSvg?: string | null
 }
 
@@ -30,14 +40,12 @@ export type QuickOverlayTriggerPreview = {
   trigger: TriggerType
   triggerLabel: string
   showTriggerTag: boolean
-  kind: 'prompt' | 'action' | 'sequence' | 'clipboard'
+  kind: 'prompt' | 'action' | 'sequence'
   badge?: string
   title?: string
   autoEnter?: boolean
-  inputMethod?: 'paste' | 'typeText' | 'copyText'
+  inputMethod?: 'paste' | 'typeText'
   text: string
-  displayText?: string
-  clipboardRank?: number
   stepsSummary?: string
 }
 
@@ -64,7 +72,7 @@ export type QuickOverlayKeySlot = {
   short: string
   icon: MappingInput['icon']
   status: 'configured' | 'trigger' | 'idle'
-  primaryKind?: 'prompt' | 'action' | 'sequence' | 'clipboard'
+  primaryKind?: 'prompt' | 'action' | 'sequence'
   contextLabel?: string
   triggers: QuickOverlayTriggerPreview[]
   scopedEntries?: QuickOverlayScopedEntry[]
@@ -130,8 +138,6 @@ export type QuickOverlaySurfaceLayout =
 export type QuickOverlayViewModel = {
   isMouse: boolean
   promptMode: boolean
-  clipboardMode: boolean
-  clipboardAction?: 'paste' | 'copyText'
   deviceName: string
   profileName: string
   triggerInputId: string
@@ -301,7 +307,7 @@ function compactActionText(step: Behavior, platform: Platform): string {
     }
   }
   if (step.type === 'clipboardOverlay') {
-    return step.action === 'copyText' ? '剪贴板(复制)' : '剪贴板交互窗'
+    return step.action === 'copyText' ? '剪贴板(复制)' : '剪贴板浮窗'
   }
   return behaviorSummary(step, platform)
 }
@@ -311,7 +317,6 @@ export function summarizeQuickTrigger(
   behaviors: Behavior[],
   platform: Platform,
   customClickLabel?: string,
-  options?: { clipboardMode?: boolean; clipboardRank?: number },
 ): QuickOverlayTriggerPreview | null {
   const active = behaviors.filter(item => item.enabled !== false)
   if (active.length === 0) return null
@@ -357,20 +362,6 @@ export function summarizeQuickTrigger(
 
   if (active.length === 1) {
     const step = active[0]
-    if (options?.clipboardMode && (step.type === 'paste' || step.type === 'copyText')) {
-      const compactText = step.text.replace(/\s+/g, ' ').trim() || '（空白文本）'
-      return {
-        trigger,
-        triggerLabel: label,
-        showTriggerTag,
-        kind: 'clipboard',
-        badge: options.clipboardRank ? `#${options.clipboardRank}` : step.type === 'copyText' ? '复制' : '粘贴',
-        inputMethod: step.type === 'copyText' ? 'copyText' : 'paste',
-        text: step.text,
-        displayText: compactText,
-        ...(options.clipboardRank ? { clipboardRank: options.clipboardRank } : {}),
-      }
-    }
     if (step.type === 'clipboardOverlay') {
       return {
         trigger,
@@ -378,7 +369,7 @@ export function summarizeQuickTrigger(
         showTriggerTag,
         kind: 'action',
         badge: '剪贴板',
-        text: step.action === 'copyText' ? '剪贴板 · 仅复制' : '剪贴板交互窗',
+        text: step.action === 'copyText' ? '剪贴板 · 仅复制' : '剪贴板浮窗',
       }
     }
     if (step.type === 'paste') {
@@ -1086,7 +1077,6 @@ function buildMouseSurfaceLayout(
   normalizedBehaviors: ReadonlyMap<string, TriggerBehaviors>,
   triggerInputId: string,
   platform: Platform,
-  options?: { clipboardMode?: boolean; clipboardRankByInput?: ReadonlyMap<string, number> },
 ): QuickOverlaySurfaceLayout {
   const byControl = new Map<MouseControlId, QuickOverlayScopedEntry[]>()
   const metaById = new Map(mouseOverlayInputs.map(item => [item.id, item]))
@@ -1096,19 +1086,10 @@ function buildMouseSurfaceLayout(
     const meta = metaById.get(id)
     const isExitTrigger = id === triggerInputId
     const sequences = normalizedBehaviors.get(id)
-    const clipboardRank = options?.clipboardRankByInput?.get(id)
     const triggers = isExitTrigger
       ? []
       : triggerTypes
-          .map(trigger =>
-            summarizeQuickTrigger(
-              trigger,
-              sequences?.[trigger] ?? [],
-              platform,
-              meta?.triggerLabel,
-              options?.clipboardMode ? { clipboardMode: true, clipboardRank } : undefined,
-            ),
-          )
+          .map(trigger => summarizeQuickTrigger(trigger, sequences?.[trigger] ?? [], platform, meta?.triggerLabel))
           .filter((entry): entry is QuickOverlayTriggerPreview => entry !== null)
     if (!isExitTrigger && triggers.length === 0) continue
 
@@ -1329,28 +1310,6 @@ export function buildQuickOverlayView(
   const triggerShort = triggerInputId ? viewButtons?.find(button => button.id === triggerInputId)?.short : undefined
   const triggerLabel = triggerInputId ? formatInputLabel(triggerMeta, triggerInputId) : null
 
-  const clipboardMode = Boolean(session.clipboardMode)
-  const clipboardRankByInput = new Map<string, number>()
-  if (clipboardMode && Array.isArray(session.clipboardSlots)) {
-    session.clipboardSlots.forEach((rawKey, index) => {
-      const id = resolveCanonicalInputId(rawKey, session.deviceKind, pkg)
-      if (id && !clipboardRankByInput.has(id)) {
-        clipboardRankByInput.set(id, index + 1)
-      }
-    })
-  }
-  let clipboardAction: 'paste' | 'copyText' | undefined
-  if (clipboardMode) {
-    let hasCopyText = false
-    for (const seq of normalizedBehaviors.values()) {
-      if (seq.click.some(step => step.enabled !== false && step.type === 'copyText')) {
-        hasCopyText = true
-        break
-      }
-    }
-    clipboardAction = hasCopyText || session.profileName.includes('仅复制') ? 'copyText' : 'paste'
-  }
-
   const items: QuickOverlayCardItem[] = []
   const seenIds = new Set<string>()
 
@@ -1358,17 +1317,8 @@ export function buildQuickOverlayView(
     if (!id || seenIds.has(id) || id === triggerInputId) return
     const sequences = normalizedBehaviors.get(id)
     if (!sequences) return
-    const clipboardRank = clipboardRankByInput.get(id)
     const triggers = triggerTypes
-      .map(trigger =>
-        summarizeQuickTrigger(
-          trigger,
-          sequences[trigger] ?? [],
-          platform,
-          meta?.triggerLabel,
-          clipboardMode ? { clipboardMode: true, clipboardRank } : undefined,
-        ),
-      )
+      .map(trigger => summarizeQuickTrigger(trigger, sequences[trigger] ?? [], platform, meta?.triggerLabel))
       .filter((entry): entry is QuickOverlayTriggerPreview => entry !== null)
     if (triggers.length === 0) return
     seenIds.add(id)
@@ -1382,11 +1332,6 @@ export function buildQuickOverlayView(
     })
   }
 
-  if (clipboardMode) {
-    for (const id of clipboardRankByInput.keys()) {
-      pushItem(id, findInputMeta(id))
-    }
-  }
   for (const input of inputs) {
     pushItem(input.id, input)
   }
@@ -1400,12 +1345,7 @@ export function buildQuickOverlayView(
 
   const itemById = new Map(items.map(item => [item.inputId, item]))
   const surface: QuickOverlaySurfaceLayout = isMouse
-    ? buildMouseSurfaceLayout(
-        normalizedBehaviors,
-        triggerInputId,
-        platform,
-        clipboardMode ? { clipboardMode: true, clipboardRankByInput } : undefined,
-      )
+    ? buildMouseSurfaceLayout(normalizedBehaviors, triggerInputId, platform)
     : compileGenericSvgSurface(
         pkg!,
         normalizedBehaviors,
@@ -1418,9 +1358,7 @@ export function buildQuickOverlayView(
 
   return {
     isMouse,
-    promptMode: !clipboardMode && Boolean(session.promptMode),
-    clipboardMode,
-    ...(clipboardAction ? { clipboardAction } : {}),
+    promptMode: Boolean(session.promptMode),
     deviceName: session.deviceName || (isMouse ? '系统鼠标' : (pkg?.name ?? '设备')),
     profileName: session.profileName || '快捷交互配置',
     triggerInputId,

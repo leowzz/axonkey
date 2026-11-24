@@ -35,17 +35,17 @@ const { createDefaultDeviceProfiles, composeActiveProfileBehaviors } = await imp
 const { quickOverlayAllowsToolboxStep } = await import('../src/components/quickOverlayConfiguration.ts')
 const { insertedWorkflowSteps } = await import('../src/components/workflowBehaviorBridge.ts')
 const { workflowBehaviorProperties, workflowStepBehavior } = await import('../src/components/workflowStepEditing.ts')
-const { buildQuickOverlayView, summarizeQuickTrigger } = await import('../src/components/quickOverlayModel.ts')
+const { summarizeQuickTrigger } = await import('../src/components/quickOverlayModel.ts')
 
 assets.deregister()
 
 const require = createRequire(import.meta.url)
 const tsCache = new Map()
-function loadTs(file) {
+function loadTs(file, globals = {}) {
   file = resolve(file)
-  if (tsCache.has(file)) return tsCache.get(file).exports
+  if (!Object.keys(globals).length && tsCache.has(file)) return tsCache.get(file).exports
   const module = { exports: {} }
-  tsCache.set(file, module)
+  if (!Object.keys(globals).length) tsCache.set(file, module)
   const source = ts.transpileModule(readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
     fileName: file,
@@ -57,13 +57,17 @@ function loadTs(file) {
     if (name.startsWith('@tauri-apps/')) return {}
     if (!name.startsWith('.')) return require(name)
     const base = resolve(dirname(file), name)
-    if (extname(base) && existsSync(base)) return loadTs(base)
+    if (extname(base) && existsSync(base)) return loadTs(base, globals)
     for (const ext of ['.ts', '.tsx', '.js', '.mjs']) {
-      if (existsSync(base + ext)) return loadTs(base + ext)
+      if (existsSync(base + ext)) return loadTs(base + ext, globals)
     }
     return require(base)
   }
-  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, globalThis, console }, { filename: file })
+  vm.runInNewContext(
+    source,
+    { module, exports: module.exports, require: localRequire, globalThis, console, ...globals },
+    { filename: file },
+  )
   return module.exports
 }
 
@@ -71,47 +75,17 @@ const { workflowToolboxPalettes } = loadTs('src/components/workflowToolboxPalett
 
 const text = node => (typeof node === 'string' ? node : (node?.children ?? []).map(text).join(''))
 
-function loadQuickOverlayPresentation() {
-  const require = createRequire(import.meta.url)
-  const modules = new Map()
+function loadClipboardHud() {
   const listeners = new Map()
-  function load(file) {
-    file = resolve(file)
-    if (modules.has(file)) return modules.get(file).exports
-    const module = { exports: {} }
-    modules.set(file, module)
-    const source = ts.transpileModule(readFileSync(file, 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-      fileName: file,
-    }).outputText
-    vm.runInNewContext(
-      source,
-      {
-        module,
-        exports: module.exports,
-        console,
-        window: {
-          addEventListener: (type, fn) => listeners.set(type, fn),
-          removeEventListener: (type, listener) => {
-            if (listeners.get(type) === listener) listeners.delete(type)
-          },
-        },
-        require(name) {
-          if (name.endsWith('.css')) return {}
-          if (name.startsWith('../devices/') && name.endsWith('/railOverview')) return { railKeyGlyphText: () => null }
-          if (name === './InputIcon') return { iconFor: () => null }
-          if (name === './quickOverlayModel') return { buildQuickOverlayView, summarizeQuickTrigger }
-          if (name.startsWith('../') || name.startsWith('@tauri-apps/')) return {}
-          if (!name.startsWith('.')) return require(name)
-          const path = resolve(dirname(file), name)
-          return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
-        },
+  const { ClipboardHud } = loadTs('src/components/ClipboardHud.tsx', {
+    window: {
+      addEventListener: (type, fn) => listeners.set(type, fn),
+      removeEventListener: (type, fn) => {
+        if (listeners.get(type) === fn) listeners.delete(type)
       },
-      { filename: file },
-    )
-    return module.exports
-  }
-  return load('src/components/QuickOverlay.tsx').QuickOverlayPresentation
+    },
+  })
+  return { ClipboardHud, listeners }
 }
 
 function instanceWorkspace(kind = 'rc003') {
@@ -192,8 +166,9 @@ test('clipboardOverlay model normalizes defaults, round-trips axonkey/2, enforce
   const copyNormalized = normalizeBehavior({ type: 'clipboardOverlay', action: 'copyText', enabled: false, id: 'c2' })
   assert.deepEqual(copyNormalized, { id: 'c2', enabled: false, type: 'clipboardOverlay', action: 'copyText' })
 
-  assert.equal(behaviorSummary(defaultCreated, 'macos'), '剪贴板交互窗')
-  assert.equal(behaviorSummary(copyNormalized, 'macos'), '剪贴板交互窗 · 仅复制')
+  assert.equal(behaviorSummary(defaultCreated, 'macos'), '剪贴板浮窗')
+  assert.equal(behaviorSummary(copyNormalized, 'macos'), '剪贴板浮窗 · 仅复制')
+  assert.equal(summarizeQuickTrigger('click', [defaultCreated], 'macos')?.text, '剪贴板浮窗')
 
   const pasteSeq = serializeSequence([defaultCreated])
   assert.equal(pasteSeq, 'axonkey/2\nclipboard\nend')
@@ -364,54 +339,31 @@ test('workflow toolbox, quick-overlay blocklist, bridge insertion, and step edit
   })
 })
 
-test('buildQuickOverlayView and QuickOverlayPresentation render clipboard mode ranks, detail bar, clear action, and empty state', () => {
-  const QuickOverlayPresentation = loadQuickOverlayPresentation()
-  const multilineText = 'first line\n\tsecond   line'
+test('ClipboardHud renders newest-to-oldest list, highlights active row, handles click/clear/Escape, and renders empty state', () => {
+  const { ClipboardHud, listeners } = loadClipboardHud()
+  const multiline = 'line one\nline two second entry'
+  const entries = [
+    { text: 'newest entry', copiedAtMs: 300 },
+    { text: multiline, copiedAtMs: 200 },
+  ]
 
-  const pasteView = buildQuickOverlayView(
-    {
-      revision: 11,
-      sourceId: 'rc-1',
-      deviceKind: 'rc003',
-      deviceName: '客厅遥控器',
-      profileId: '__clipboard__',
-      profileName: '剪贴板历史',
-      triggerInput: 'menu',
-      pressed: [],
-      preview: false,
-      clipboardMode: true,
-      clipboardSlots: ['up', 'down'],
-      behaviors: {
-        up: { click: [{ id: 'c-0', enabled: true, type: 'paste', text: multilineText }] },
-        down: { click: [{ id: 'c-1', enabled: true, type: 'paste', text: 'second entry' }] },
-      },
-    },
-    'macos',
-  )
-
-  assert.equal(pasteView.clipboardMode, true)
-  assert.equal(pasteView.promptMode, false)
-  assert.equal(pasteView.clipboardAction, 'paste')
-  assert.equal(pasteView.items.length, 2)
-  assert.equal(pasteView.items[0].inputId, 'up')
-  assert.equal(pasteView.items[0].triggers[0].kind, 'clipboard')
-  assert.equal(pasteView.items[0].triggers[0].badge, '#1')
-  assert.equal(pasteView.items[0].triggers[0].clipboardRank, 1)
-  assert.equal(pasteView.items[0].triggers[0].displayText, 'first line second line')
-  assert.equal(pasteView.items[0].triggers[0].text, multilineText)
-  assert.equal(pasteView.items[1].triggers[0].badge, '#2')
-  assert.equal(pasteView.items[1].triggers[0].clipboardRank, 2)
-
+  let dismissed = 0
+  let selectedCalls = []
   let cleared = 0
+  let prevented = 0
   let renderer
   act(() => {
     renderer = Renderer.create(
-      React.createElement(QuickOverlayPresentation, {
-        view: pasteView,
+      React.createElement(ClipboardHud, {
         preview: false,
-        onDismiss() {},
-        onTrigger() {},
-        onClearClipboard: () => {
+        clipboard: { action: 'paste', entries, selectedIndex: 0 },
+        onDismiss: () => {
+          dismissed += 1
+        },
+        onSelect: idx => {
+          selectedCalls.push(idx)
+        },
+        onClear: () => {
           cleared += 1
         },
       }),
@@ -419,103 +371,105 @@ test('buildQuickOverlayView and QuickOverlayPresentation render clipboard mode r
   })
   try {
     const shell = renderer.root.findByProps({ role: 'dialog' })
-    assert.match(shell.props.className, /is-clipboard-mode/)
+    assert.equal(shell.props['aria-label'], '剪贴板浮窗')
+    assert.equal(text(renderer.root.findByProps({ className: 'clipboard-hud-title' })), '剪贴板')
+    assert.equal(text(renderer.root.findByProps({ className: 'clipboard-hud-count' })), '2')
+    assert.equal(renderer.root.findAllByProps({ className: 'clipboard-hud-pill is-preview' }).length, 0)
 
-    const pill = renderer.root.findByProps({ className: 'quick-overlay-mode-pill is-clipboard' })
-    assert.equal(text(pill), '剪贴板')
+    const options = renderer.root.findAllByProps({ role: 'option' })
+    assert.equal(options.length, 2)
+    assert.equal(options[0].props['aria-selected'], true)
+    assert.equal(options[1].props['aria-selected'], false)
+    assert.ok(text(options[0]).includes('1'))
+    assert.ok(text(options[0]).includes('newest entry'))
+    assert.ok(text(options[0]).includes('OK 粘贴'))
 
-    const countChip = renderer.root.findByProps({ className: 'quick-overlay-count-chip' })
-    assert.equal(text(countChip), '2 条')
+    act(() => {
+      renderer.update(
+        React.createElement(ClipboardHud, {
+          preview: false,
+          clipboard: { action: 'paste', entries, selectedIndex: 1 },
+          onDismiss: () => {
+            dismissed += 1
+          },
+          onSelect: idx => {
+            selectedCalls.push(idx)
+          },
+          onClear: () => {
+            cleared += 1
+          },
+        }),
+      )
+    })
 
-    const upButton = renderer.root.findAll(
-      node =>
-        node.type === 'button' &&
-        node.props.className?.includes('kind-clipboard') &&
-        text(node).includes('first line second line'),
-    )[0]
-    assert.ok(upButton)
-    assert.match(text(upButton), /#1/)
+    const updatedOptions = renderer.root.findAllByProps({ role: 'option' })
+    assert.equal(updatedOptions[0].props['aria-selected'], false)
+    assert.equal(updatedOptions[1].props['aria-selected'], true)
+    assert.ok(text(updatedOptions[1]).includes(`${multiline.length} 字符`))
+    assert.ok(text(updatedOptions[1]).includes('OK 粘贴'))
 
-    const detailBar = renderer.root.findByProps({ className: 'quick-surface-detail-bar' })
-    assert.ok(text(detailBar).includes(multilineText))
-    assert.ok(text(detailBar).includes(`${multilineText.length} 字符 · 按下直接粘贴`))
+    act(() => updatedOptions[1].props.onClick())
+    assert.deepEqual(selectedCalls, [1])
 
-    const clearBtn = renderer.root.findByProps({ className: 'quick-overlay-clear' })
+    const clearBtn = renderer.root.findByProps({ className: 'clipboard-hud-clear' })
     act(() => clearBtn.props.onClick())
     assert.equal(cleared, 1)
+
+    act(() =>
+      listeners.get('keydown')({
+        key: 'Enter',
+        preventDefault() {
+          prevented += 1
+        },
+      }),
+    )
+    assert.equal(dismissed, 0)
+    act(() =>
+      listeners.get('keydown')({
+        key: 'Escape',
+        preventDefault() {
+          prevented += 1
+        },
+      }),
+    )
+    assert.equal(dismissed, 1)
+    assert.equal(prevented, 1)
   } finally {
     act(() => renderer.unmount())
   }
+  assert.equal(listeners.size, 0)
 
-  const copyPreviewView = buildQuickOverlayView(
-    {
-      revision: 12,
-      sourceId: 'rc-1',
-      deviceKind: 'rc003',
-      deviceName: '客厅遥控器',
-      profileId: '__clipboard__',
-      profileName: '剪贴板 · 仅复制',
-      triggerInput: 'menu',
-      pressed: [],
-      preview: true,
-      clipboardMode: true,
-      clipboardSlots: ['up'],
-      behaviors: {
-        up: { click: [{ id: 'c-0', enabled: true, type: 'copyText', text: 'copied snippet' }] },
-      },
-    },
-    'windows',
-  )
-  assert.equal(copyPreviewView.clipboardAction, 'copyText')
   act(() => {
     renderer = Renderer.create(
-      React.createElement(QuickOverlayPresentation, {
-        view: copyPreviewView,
+      React.createElement(ClipboardHud, {
         preview: true,
+        clipboard: { action: 'copyText', entries: [{ text: 'snippet', copiedAtMs: 100 }], selectedIndex: 0 },
         onDismiss() {},
       }),
     )
   })
   try {
-    assert.equal(text(renderer.root.findByProps({ className: 'quick-overlay-mode-pill is-clipboard' })), '剪贴板预览')
-    assert.ok(
-      text(renderer.root.findByProps({ className: 'quick-surface-detail-bar' })).includes('14 字符 · 按下仅写入剪贴板'),
-    )
+    assert.equal(text(renderer.root.findByProps({ className: 'clipboard-hud-title' })), '剪贴板 · 仅复制')
+    assert.equal(text(renderer.root.findByProps({ className: 'clipboard-hud-pill is-preview' })), '预览')
+    assert.ok(text(renderer.root.findByProps({ role: 'option' })).includes('OK 复制'))
   } finally {
     act(() => renderer.unmount())
   }
 
-  const emptyView = buildQuickOverlayView(
-    {
-      revision: 13,
-      sourceId: 'rc-1',
-      deviceKind: 'rc003',
-      deviceName: '客厅遥控器',
-      profileId: '__clipboard__',
-      profileName: '剪贴板历史',
-      triggerInput: 'menu',
-      pressed: [],
-      preview: false,
-      clipboardMode: true,
-      clipboardSlots: [],
-      behaviors: {},
-    },
-    'macos',
-  )
   act(() => {
     renderer = Renderer.create(
-      React.createElement(QuickOverlayPresentation, {
-        view: emptyView,
+      React.createElement(ClipboardHud, {
         preview: false,
+        clipboard: { action: 'paste', entries: [], selectedIndex: 0 },
         onDismiss() {},
-        onClearClipboard() {},
+        onClear() {},
       }),
     )
   })
   try {
-    const emptyState = renderer.root.findByProps({ className: 'quick-overlay-empty' })
+    const emptyState = renderer.root.findByProps({ className: 'clipboard-hud-empty' })
     assert.ok(text(emptyState).includes('剪贴板暂无文本记录'))
-    assert.equal(renderer.root.findAllByProps({ className: 'quick-overlay-clear' }).length, 0)
+    assert.equal(renderer.root.findAllByProps({ className: 'clipboard-hud-clear' }).length, 0)
   } finally {
     act(() => renderer.unmount())
   }

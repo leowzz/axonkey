@@ -262,8 +262,8 @@ export function workflowToolboxPalettes(platform: Platform, quickOverlay = false
           },
           {
             preset: 'clipboardOverlay' as const,
-            name: '剪贴板交互窗',
-            description: '动态铺开近期剪贴板文本并在按下一键后粘贴或复制',
+            name: '剪贴板浮窗',
+            description: '唤起剪贴板列表浮层，上下切换并按确认键粘贴或复制',
             keywords: 'clipboard history paste quick overlay 剪贴板 历史 粘贴 浮窗',
             recommendedFallback: true,
           },

@@ -143,7 +143,7 @@ export function BehaviorShareDialog({
             {shareBlocked && (
               <p className="behavior-launch-error" role="alert">
                 包含执行命令、HTTP
-                请求、快捷交互窗或剪贴板交互窗等本机行为的序列仅限本地与个人云同步使用，不可公开分享到社区。
+                请求、快捷交互窗或剪贴板浮窗等本机行为的序列仅限本地与个人云同步使用，不可公开分享到社区。
               </p>
             )}
             {status && (

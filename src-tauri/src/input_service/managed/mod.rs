@@ -1463,7 +1463,7 @@ impl Reader {
                         }
                         super::quick_mode::OverlayTrigger::Clipboard(_) => {
                             oled.show_profile_toast(
-                                "剪贴板交互窗".into(),
+                                "剪贴板".into(),
                                 format!("{} 条记录", mode.active_slot_count()),
                             );
                         }

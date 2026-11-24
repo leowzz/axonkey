@@ -28,112 +28,105 @@ pub(crate) fn find_overlay_trigger(actions: &[NativeBehavior]) -> Option<Overlay
     })
 }
 
-pub(crate) fn clipboard_target_inputs(device_kind: &str, trigger_input: &str) -> Vec<String> {
-    if device_kind == "mouse" {
-        const SCOPED_CONTROLS: [&str; 9] = [
-            "buttonForward",
-            "buttonBack",
-            "buttonLeft",
-            "buttonRight",
-            "up",
-            "left",
-            "buttonMiddle",
-            "right",
-            "down",
-        ];
-        let scope = ["mouse.top.", "mouse.left.", "mouse.right."]
-            .into_iter()
-            .find(|prefix| trigger_input.starts_with(prefix));
-        if let Some(prefix) = scope {
-            return SCOPED_CONTROLS
-                .into_iter()
-                .map(|control| format!("{prefix}{control}"))
-                .filter(|id| id != trigger_input)
-                .collect();
-        }
-        return [
-            "mouse.global.buttonForward",
-            "mouse.global.buttonBack",
-            "mouse.global.buttonMiddle",
-        ]
-        .into_iter()
-        .filter(|id| *id != trigger_input)
-        .map(str::to_owned)
-        .collect();
-    }
-    crate::devices::descriptor_registry::clipboard_target_inputs(device_kind, trigger_input)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClipboardNavDirection {
+    Up,
+    Down,
 }
 
-pub(crate) fn build_clipboard_profile(
-    device_kind: &str,
-    device_name: &str,
-    trigger_input: &str,
-    action: ClipboardOverlayAction,
-    entries: &[crate::clipboard_history::ClipboardEntry],
-) -> (QuickProfileConfig, Vec<String>) {
-    let targets = clipboard_target_inputs(device_kind, trigger_input);
-    let mut behaviors = HashMap::new();
-    let mut raw_map = serde_json::Map::new();
-    let mut clipboard_slots = Vec::new();
-    for (idx, (key, entry)) in targets.into_iter().zip(entries.iter()).enumerate() {
-        let step = match action {
-            ClipboardOverlayAction::Paste => NativeBehavior::Paste {
-                enabled: true,
-                text: entry.text.clone(),
-            },
-            ClipboardOverlayAction::CopyText => NativeBehavior::CopyText {
-                enabled: true,
-                text: entry.text.clone(),
-                title: None,
-            },
-        };
-        let raw_step = match action {
-            ClipboardOverlayAction::Paste => serde_json::json!({
-                "id": format!("clipboard-{idx}"),
-                "enabled": true,
-                "type": "paste",
-                "text": entry.text,
-            }),
-            ClipboardOverlayAction::CopyText => serde_json::json!({
-                "id": format!("clipboard-{idx}"),
-                "enabled": true,
-                "type": "copyText",
-                "text": entry.text,
-            }),
-        };
-        behaviors.insert(
-            key.clone(),
-            TriggerBehaviors {
-                click: vec![step],
-                ..TriggerBehaviors::default()
-            },
-        );
-        raw_map.insert(
-            key.clone(),
-            serde_json::json!({
-                "click": [raw_step],
-                "doubleClick": [],
-                "longPress": [],
-            }),
-        );
-        clipboard_slots.push(key);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClipboardNav {
+    Up,
+    Down,
+    Confirm,
+    Cancel,
+}
+
+pub(crate) fn classify_clipboard_nav(device_kind: &str, input: &str) -> Option<ClipboardNav> {
+    if device_kind == "mouse" {
+        if input == "mouse.global.buttonForward" || input.ends_with(".up") {
+            return Some(ClipboardNav::Up);
+        }
+        if input == "mouse.global.buttonBack" || input.ends_with(".down") {
+            return Some(ClipboardNav::Down);
+        }
+        if input == "mouse.global.buttonMiddle" || input.ends_with(".buttonMiddle") {
+            return Some(ClipboardNav::Confirm);
+        }
+        return None;
     }
-    let name = match action {
-        ClipboardOverlayAction::Paste => "剪贴板历史",
-        ClipboardOverlayAction::CopyText => "剪贴板 · 仅复制",
-    };
-    (
-        QuickProfileConfig {
-            id: "__clipboard__".into(),
-            name: name.into(),
-            device_id: Some(device_kind.to_owned()),
-            device_name: Some(device_name.to_owned()),
-            prompt_mode: false,
-            behaviors,
-            raw_behaviors: serde_json::Value::Object(raw_map),
+    let meta = crate::devices::descriptor_registry::input_icon_and_kind(device_kind, input);
+    if matches!(meta, Some((_, "axis"))) {
+        return None;
+    }
+    let icon = meta.and_then(|(icon, _)| icon);
+    let token = input
+        .rsplit('.')
+        .next()
+        .unwrap_or(input)
+        .to_ascii_lowercase();
+    if matches!(token.as_str(), "confirm" | "ok" | "enter" | "select")
+        || (device_kind == "xboxBluetooth" && token == "a")
+        || input == "xbox.a"
+    {
+        return Some(ClipboardNav::Confirm);
+    }
+    if matches!(token.as_str(), "back" | "cancel" | "escape" | "esc")
+        || (device_kind == "xboxBluetooth" && token == "b")
+        || input == "xbox.b"
+        || icon == Some("back")
+    {
+        return Some(ClipboardNav::Cancel);
+    }
+    if matches!(
+        token.as_str(),
+        "up" | "swipeup" | "channelup" | "pageup" | "prev" | "previous"
+    ) || icon == Some("up")
+    {
+        return Some(ClipboardNav::Up);
+    }
+    if matches!(
+        token.as_str(),
+        "down" | "swipedown" | "channeldown" | "pagedown" | "next"
+    ) || icon == Some("down")
+    {
+        return Some(ClipboardNav::Down);
+    }
+    None
+}
+
+fn step_clipboard_selection(len: usize, current: usize, direction: ClipboardNavDirection) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    match direction {
+        ClipboardNavDirection::Up => current.saturating_sub(1),
+        ClipboardNavDirection::Down => (current + 1).min(len - 1),
+    }
+}
+
+fn clipboard_execution(
+    input: &str,
+    action: ClipboardOverlayAction,
+    entry: &crate::clipboard_history::ClipboardEntry,
+) -> Execution {
+    let behavior = match action {
+        ClipboardOverlayAction::Paste => NativeBehavior::Paste {
+            enabled: true,
+            text: entry.text.clone(),
         },
-        clipboard_slots,
-    )
+        ClipboardOverlayAction::CopyText => NativeBehavior::CopyText {
+            enabled: true,
+            text: entry.text.clone(),
+            title: None,
+        },
+    };
+    Execution {
+        input: input.to_owned(),
+        trigger: TriggerKind::Click,
+        behaviors: vec![behavior],
+        sources: Vec::new(),
+    }
 }
 
 pub(crate) enum Intercept {
@@ -143,13 +136,32 @@ pub(crate) enum Intercept {
     Execute(Vec<Execution>),
 }
 
+struct HeldClipboardNav {
+    input: String,
+    direction: ClipboardNavDirection,
+    next_repeat_ms: u64,
+}
+
+enum SessionKind {
+    QuickProfile {
+        profile: Arc<QuickProfileConfig>,
+        gestures: Gestures,
+    },
+    Clipboard {
+        device_kind: String,
+        action: ClipboardOverlayAction,
+        entries: Vec<crate::clipboard_history::ClipboardEntry>,
+        selected_index: usize,
+        held_nav: Option<HeldClipboardNav>,
+    },
+}
+
 struct ActiveSession {
     revision: u64,
-    profile: Arc<QuickProfileConfig>,
     trigger_input: String,
     ignore_trigger_release: bool,
-    gestures: Gestures,
     pressed: BTreeSet<String>,
+    kind: SessionKind,
 }
 
 #[derive(Default)]
@@ -172,12 +184,18 @@ impl QuickMode {
 
     pub fn prefers_input(&self, candidate: &str) -> bool {
         self.session.as_ref().is_some_and(|active| {
-            active.trigger_input == candidate
-                || active
-                    .profile
+            if active.trigger_input == candidate {
+                return true;
+            }
+            match &active.kind {
+                SessionKind::QuickProfile { profile, .. } => profile
                     .behaviors
                     .get(candidate)
-                    .is_some_and(has_enabled_triggers)
+                    .is_some_and(has_enabled_triggers),
+                SessionKind::Clipboard { device_kind, .. } => {
+                    classify_clipboard_nav(device_kind, candidate).is_some()
+                }
+            }
         })
     }
 
@@ -196,7 +214,18 @@ impl QuickMode {
     pub fn active_slot_count(&self) -> usize {
         self.session
             .as_ref()
-            .map_or(0, |active| active.profile.behaviors.len())
+            .map_or(0, |active| match &active.kind {
+                SessionKind::QuickProfile { profile, .. } => profile.behaviors.len(),
+                SessionKind::Clipboard { entries, .. } => entries.len(),
+            })
+    }
+
+    #[cfg(test)]
+    pub fn active_clipboard_selected(&self) -> Option<usize> {
+        self.session.as_ref().and_then(|active| match &active.kind {
+            SessionKind::Clipboard { selected_index, .. } => Some(*selected_index),
+            SessionKind::QuickProfile { .. } => None,
+        })
     }
 
     pub fn enter_trigger(
@@ -262,17 +291,38 @@ impl QuickMode {
         trigger_still_down: bool,
         entries: &[crate::clipboard_history::ClipboardEntry],
     ) -> bool {
-        let (profile, clipboard_slots) =
-            build_clipboard_profile(device_kind, device_name, trigger_input, action, entries);
-        self.activate_session(
-            source_id,
-            device_kind.to_owned(),
-            device_name.to_owned(),
-            profile,
+        let entry_list = entries.to_vec();
+        let revision =
+            crate::quick_overlay::open_session(crate::quick_overlay::QuickOverlaySession {
+                revision: 0,
+                source_id: source_id.to_owned(),
+                device_kind: device_kind.to_owned(),
+                device_name: device_name.to_owned(),
+                profile_id: "__clipboard__".into(),
+                profile_name: "剪贴板".into(),
+                trigger_input: trigger_input.to_owned(),
+                behaviors: serde_json::json!({}),
+                pressed: Vec::new(),
+                preview: false,
+                prompt_mode: false,
+                clipboard: Some(crate::quick_overlay::ClipboardOverlayState {
+                    action,
+                    entries: entry_list.clone(),
+                    selected_index: 0,
+                }),
+                descriptor_svg: None,
+            });
+        self.store_session(
+            revision,
             trigger_input,
             trigger_still_down,
-            true,
-            clipboard_slots,
+            SessionKind::Clipboard {
+                device_kind: device_kind.to_owned(),
+                action,
+                entries: entry_list,
+                selected_index: 0,
+                held_nav: None,
+            },
         );
         true
     }
@@ -332,8 +382,6 @@ impl QuickMode {
             profile,
             trigger_input,
             trigger_still_down,
-            false,
-            Vec::new(),
         );
         true
     }
@@ -347,8 +395,6 @@ impl QuickMode {
         profile: QuickProfileConfig,
         trigger_input: &str,
         trigger_still_down: bool,
-        clipboard_mode: bool,
-        clipboard_slots: Vec<String>,
     ) {
         let descriptor_svg =
             crate::devices::descriptor_registry::dynamic_svg_for_kind(&device_kind);
@@ -365,10 +411,27 @@ impl QuickMode {
                 pressed: Vec::new(),
                 preview: false,
                 prompt_mode: profile.prompt_mode,
-                clipboard_mode,
-                clipboard_slots,
+                clipboard: None,
                 descriptor_svg,
             });
+        self.store_session(
+            revision,
+            trigger_input,
+            trigger_still_down,
+            SessionKind::QuickProfile {
+                profile: Arc::new(profile),
+                gestures: Gestures::default(),
+            },
+        );
+    }
+
+    fn store_session(
+        &mut self,
+        revision: u64,
+        trigger_input: &str,
+        trigger_still_down: bool,
+        kind: SessionKind,
+    ) {
         if let Some(previous) = self.session.take() {
             self.swallow_until_release.extend(previous.pressed);
         }
@@ -377,11 +440,10 @@ impl QuickMode {
         }
         self.session = Some(ActiveSession {
             revision,
-            profile: Arc::new(profile),
             trigger_input: trigger_input.to_owned(),
             ignore_trigger_release: trigger_still_down,
-            gestures: Gestures::default(),
             pressed: BTreeSet::new(),
+            kind,
         });
     }
 
@@ -400,14 +462,41 @@ impl QuickMode {
     pub fn tick(&mut self, now_ms: u64) -> Option<Vec<Execution>> {
         self.sync_external_dismissal();
         let active = self.session.as_mut()?;
-        let executions = active.gestures.tick(now_ms, &active.profile.behaviors);
-        if executions.is_empty() {
-            return None;
+        let revision = active.revision;
+        match &mut active.kind {
+            SessionKind::QuickProfile { profile, gestures } => {
+                let executions = gestures.tick(now_ms, &profile.behaviors);
+                if executions.is_empty() {
+                    return None;
+                }
+                let finished = self.session.take().unwrap();
+                self.swallow_until_release.extend(finished.pressed);
+                let _ = crate::quick_overlay::close_revision(finished.revision);
+                Some(executions)
+            }
+            SessionKind::Clipboard {
+                entries,
+                selected_index,
+                held_nav,
+                ..
+            } => {
+                if let Some(held) = held_nav.as_mut() {
+                    if now_ms >= held.next_repeat_ms {
+                        held.next_repeat_ms = now_ms.saturating_add(110);
+                        let next = step_clipboard_selection(
+                            entries.len(),
+                            *selected_index,
+                            held.direction,
+                        );
+                        if next != *selected_index {
+                            *selected_index = next;
+                            crate::quick_overlay::set_clipboard_selected(revision, next);
+                        }
+                    }
+                }
+                None
+            }
         }
-        let finished = self.session.take().unwrap();
-        self.swallow_until_release.extend(finished.pressed);
-        let _ = crate::quick_overlay::close_revision(finished.revision);
-        Some(executions)
     }
 
     pub fn edge(&mut self, input: &str, down: bool, now_ms: u64) -> Intercept {
@@ -437,45 +526,194 @@ impl QuickMode {
             return Intercept::Swallow;
         }
 
-        let Some(mapping) = active
-            .profile
-            .behaviors
-            .get(input)
-            .filter(|m| has_enabled_triggers(m))
-        else {
-            if down {
+        let revision = active.revision;
+        match &mut active.kind {
+            SessionKind::QuickProfile { profile, gestures } => {
+                let Some(mapping) = profile
+                    .behaviors
+                    .get(input)
+                    .filter(|m| has_enabled_triggers(m))
+                else {
+                    if down {
+                        let finished = self.session.take().unwrap();
+                        self.swallow_until_release.extend(finished.pressed);
+                        self.swallow_until_release.insert(input.to_owned());
+                        let _ = crate::quick_overlay::close_revision(finished.revision);
+                        return Intercept::Exited;
+                    }
+                    return Intercept::Swallow;
+                };
+
+                if down {
+                    active.pressed.insert(input.to_owned());
+                } else {
+                    active.pressed.remove(input);
+                }
+                crate::quick_overlay::set_pressed(
+                    revision,
+                    active.pressed.iter().cloned().collect(),
+                );
+
+                let executions = gestures.edge(input, down, now_ms, mapping);
+                if executions.is_empty() {
+                    return Intercept::Swallow;
+                }
                 let finished = self.session.take().unwrap();
                 self.swallow_until_release.extend(finished.pressed);
-                self.swallow_until_release.insert(input.to_owned());
                 let _ = crate::quick_overlay::close_revision(finished.revision);
-                return Intercept::Exited;
+                Intercept::Execute(executions)
             }
-            return Intercept::Swallow;
-        };
-
-        if down {
-            active.pressed.insert(input.to_owned());
-        } else {
-            active.pressed.remove(input);
+            SessionKind::Clipboard {
+                device_kind,
+                action,
+                entries,
+                selected_index,
+                held_nav,
+            } => match classify_clipboard_nav(device_kind, input) {
+                Some(ClipboardNav::Cancel) => {
+                    if down {
+                        let finished = self.session.take().unwrap();
+                        self.swallow_until_release.extend(finished.pressed);
+                        self.swallow_until_release.insert(input.to_owned());
+                        let _ = crate::quick_overlay::close_revision(finished.revision);
+                        Intercept::Exited
+                    } else {
+                        active.pressed.remove(input);
+                        Intercept::Swallow
+                    }
+                }
+                Some(ClipboardNav::Confirm) => {
+                    if down {
+                        let exec = entries
+                            .get(*selected_index)
+                            .map(|entry| clipboard_execution(input, *action, entry));
+                        let finished = self.session.take().unwrap();
+                        self.swallow_until_release.extend(finished.pressed);
+                        self.swallow_until_release.insert(input.to_owned());
+                        let _ = crate::quick_overlay::close_revision(finished.revision);
+                        match exec {
+                            Some(execution) => Intercept::Execute(vec![execution]),
+                            None => Intercept::Exited,
+                        }
+                    } else {
+                        active.pressed.remove(input);
+                        Intercept::Swallow
+                    }
+                }
+                Some(nav @ (ClipboardNav::Up | ClipboardNav::Down)) => {
+                    let direction = if nav == ClipboardNav::Up {
+                        ClipboardNavDirection::Up
+                    } else {
+                        ClipboardNavDirection::Down
+                    };
+                    if down {
+                        active.pressed.insert(input.to_owned());
+                        let next =
+                            step_clipboard_selection(entries.len(), *selected_index, direction);
+                        if next != *selected_index {
+                            *selected_index = next;
+                            crate::quick_overlay::set_clipboard_selected(revision, next);
+                        }
+                        *held_nav = Some(HeldClipboardNav {
+                            input: input.to_owned(),
+                            direction,
+                            next_repeat_ms: now_ms.saturating_add(400),
+                        });
+                    } else {
+                        active.pressed.remove(input);
+                        if held_nav.as_ref().is_some_and(|held| held.input == input) {
+                            *held_nav = None;
+                        }
+                    }
+                    Intercept::Swallow
+                }
+                None => {
+                    if device_kind == "mouse" {
+                        Intercept::PassThrough
+                    } else {
+                        if down {
+                            active.pressed.insert(input.to_owned());
+                        } else {
+                            active.pressed.remove(input);
+                        }
+                        Intercept::Swallow
+                    }
+                }
+            },
         }
-        crate::quick_overlay::set_pressed(
-            active.revision,
-            active.pressed.iter().cloned().collect(),
-        );
-
-        let executions = active.gestures.edge(input, down, now_ms, mapping);
-        if executions.is_empty() {
-            return Intercept::Swallow;
-        }
-        let finished = self.session.take().unwrap();
-        self.swallow_until_release.extend(finished.pressed);
-        let _ = crate::quick_overlay::close_revision(finished.revision);
-        Intercept::Execute(executions)
     }
 
     /// Discrete inputs without press/release pairs (such as mouse wheel ticks).
     pub fn discrete_edge(&mut self, input: &str) -> Intercept {
         self.sync_external_dismissal();
+        if matches!(
+            self.session.as_ref().map(|active| &active.kind),
+            Some(SessionKind::Clipboard { .. })
+        ) {
+            let active = self.session.as_mut().unwrap();
+            if input == active.trigger_input {
+                let finished = self.session.take().unwrap();
+                self.swallow_until_release.extend(finished.pressed);
+                let _ = crate::quick_overlay::close_revision(finished.revision);
+                return Intercept::Exited;
+            }
+            let revision = active.revision;
+            let SessionKind::Clipboard {
+                device_kind,
+                action,
+                entries,
+                selected_index,
+                ..
+            } = &mut active.kind
+            else {
+                unreachable!();
+            };
+            return match classify_clipboard_nav(device_kind, input) {
+                Some(ClipboardNav::Up) => {
+                    let next = step_clipboard_selection(
+                        entries.len(),
+                        *selected_index,
+                        ClipboardNavDirection::Up,
+                    );
+                    if next != *selected_index {
+                        *selected_index = next;
+                        crate::quick_overlay::set_clipboard_selected(revision, next);
+                    }
+                    Intercept::Swallow
+                }
+                Some(ClipboardNav::Down) => {
+                    let next = step_clipboard_selection(
+                        entries.len(),
+                        *selected_index,
+                        ClipboardNavDirection::Down,
+                    );
+                    if next != *selected_index {
+                        *selected_index = next;
+                        crate::quick_overlay::set_clipboard_selected(revision, next);
+                    }
+                    Intercept::Swallow
+                }
+                Some(ClipboardNav::Confirm) => {
+                    let exec = entries
+                        .get(*selected_index)
+                        .map(|entry| clipboard_execution(input, *action, entry));
+                    let finished = self.session.take().unwrap();
+                    self.swallow_until_release.extend(finished.pressed);
+                    let _ = crate::quick_overlay::close_revision(finished.revision);
+                    match exec {
+                        Some(execution) => Intercept::Execute(vec![execution]),
+                        None => Intercept::Exited,
+                    }
+                }
+                Some(ClipboardNav::Cancel) => {
+                    let finished = self.session.take().unwrap();
+                    self.swallow_until_release.extend(finished.pressed);
+                    let _ = crate::quick_overlay::close_revision(finished.revision);
+                    Intercept::Exited
+                }
+                None => Intercept::Swallow,
+            };
+        }
         let Some(finished) = self.session.take() else {
             return Intercept::PassThrough;
         };
@@ -484,7 +722,10 @@ impl QuickMode {
         if input == finished.trigger_input {
             return Intercept::Exited;
         }
-        let Some(mapping) = finished.profile.behaviors.get(input) else {
+        let SessionKind::QuickProfile { profile, .. } = &finished.kind else {
+            return Intercept::Exited;
+        };
+        let Some(mapping) = profile.behaviors.get(input) else {
             return Intercept::Exited;
         };
         if !mapping.click.iter().any(NativeBehavior::enabled) {
@@ -640,73 +881,105 @@ mod tests {
     }
 
     #[test]
-    fn clipboard_target_inputs_orders_descriptor_keys_and_excludes_trigger_and_axes() {
-        let rc_targets = clipboard_target_inputs("rc003", "menu");
-        assert!(!rc_targets.is_empty());
-        assert!(!rc_targets.iter().any(|id| id == "menu"));
-
-        let kivo_targets = clipboard_target_inputs("kivoK18Lite", "kivo.k18Lite.k01");
-        assert_eq!(kivo_targets.len(), 17);
-        assert!(!kivo_targets.iter().any(|id| id == "kivo.k18Lite.k01"));
+    fn classify_clipboard_nav_recognizes_directions_confirm_cancel_and_skips_axes() {
         assert_eq!(
-            kivo_targets.first().map(String::as_str),
-            Some("kivo.k18Lite.k02")
+            classify_clipboard_nav("rc003", "up"),
+            Some(ClipboardNav::Up)
         );
-
-        let xbox_targets = clipboard_target_inputs("xboxBluetooth", "xbox.bt.a");
-        assert!(!xbox_targets.is_empty());
-        assert!(!xbox_targets.iter().any(|id| id == "xbox.bt.a"));
-        let xbox_desc = crate::devices::descriptor_registry::descriptor_for_kind("xboxBluetooth")
-            .expect("xboxBluetooth descriptor should exist");
-        for key in &xbox_targets {
-            let input = xbox_desc
-                .inputs
-                .iter()
-                .find(|candidate| {
-                    candidate.id == key.as_str()
-                        || candidate
-                            .legacy_key
-                            .as_deref()
-                            .is_some_and(|aliases| aliases.split_whitespace().any(|a| a == key))
-                })
-                .expect("returned clipboard target key must exist in descriptor");
-            assert!(!input.pending);
-            assert_ne!(input.kind, "axis");
-        }
+        assert_eq!(
+            classify_clipboard_nav("rc003", "down"),
+            Some(ClipboardNav::Down)
+        );
+        assert_eq!(
+            classify_clipboard_nav("rc003", "confirm"),
+            Some(ClipboardNav::Confirm)
+        );
+        assert_eq!(
+            classify_clipboard_nav("rc003", "back"),
+            Some(ClipboardNav::Cancel)
+        );
+        assert_eq!(classify_clipboard_nav("rc003", "menu"), None);
+        assert_eq!(classify_clipboard_nav("rc003", "power"), None);
 
         assert_eq!(
-            clipboard_target_inputs("mouse", "mouse.global.buttonMiddle"),
-            vec![
-                "mouse.global.buttonForward".to_string(),
-                "mouse.global.buttonBack".to_string(),
-            ]
+            classify_clipboard_nav("tclRc802a", "tcl-rc802a.up"),
+            Some(ClipboardNav::Up)
         );
-        let mouse_top_targets = clipboard_target_inputs("mouse", "mouse.top.buttonMiddle");
-        assert_eq!(mouse_top_targets.len(), 8);
-        assert!(!mouse_top_targets
-            .iter()
-            .any(|id| id == "mouse.top.buttonMiddle"));
-        assert!(mouse_top_targets
-            .iter()
-            .all(|id| id.starts_with("mouse.top.")));
+        assert_eq!(
+            classify_clipboard_nav("tclRc802a", "tcl-rc802a.down"),
+            Some(ClipboardNav::Down)
+        );
+        assert_eq!(
+            classify_clipboard_nav("tclRc802a", "tcl-rc802a.confirm"),
+            Some(ClipboardNav::Confirm)
+        );
+        assert_eq!(
+            classify_clipboard_nav("tclRc802a", "tcl-rc802a.back"),
+            Some(ClipboardNav::Cancel)
+        );
+
+        assert_eq!(
+            classify_clipboard_nav("xboxBluetooth", "xbox.dpad.up"),
+            Some(ClipboardNav::Up)
+        );
+        assert_eq!(
+            classify_clipboard_nav("xboxBluetooth", "xbox.dpad.down"),
+            Some(ClipboardNav::Down)
+        );
+        assert_eq!(
+            classify_clipboard_nav("xboxBluetooth", "xbox.bt.a"),
+            Some(ClipboardNav::Confirm)
+        );
+        assert_eq!(
+            classify_clipboard_nav("xboxBluetooth", "xbox.bt.b"),
+            Some(ClipboardNav::Cancel)
+        );
+        assert_eq!(classify_clipboard_nav("xboxBluetooth", "xbox.ls.up"), None);
+
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.global.buttonForward"),
+            Some(ClipboardNav::Up)
+        );
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.top.up"),
+            Some(ClipboardNav::Up)
+        );
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.global.buttonBack"),
+            Some(ClipboardNav::Down)
+        );
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.top.down"),
+            Some(ClipboardNav::Down)
+        );
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.global.buttonMiddle"),
+            Some(ClipboardNav::Confirm)
+        );
+        assert_eq!(
+            classify_clipboard_nav("mouse", "mouse.top.buttonLeft"),
+            None
+        );
     }
 
     #[test]
-    fn enter_clipboard_entries_maps_paste_copy_repeat_exit_unmapped_and_empty_history() {
-        let targets = clipboard_target_inputs("rc003", "menu");
-        assert!(targets.len() >= 2);
+    fn clipboard_list_navigation_paste_copy_repeat_hold_cancel_and_empty_history() {
         let entries = vec![
             crate::clipboard_history::ClipboardEntry {
-                text: "alpha".into(),
-                copied_at_ms: 1,
+                text: "newest".into(),
+                copied_at_ms: 300,
             },
             crate::clipboard_history::ClipboardEntry {
-                text: "beta".into(),
-                copied_at_ms: 2,
+                text: "middle".into(),
+                copied_at_ms: 200,
+            },
+            crate::clipboard_history::ClipboardEntry {
+                text: "oldest".into(),
+                copied_at_ms: 100,
             },
         ];
 
-        // 1. Paste mode maps slots in order, executes and exits, then passes through subsequent presses.
+        // 1. Enter Paste list HUD, clamp Up at 0, step Down + hold-repeat, step Up, Confirm executes selected.
         let mut mode = QuickMode::default();
         assert!(mode.enter_clipboard_entries(
             "dev",
@@ -718,31 +991,53 @@ mod tests {
             &entries,
         ));
         assert!(mode.is_active());
-        assert_eq!(mode.active_slot_count(), 2);
-        assert!(matches!(
-            mode.edge(&targets[0], true, 10),
-            Intercept::Swallow
-        ));
-        match mode.edge(&targets[0], false, 40) {
+        assert_eq!(mode.active_slot_count(), 3);
+        assert_eq!(mode.active_clipboard_selected(), Some(0));
+
+        assert!(matches!(mode.edge("up", true, 10), Intercept::Swallow));
+        assert!(matches!(mode.edge("up", false, 20), Intercept::Swallow));
+        assert_eq!(mode.active_clipboard_selected(), Some(0));
+
+        assert!(matches!(mode.edge("down", true, 100), Intercept::Swallow));
+        assert_eq!(mode.active_clipboard_selected(), Some(1));
+        assert!(mode.tick(499).is_none());
+        assert_eq!(mode.active_clipboard_selected(), Some(1));
+        assert!(mode.tick(500).is_none());
+        assert_eq!(mode.active_clipboard_selected(), Some(2));
+        assert!(mode.tick(610).is_none());
+        assert_eq!(mode.active_clipboard_selected(), Some(2));
+        assert!(matches!(mode.edge("down", false, 650), Intercept::Swallow));
+        assert!(mode.tick(800).is_none());
+        assert_eq!(mode.active_clipboard_selected(), Some(2));
+
+        assert!(matches!(mode.edge("up", true, 820), Intercept::Swallow));
+        assert!(matches!(mode.edge("up", false, 840), Intercept::Swallow));
+        assert_eq!(mode.active_clipboard_selected(), Some(1));
+
+        match mode.edge("confirm", true, 900) {
             Intercept::Execute(execs) => {
                 assert_eq!(execs.len(), 1);
                 assert_eq!(
                     execs[0].behaviors,
                     vec![NativeBehavior::Paste {
                         enabled: true,
-                        text: "alpha".into(),
+                        text: "middle".into(),
                     }]
                 );
             }
-            _ => panic!("expected paste execution"),
+            _ => panic!("expected paste execution on confirm"),
         }
         assert!(!mode.is_active());
         assert!(matches!(
-            mode.edge(&targets[0], true, 60),
+            mode.edge("confirm", false, 930),
+            Intercept::Swallow
+        ));
+        assert!(matches!(
+            mode.edge("confirm", true, 960),
             Intercept::PassThrough
         ));
 
-        // 2. CopyText mode binds CopyText instead of Paste.
+        // 2. CopyText mode confirms with CopyText.
         assert!(mode.enter_clipboard_entries(
             "dev",
             "rc003",
@@ -750,29 +1045,28 @@ mod tests {
             ClipboardOverlayAction::CopyText,
             "menu",
             false,
-            &entries[..1],
+            &entries[..2],
         ));
-        assert_eq!(mode.active_slot_count(), 1);
-        assert!(matches!(
-            mode.edge(&targets[0], true, 100),
-            Intercept::Swallow
-        ));
-        match mode.edge(&targets[0], false, 130) {
+        match mode.edge("confirm", true, 1000) {
             Intercept::Execute(execs) => {
                 assert_eq!(
                     execs[0].behaviors,
                     vec![NativeBehavior::CopyText {
                         enabled: true,
-                        text: "alpha".into(),
+                        text: "newest".into(),
                         title: None,
                     }]
                 );
             }
-            _ => panic!("expected copyText execution"),
+            _ => panic!("expected copyText execution on confirm"),
         }
         assert!(!mode.is_active());
+        assert!(matches!(
+            mode.edge("confirm", false, 1020),
+            Intercept::Swallow
+        ));
 
-        // 3. Pressing trigger key again exits and swallows its paired release.
+        // 3. Unmapped keys keep HUD open; Cancel (`back`) and repeat trigger (`menu`) exit cleanly.
         assert!(mode.enter_clipboard_entries(
             "dev",
             "rc003",
@@ -782,11 +1076,16 @@ mod tests {
             false,
             &entries,
         ));
-        assert!(matches!(mode.edge("menu", true, 150), Intercept::Exited));
+        assert!(matches!(mode.edge("power", true, 1100), Intercept::Swallow));
+        assert!(matches!(
+            mode.edge("power", false, 1120),
+            Intercept::Swallow
+        ));
+        assert!(mode.is_active());
+        assert!(matches!(mode.edge("back", true, 1150), Intercept::Exited));
         assert!(!mode.is_active());
-        assert!(matches!(mode.edge("menu", false, 180), Intercept::Swallow));
+        assert!(matches!(mode.edge("back", false, 1180), Intercept::Swallow));
 
-        // 4. Pressing an unmapped key (when fewer entries than device keys) exits cleanly.
         assert!(mode.enter_clipboard_entries(
             "dev",
             "rc003",
@@ -794,19 +1093,13 @@ mod tests {
             ClipboardOverlayAction::Paste,
             "menu",
             false,
-            &entries[..1],
+            &entries,
         ));
-        assert!(matches!(
-            mode.edge(&targets[1], true, 200),
-            Intercept::Exited
-        ));
+        assert!(matches!(mode.edge("menu", true, 1200), Intercept::Exited));
         assert!(!mode.is_active());
-        assert!(matches!(
-            mode.edge(&targets[1], false, 230),
-            Intercept::Swallow
-        ));
+        assert!(matches!(mode.edge("menu", false, 1220), Intercept::Swallow));
 
-        // 5. Empty history still activates so empty overlay HUD opens, and trigger exits it.
+        // 4. Empty history stays safe on Up/Down and exits cleanly on Confirm.
         assert!(mode.enter_clipboard_entries(
             "dev",
             "rc003",
@@ -818,8 +1111,17 @@ mod tests {
         ));
         assert!(mode.is_active());
         assert_eq!(mode.active_slot_count(), 0);
-        assert!(matches!(mode.edge("menu", true, 250), Intercept::Exited));
+        assert!(matches!(mode.edge("up", true, 1300), Intercept::Swallow));
+        assert!(matches!(mode.edge("down", true, 1310), Intercept::Swallow));
+        assert_eq!(mode.active_clipboard_selected(), Some(0));
+        assert!(matches!(
+            mode.edge("confirm", true, 1320),
+            Intercept::Exited
+        ));
         assert!(!mode.is_active());
-        assert!(matches!(mode.edge("menu", false, 280), Intercept::Swallow));
+        assert!(matches!(
+            mode.edge("confirm", false, 1340),
+            Intercept::Swallow
+        ));
     }
 }

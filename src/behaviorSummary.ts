@@ -193,7 +193,7 @@ export function behaviorSummary(
       return name ? `快捷交互窗 · ${name}` : '快捷交互窗'
     }
     case 'clipboardOverlay':
-      return behavior.action === 'copyText' ? '剪贴板交互窗 · 仅复制' : '剪贴板交互窗'
+      return behavior.action === 'copyText' ? '剪贴板浮窗 · 仅复制' : '剪贴板浮窗'
     case 'disabled':
       return '不发送任何按键'
   }

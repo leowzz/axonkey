@@ -587,7 +587,7 @@ export async function processInstanceCliRequest(
   }
   const clipboardBehavior = behaviors.find(behavior => behavior.type === 'clipboardOverlay')
   if (clipboardBehavior && behaviors.length !== 1)
-    throw new InstanceCliError('invalid_behavior', '剪贴板交互窗必须是该触发方式的唯一行为')
+    throw new InstanceCliError('invalid_behavior', '剪贴板浮窗必须是该触发方式的唯一行为')
   const change = (current: DeviceInstance) => {
     const selected = resolveProfile(current, profile.id)
     const sequences = { ...(selected.behaviors[inputId] ?? emptyTriggers()), [trigger]: behaviors }

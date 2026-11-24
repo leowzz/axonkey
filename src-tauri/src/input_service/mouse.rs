@@ -1883,10 +1883,11 @@ mod tests {
     }
 
     #[test]
-    fn mouse_clipboard_overlay_spreads_history_and_executes_paste_or_copy() {
+    fn mouse_clipboard_list_navigates_with_buttons_and_wheel_then_confirms_or_exits() {
         crate::clipboard_history::set_entries_for_test(vec![
             "剪贴板第一条".into(),
             "剪贴板第二条".into(),
+            "剪贴板第三条".into(),
         ]);
         let (sender, receiver) = mpsc::sync_channel(32);
         let settings: NativeSettings = serde_json::from_value(serde_json::json!({
@@ -1895,7 +1896,7 @@ mod tests {
             "mouseVerticalScrollIntervalMs": 0,
             "mouseHorizontalScrollIntervalMs": 0,
             "behaviors": {
-                "mouse.global.buttonMiddle": {
+                "mouse.top.buttonRight": {
                     "click": [{ "type": "clipboardOverlay", "action": "paste" }]
                 }
             }
@@ -1913,34 +1914,54 @@ mod tests {
             sender,
         };
         let mut buttons = ButtonTracker::default();
+        let mut scroll = ScrollAccumulator::default();
         let start = Instant::now();
         let at = |ms| start + Duration::from_millis(ms);
 
-        // 1. Click middle button -> enters clipboard overlay; center left click still passes through.
-        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(0)));
-        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(20)));
-        assert!(shared.quick_mode.lock().unwrap().1.is_active());
+        // 1. Trigger via top-right click -> enters clipboard HUD at item 0; center left click still passes through.
+        assert!(buttons.event(&shared, 1, true, Some(Edge::Top), (50.0, 0.0), at(0)));
+        assert!(buttons.event(&shared, 1, false, Some(Edge::Top), (50.0, 0.0), at(20)));
+        {
+            let mut guard = shared.quick_mode.lock().unwrap();
+            assert!(guard.1.is_active());
+            assert_eq!(guard.1.active_clipboard_selected(), Some(0));
+        }
         assert!(!buttons.event(&shared, 0, true, None, (50.0, 50.0), at(30)));
         assert!(!buttons.event(&shared, 0, false, None, (50.0, 50.0), at(40)));
 
-        // 2. Click Side Forward (button 3, slot #1) -> executes Paste(#1) and exits.
-        assert!(buttons.event(&shared, 3, true, None, (50.0, 50.0), at(50)));
-        assert!(buttons.event(&shared, 3, false, None, (50.0, 50.0), at(70)));
-        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        // 2. Navigate with Side Back (index -> 1), top-edge Wheel Down (-> 2), top-edge Wheel Up (-> 1).
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(50)));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(70)));
         assert_eq!(
-            receiver.try_recv().unwrap().behaviors,
-            vec![NativeBehavior::Paste {
-                enabled: true,
-                text: "剪贴板第一条".into()
-            }]
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(1)
+        );
+        scroll.enter(Some(Edge::Top));
+        assert!(scroll.scroll_at(&shared, 1, 1.0, at(90)));
+        {
+            let mut guard = shared.quick_mode.lock().unwrap();
+            assert!(guard.1.is_active());
+            assert_eq!(guard.1.active_clipboard_selected(), Some(2));
+        }
+        assert!(scroll.scroll_at(&shared, 0, 1.0, at(110)));
+        assert_eq!(
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(1)
         );
 
-        // 3. Re-enter via middle click, click Side Back (button 2, slot #2) -> executes Paste(#2).
-        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(100)));
-        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(120)));
-        assert!(shared.quick_mode.lock().unwrap().1.is_active());
-        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(150)));
-        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(170)));
+        // 3. Click Middle button -> executes Paste for selected entry #2 ("剪贴板第二条") and exits.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(130)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(150)));
         assert!(!shared.quick_mode.lock().unwrap().1.is_active());
         assert_eq!(
             receiver.try_recv().unwrap().behaviors,
@@ -1950,7 +1971,7 @@ mod tests {
             }]
         );
 
-        // 4. Switch config to copyText, re-enter via middle click, click Side Forward -> CopyText(#1).
+        // 4. Switch config to CopyText triggered by Middle button: Side Back/Forward step, repeat Middle exits without executing.
         let copy_settings: NativeSettings = serde_json::from_value(serde_json::json!({
             "enabled": true,
             "mouseIgnoreScrollAcceleration": false,
@@ -1958,6 +1979,9 @@ mod tests {
             "mouseHorizontalScrollIntervalMs": 0,
             "behaviors": {
                 "mouse.global.buttonMiddle": {
+                    "click": [{ "type": "clipboardOverlay", "action": "copyText" }]
+                },
+                "mouse.top.buttonRight": {
                     "click": [{ "type": "clipboardOverlay", "action": "copyText" }]
                 }
             }
@@ -1969,9 +1993,29 @@ mod tests {
         };
         assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(200)));
         assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(220)));
-        assert!(shared.quick_mode.lock().unwrap().1.is_active());
-        assert!(buttons.event(&shared, 3, true, None, (50.0, 50.0), at(250)));
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(240)));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(250)));
+        assert!(buttons.event(&shared, 3, true, None, (50.0, 50.0), at(260)));
         assert!(buttons.event(&shared, 3, false, None, (50.0, 50.0), at(270)));
+        assert_eq!(
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(0)
+        );
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(280)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(290)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert!(receiver.try_recv().is_err());
+
+        // 5. Trigger CopyText via top-right click, confirm with Middle -> executes CopyText(#1).
+        assert!(buttons.event(&shared, 1, true, Some(Edge::Top), (50.0, 0.0), at(310)));
+        assert!(buttons.event(&shared, 1, false, Some(Edge::Top), (50.0, 0.0), at(320)));
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(340)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(350)));
         assert!(!shared.quick_mode.lock().unwrap().1.is_active());
         assert_eq!(
             receiver.try_recv().unwrap().behaviors,

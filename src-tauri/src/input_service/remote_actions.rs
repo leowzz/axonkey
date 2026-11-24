@@ -1244,82 +1244,61 @@ mod tests {
         );
     }
 
-    fn static_rc003_button(id: &str) -> &'static str {
-        [
-            "voice",
-            "power",
-            "up",
-            "left",
-            "confirm",
-            "right",
-            "down",
-            "back",
-            "home",
-            "menu",
-            "tv",
-            "volumeUp",
-            "volumeDown",
-        ]
-        .into_iter()
-        .find(|candidate| *candidate == id)
-        .unwrap_or_else(|| panic!("unexpected rc003 button id: {id}"))
-    }
-
     #[test]
-    fn clipboard_overlay_in_remote_actions_spreads_history_and_exits_after_execution_or_repeat_trigger(
-    ) {
+    fn clipboard_overlay_in_remote_actions_navigates_up_down_and_pastes_selected_or_cancels() {
         crate::clipboard_history::set_entries_for_test(vec![
             "第一段剪贴板".into(),
             "第二段剪贴板".into(),
+            "第三段剪贴板".into(),
         ]);
-        let target_key = static_rc003_button(
-            &crate::input_service::quick_mode::clipboard_target_inputs("rc003", "menu")[0],
-        );
-        let mut config: NativeSettings = serde_json::from_value(json!({
+        let config: NativeSettings = serde_json::from_value(json!({
             "enabled": true,
             "behaviors": {
-                "menu": { "click": [{ "type": "clipboardOverlay", "action": "paste" }] }
+                "menu": { "click": [{ "type": "clipboardOverlay", "action": "paste" }] },
+                "confirm": { "click": [{ "type": "key", "key": "B" }] }
             }
         }))
         .unwrap();
-        config.behaviors.insert(
-            target_key.to_owned(),
-            serde_json::from_value(json!({
-                "click": [{ "type": "key", "key": "B" }]
-            }))
-            .unwrap(),
-        );
         let now = Instant::now();
         let mut actions = RemoteActions::default();
         actions.set_source("rc-1", "rc003", "客厅遥控器");
         actions.synchronize(1, true);
 
-        // 1. Tap `menu` -> enters clipboard overlay without emitting any output.
+        // 1. Tap `menu` -> enters clipboard list HUD without emitting outputs.
         actions.edge("menu", true, &config, now);
         actions.edge("menu", false, &config, now + Duration::from_millis(20));
         assert!(outputs(&mut actions, now + Duration::from_millis(20)).is_empty());
 
-        // 2. Press `menu` again -> exits cleanly without executing anything.
-        actions.edge("menu", true, &config, now + Duration::from_millis(50));
-        actions.edge("menu", false, &config, now + Duration::from_millis(70));
+        // 2. Tap `down` to select entry #2, then `confirm` -> emits Paste("第二段剪贴板") and exits.
+        actions.edge("down", true, &config, now + Duration::from_millis(50));
+        actions.edge("down", false, &config, now + Duration::from_millis(70));
         assert!(outputs(&mut actions, now + Duration::from_millis(70)).is_empty());
 
-        // 3. Re-enter via `menu`, then tap first mapped target key -> emits Paste(#1) and exits.
-        actions.edge("menu", true, &config, now + Duration::from_millis(100));
-        actions.edge("menu", false, &config, now + Duration::from_millis(120));
-        actions.edge(target_key, true, &config, now + Duration::from_millis(150));
-        actions.edge(target_key, false, &config, now + Duration::from_millis(170));
+        actions.edge("confirm", true, &config, now + Duration::from_millis(100));
+        actions.edge("confirm", false, &config, now + Duration::from_millis(120));
         assert_eq!(
-            outputs(&mut actions, now + Duration::from_millis(170)),
-            [Output::Paste("第一段剪贴板".into())]
+            outputs(&mut actions, now + Duration::from_millis(120)),
+            [Output::Paste("第二段剪贴板".into())]
         );
 
-        // 4. Subsequent press of target_key runs base profile Key("B") (`(7, 5, true)`).
-        actions.edge(target_key, true, &config, now + Duration::from_millis(220));
+        // 3. Subsequent press of `confirm` runs base profile Key("B") (`(7, 5, true)`).
+        actions.edge("confirm", true, &config, now + Duration::from_millis(170));
+        actions.edge("confirm", false, &config, now + Duration::from_millis(190));
         assert_eq!(
-            keys(&mut actions, now + Duration::from_millis(220)),
-            vec![(7, 5, true)]
+            keys(&mut actions, now + Duration::from_millis(190)),
+            vec![(7, 5, true), (7, 5, false)]
         );
+
+        // 4. Re-enter via `menu`, tap `down`, `up`, then `back` -> cancels cleanly without outputs.
+        actions.edge("menu", true, &config, now + Duration::from_millis(240));
+        actions.edge("menu", false, &config, now + Duration::from_millis(260));
+        actions.edge("down", true, &config, now + Duration::from_millis(280));
+        actions.edge("down", false, &config, now + Duration::from_millis(300));
+        actions.edge("up", true, &config, now + Duration::from_millis(320));
+        actions.edge("up", false, &config, now + Duration::from_millis(340));
+        actions.edge("back", true, &config, now + Duration::from_millis(360));
+        actions.edge("back", false, &config, now + Duration::from_millis(380));
+        assert!(outputs(&mut actions, now + Duration::from_millis(380)).is_empty());
 
         crate::clipboard_history::clear();
     }

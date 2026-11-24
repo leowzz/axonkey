@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { ClipboardList, CornerDownLeft, Sparkles, Trash2, X } from 'lucide-react'
+import { CornerDownLeft, Sparkles, X } from 'lucide-react'
 import type { Platform } from '../appTypes'
 import {
   activateCatalogDeviceDescriptors,
@@ -13,6 +13,7 @@ import {
 } from '../cloud/deviceModelCatalog'
 import { getSupportPackages, subscribeSupportPackages } from '../devices/integration/model'
 import { logError } from '../runtimeLogging'
+import { ClipboardHud } from './ClipboardHud'
 import { conciseSlotShort, QuickOverlaySurface, renderKeyGlyph, slotKindClass } from './QuickOverlaySurface'
 import {
   buildQuickOverlayView,
@@ -39,7 +40,6 @@ function formatScopedMetaLabel(entry: QuickOverlayScopedEntry): string {
 function slotDetailCandidate(
   slot: QuickOverlayKeySlot,
   promptMode = false,
-  clipboardMode = false,
 ): {
   keyLabel: string
   title?: string
@@ -70,15 +70,6 @@ function slotDetailCandidate(
   }
   const single = slot.triggers[0]
   if (!single) return null
-  if (clipboardMode || single.kind === 'clipboard') {
-    return {
-      keyLabel: slot.contextLabel ? `${slot.contextLabel} · ${slot.label}` : slot.label,
-      ...(single.title ? { title: single.title } : {}),
-      badge: single.badge || single.triggerLabel,
-      body: single.text,
-      steps: `${single.text.length} 字符 · ${single.inputMethod === 'copyText' ? '按下仅写入剪贴板' : '按下直接粘贴'}`,
-    }
-  }
   if (
     (single.kind === 'prompt' && (promptMode || Boolean(single.title) || single.text.length > 16)) ||
     single.stepsSummary ||
@@ -209,9 +200,12 @@ export function QuickOverlay() {
     void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
-  const view = useMemo(() => (session ? buildQuickOverlayView(session, platform) : null), [session, platform])
+  const view = useMemo(
+    () => (!session || session.clipboard ? null : buildQuickOverlayView(session, platform)),
+    [session, platform],
+  )
 
-  if (!session || !view) return null
+  if (!session) return null
 
   const dismiss = () => {
     void invoke('dismiss_quick_overlay', { revision: session.revision }).catch(error =>
@@ -219,15 +213,37 @@ export function QuickOverlay() {
     )
   }
 
+  const clearClipboard = () => {
+    void invoke('clear_clipboard_history').catch(error => logError('Failed to clear clipboard history', error))
+  }
+
+  const selectClipboardItem = (index: number) => {
+    void invoke('select_clipboard_overlay_item', {
+      revision: session.revision,
+      index,
+    }).catch(error => logError('Failed to select clipboard overlay item', error))
+  }
+
+  if (session.clipboard) {
+    return (
+      <ClipboardHud
+        key={session.revision}
+        preview={session.preview}
+        clipboard={session.clipboard}
+        onDismiss={dismiss}
+        onSelect={selectClipboardItem}
+        onClear={clearClipboard}
+      />
+    )
+  }
+
+  if (!view) return null
+
   const triggerInput = (inputId: string) => {
     void invoke('trigger_quick_overlay_input', {
       revision: session.revision,
       inputId,
     }).catch(error => logError('Failed to trigger quick overlay input', error))
-  }
-
-  const clearClipboard = () => {
-    void invoke('clear_clipboard_history').catch(error => logError('Failed to clear clipboard history', error))
   }
 
   return (
@@ -237,7 +253,6 @@ export function QuickOverlay() {
       preview={session.preview}
       onDismiss={dismiss}
       onTrigger={triggerInput}
-      onClearClipboard={view.clipboardMode ? clearClipboard : undefined}
     />
   )
 }
@@ -247,13 +262,11 @@ export function QuickOverlayPresentation({
   preview,
   onDismiss,
   onTrigger,
-  onClearClipboard,
 }: {
   view: QuickOverlayViewModel
   preview: boolean
   onDismiss: () => void
   onTrigger?: (inputId: string) => void
-  onClearClipboard?: () => void
 }) {
   const [hoveredSlotId, setHoveredSlotId] = useState('')
   useEffect(() => {
@@ -271,15 +284,15 @@ export function QuickOverlayPresentation({
     let firstDetail: QuickOverlayKeySlot | null = null
     for (const slot of allSlots) {
       map.set(slot.slotId, slot)
-      if (!firstDetail && slotDetailCandidate(slot, view.promptMode, view.clipboardMode)) firstDetail = slot
+      if (!firstDetail && slotDetailCandidate(slot, view.promptMode)) firstDetail = slot
     }
     return { defaultDetailSlot: firstDetail, slotLookup: map }
   }, [view])
 
   const hoveredSlot = hoveredSlotId ? slotLookup.get(hoveredSlotId) : undefined
   const activeDetail =
-    (hoveredSlot && slotDetailCandidate(hoveredSlot, view.promptMode, view.clipboardMode)) ||
-    (defaultDetailSlot && slotDetailCandidate(defaultDetailSlot, view.promptMode, view.clipboardMode)) ||
+    (hoveredSlot && slotDetailCandidate(hoveredSlot, view.promptMode)) ||
+    (defaultDetailSlot && slotDetailCandidate(defaultDetailSlot, view.promptMode)) ||
     null
 
   const renderSingleTriggerBody = (single: QuickOverlayTriggerPreview, contextLabel?: string) => (
@@ -288,12 +301,10 @@ export function QuickOverlayPresentation({
       {single.title ? (
         <>
           <strong className={`ceramic-key-label is-titled is-${single.kind}`}>{single.title}</strong>
-          {single.text && single.text !== '（空文本）' && (
-            <span className="ceramic-key-excerpt">{single.displayText ?? single.text}</span>
-          )}
+          {single.text && single.text !== '（空文本）' && <span className="ceramic-key-excerpt">{single.text}</span>}
         </>
       ) : (
-        <strong className={`ceramic-key-label is-${single.kind}`}>{single.displayText ?? single.text}</strong>
+        <strong className={`ceramic-key-label is-${single.kind}`}>{single.text}</strong>
       )}
       {single.stepsSummary && <span className="ceramic-key-steps">{single.stepsSummary}</span>}
     </div>
@@ -383,7 +394,7 @@ export function QuickOverlayPresentation({
                 >
                   <span className="ceramic-scoped-badge">{entry.contextLabel ?? '全局'}</span>
                   <strong className="ceramic-scoped-text">
-                    {entry.isExitTrigger ? '再按退出' : (primary?.displayText ?? primary?.text ?? '')}
+                    {entry.isExitTrigger ? '再按退出' : (primary?.text ?? '')}
                   </strong>
                 </button>
               )
@@ -408,13 +419,7 @@ export function QuickOverlayPresentation({
       <button
         key={slot.slotId}
         type="button"
-        title={
-          single?.kind === 'prompt' || single?.kind === 'clipboard'
-            ? single.title
-              ? `${single.title}\n${single.text}`
-              : single.text
-            : undefined
-        }
+        title={single?.kind === 'prompt' ? (single.title ? `${single.title}\n${single.text}` : single.text) : undefined}
         className={`ceramic-key is-configured${slotKindClass(slot.primaryKind)}${isActive ? ' is-active' : ''}${isPressed ? ' is-pressed' : ''}${extraClass ? ` ${extraClass}` : ''}`}
         style={inlineStyle}
         aria-label={`${fullTitle}：${slot.triggers.map(t => `${t.triggerLabel} ${t.title ? `${t.title} ${t.text}` : t.text}`).join('；')}`}
@@ -460,42 +465,22 @@ export function QuickOverlayPresentation({
       }}
     >
       <aside
-        className={`quick-overlay-shell ${shellVariantClass}${view.promptMode ? ' is-prompt-mode' : ''}${view.clipboardMode ? ' is-clipboard-mode' : ''}`}
+        className={`quick-overlay-shell ${shellVariantClass}${view.promptMode ? ' is-prompt-mode' : ''}`}
         role="dialog"
-        aria-label={`${view.clipboardMode ? '剪贴板交互窗' : '快捷交互窗'} · ${view.profileName}`}
+        aria-label={`快捷交互窗 · ${view.profileName}`}
       >
         <header className="quick-overlay-header">
           <div className="quick-overlay-identity">
-            <span
-              className={`quick-overlay-mode-pill${view.clipboardMode ? ' is-clipboard' : preview ? ' is-preview' : view.promptMode ? ' is-prompt' : ''}`}
-            >
-              {view.clipboardMode ? (
-                <ClipboardList size={12} aria-hidden="true" />
-              ) : (
-                <Sparkles size={12} aria-hidden="true" />
-              )}
-              <span>
-                {view.clipboardMode
-                  ? preview
-                    ? '剪贴板预览'
-                    : '剪贴板'
-                  : preview
-                    ? '预览'
-                    : view.promptMode
-                      ? '纯 Prompt'
-                      : '快捷交互'}
-              </span>
+            <span className={`quick-overlay-mode-pill${preview ? ' is-preview' : view.promptMode ? ' is-prompt' : ''}`}>
+              <Sparkles size={12} aria-hidden="true" />
+              <span>{preview ? '预览' : view.promptMode ? '纯 Prompt' : '快捷交互'}</span>
             </span>
             <strong className="quick-overlay-profile-name">{view.profileName}</strong>
             <span className="quick-overlay-meta-sep" aria-hidden="true">
               ·
             </span>
             <span className="quick-overlay-device-name">{view.deviceName}</span>
-            {view.items.length > 0 && (
-              <span className="quick-overlay-count-chip">
-                {view.items.length} {view.clipboardMode ? '条' : '键'}
-              </span>
-            )}
+            {view.items.length > 0 && <span className="quick-overlay-count-chip">{view.items.length} 键</span>}
           </div>
           <div className="quick-overlay-actions">
             {view.triggerLabel ? (
@@ -504,32 +489,14 @@ export function QuickOverlayPresentation({
                 {onTrigger && ' 退出'}
               </span>
             ) : onTrigger ? (
-              <span className="quick-overlay-exit-hint">
-                {view.clipboardMode
-                  ? view.clipboardAction === 'copyText'
-                    ? '按下按键复制后退出'
-                    : '按下按键粘贴后退出'
-                  : '按配置键执行后退出'}
-              </span>
+              <span className="quick-overlay-exit-hint">按配置键执行后退出</span>
             ) : null}
-            {view.clipboardMode && view.items.length > 0 && onClearClipboard && (
-              <button
-                type="button"
-                className="quick-overlay-clear"
-                aria-label="清空剪贴板历史"
-                title="清空剪贴板历史"
-                onClick={onClearClipboard}
-              >
-                <Trash2 size={13} aria-hidden="true" />
-                <span>清空</span>
-              </button>
-            )}
             <button
               type="button"
               className="quick-overlay-close"
-              aria-label={view.clipboardMode ? '关闭剪贴板交互窗' : '关闭快捷交互窗'}
+              aria-label="关闭快捷交互窗"
               aria-keyshortcuts="Escape"
-              title={view.clipboardMode ? '关闭剪贴板交互窗（Esc）' : '关闭快捷交互窗（Esc）'}
+              title="关闭快捷交互窗（Esc）"
               onClick={onDismiss}
             >
               <X size={15} aria-hidden="true" />
@@ -539,18 +506,8 @@ export function QuickOverlayPresentation({
 
         {view.items.length === 0 ? (
           <div className="quick-overlay-empty">
-            <p>
-              {view.clipboardMode
-                ? '剪贴板暂无文本记录'
-                : view.promptMode
-                  ? '此 Prompt 面板暂未添加按键内容'
-                  : '此快捷配置暂未添加按键功能'}
-            </p>
-            <span>
-              {view.clipboardMode
-                ? '复制任意文本后，再次按下触发键即可自动铺到其他按键上'
-                : `在主窗口选择「${view.profileName}」即可为按键配置提示词或快捷行为`}
-            </span>
+            <p>{view.promptMode ? '此 Prompt 面板暂未添加按键内容' : '此快捷配置暂未添加按键功能'}</p>
+            <span>在主窗口选择「{view.profileName}」即可为按键配置提示词或快捷行为</span>
           </div>
         ) : (
           <div className="quick-surface-scroll">
@@ -563,11 +520,7 @@ export function QuickOverlayPresentation({
             <div className="quick-detail-head">
               <span className="quick-detail-key-pill">{activeDetail.keyLabel}</span>
               {activeDetail.title && <strong className="quick-detail-title">{activeDetail.title}</strong>}
-              <span
-                className={`quick-detail-badge${view.clipboardMode ? ' is-clipboard' : view.promptMode ? ' is-prompt' : ''}`}
-              >
-                {activeDetail.badge}
-              </span>
+              <span className={`quick-detail-badge${view.promptMode ? ' is-prompt' : ''}`}>{activeDetail.badge}</span>
               {activeDetail.steps && <span className="quick-detail-steps">{activeDetail.steps}</span>}
             </div>
             <p className="quick-detail-body">{activeDetail.body}</p>

@@ -249,7 +249,7 @@ export async function processMouseCliRequest(
     }
     const clipboardBehavior = sequence.find(item => item.type === 'clipboardOverlay')
     if (clipboardBehavior && sequence.length !== 1)
-      throw new InstanceCliError('invalid_behavior', '剪贴板交互窗必须是该触发方式的唯一行为')
+      throw new InstanceCliError('invalid_behavior', '剪贴板浮窗必须是该触发方式的唯一行为')
     if (switchBehavior) next = { ...next, ...applySharedProfileSwitch(next, input, trigger, switchBehavior) }
     else if (profile.behaviors[input][trigger].some(item => item.type === 'switchProfile'))
       next = {

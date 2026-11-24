@@ -94,7 +94,7 @@ pub(crate) struct InputDescriptor {
     pub legacy_key: Option<String>,
     pub original: bool,
     pub pending: bool,
-    pub order: Option<u32>,
+    pub icon: Option<String>,
     pub sources: Vec<SourceDescriptor>,
 }
 
@@ -452,9 +452,7 @@ fn parse_input(attrs: &BTreeMap<String, String>) -> Result<InputDescriptor, Desc
         target: attrs.get("target").cloned(),
         legacy_key: attrs.get("legacy-key").cloned(),
         pending: attrs.get("binding").is_some_and(|value| value == "pending"),
-        order: attrs
-            .get("order")
-            .and_then(|value| value.parse::<u32>().ok()),
+        icon: attrs.get("icon").cloned(),
         original: match attrs.get("original").map(String::as_str) {
             None | Some("false") => false,
             Some("true") => true,

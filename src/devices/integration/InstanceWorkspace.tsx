@@ -549,7 +549,7 @@ export function InstanceWorkspace({
   const previewClipboardOverlay = useCallback(
     (triggerInputId: string, action: ClipboardOverlayAction = 'paste') => {
       if (!native) {
-        onToast?.('桌面应用中可打开顶层剪贴板交互窗预览')
+        onToast?.('桌面应用中可打开剪贴板浮窗预览')
         return
       }
       void invoke('preview_clipboard_overlay', {
@@ -559,7 +559,7 @@ export function InstanceWorkspace({
         triggerInput: triggerInputId,
         action,
       }).catch(() => {
-        onToast?.('无法打开剪贴板交互窗预览')
+        onToast?.('无法打开剪贴板浮窗预览')
       })
     },
     [instance.id, instance.kind, instance.name, native, onToast],

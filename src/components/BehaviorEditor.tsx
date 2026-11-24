@@ -608,7 +608,7 @@ export function BehaviorEditor<Id extends string>({
                 />
                 <BehaviorActionButton
                   icon={<ClipboardList size={17} />}
-                  label="剪贴板交互窗"
+                  label="剪贴板浮窗"
                   onClick={() => onAddAdvancedBehavior('clipboardOverlay')}
                 />
               </>
@@ -976,8 +976,9 @@ function ClipboardOverlayEditorFields({
           <span className="settings-form-label" id={`${fieldId}-behavior-clipboard-action-label`}>
             选中后：
           </span>
-          <SettingsHelp id={`${fieldId}-behavior-clipboard-overlay-help`} label="剪贴板交互窗">
-            按下此键弹出近期剪贴板历史列表并动态映射到其他按键上；按下其他按键执行粘贴或仅写入剪贴板并退出，再次按下此触发键直接退出。
+          <SettingsHelp id={`${fieldId}-behavior-clipboard-overlay-help`} label="剪贴板浮窗">
+            按下此键弹出近期剪贴板历史列表（由新到旧）；使用上下方向键切换条目，按确认（OK）键执行粘贴或仅写入剪贴板并退出，按返回、Esc
+            或再次按下触发键直接关闭。
           </SettingsHelp>
         </div>
         <div className="settings-form-control">
@@ -1014,7 +1015,7 @@ function ClipboardOverlayEditorFields({
               className="dialog-secondary"
               onClick={() => context.onPreviewClipboard?.(triggerInputId, action)}
             >
-              <Eye size={14} aria-hidden="true" /> 预览剪贴板交互窗
+              <Eye size={14} aria-hidden="true" /> 预览剪贴板浮窗
             </button>
           </div>
         </div>

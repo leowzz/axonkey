@@ -1741,15 +1741,16 @@ fn key_used_in_reachable_quick_profile(settings: &NativeSettings, key: &str) -> 
     if in_quick_profile {
         return true;
     }
-    settings.behaviors.iter().any(|(trigger_key, triggers)| {
-        trigger_key != key
-            && triggers.iter().any(|behavior| {
-                matches!(
-                    behavior,
-                    NativeBehavior::ClipboardOverlay { enabled: true, .. }
-                )
-            })
-    })
+    super::quick_mode::classify_clipboard_nav("rc003", key).is_some()
+        && settings.behaviors.iter().any(|(trigger_key, triggers)| {
+            trigger_key != key
+                && triggers.iter().any(|behavior| {
+                    matches!(
+                        behavior,
+                        NativeBehavior::ClipboardOverlay { enabled: true, .. }
+                    )
+                })
+        })
 }
 
 fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
