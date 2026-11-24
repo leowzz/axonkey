@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
+  ClipboardList,
   ClipboardPaste,
   Copy,
   Clock3,
@@ -606,7 +607,7 @@ export function BehaviorEditor<Id extends string>({
                   onClick={() => onAddAdvancedBehavior('openWebsite')}
                 />
                 <BehaviorActionButton
-                  icon={<ClipboardCopy size={17} />}
+                  icon={<ClipboardList size={17} />}
                   label="剪贴板交互窗"
                   onClick={() => onAddAdvancedBehavior('clipboardOverlay')}
                 />

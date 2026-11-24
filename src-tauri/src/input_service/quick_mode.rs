@@ -638,4 +638,188 @@ mod tests {
         assert!(matches!(mode.edge("up", false, 850), Intercept::Swallow));
         assert!(matches!(mode.edge("up", true, 900), Intercept::PassThrough));
     }
+
+    #[test]
+    fn clipboard_target_inputs_orders_descriptor_keys_and_excludes_trigger_and_axes() {
+        let rc_targets = clipboard_target_inputs("rc003", "menu");
+        assert!(!rc_targets.is_empty());
+        assert!(!rc_targets.iter().any(|id| id == "menu"));
+
+        let kivo_targets = clipboard_target_inputs("kivoK18Lite", "kivo.k18Lite.k01");
+        assert_eq!(kivo_targets.len(), 17);
+        assert!(!kivo_targets.iter().any(|id| id == "kivo.k18Lite.k01"));
+        assert_eq!(
+            kivo_targets.first().map(String::as_str),
+            Some("kivo.k18Lite.k02")
+        );
+
+        let xbox_targets = clipboard_target_inputs("xboxBluetooth", "xbox.bt.a");
+        assert!(!xbox_targets.is_empty());
+        assert!(!xbox_targets.iter().any(|id| id == "xbox.bt.a"));
+        let xbox_desc = crate::devices::descriptor_registry::descriptor_for_kind("xboxBluetooth")
+            .expect("xboxBluetooth descriptor should exist");
+        for key in &xbox_targets {
+            let input = xbox_desc
+                .inputs
+                .iter()
+                .find(|candidate| {
+                    candidate.id == key.as_str()
+                        || candidate
+                            .legacy_key
+                            .as_deref()
+                            .is_some_and(|aliases| aliases.split_whitespace().any(|a| a == key))
+                })
+                .expect("returned clipboard target key must exist in descriptor");
+            assert!(!input.pending);
+            assert_ne!(input.kind, "axis");
+        }
+
+        assert_eq!(
+            clipboard_target_inputs("mouse", "mouse.global.buttonMiddle"),
+            vec![
+                "mouse.global.buttonForward".to_string(),
+                "mouse.global.buttonBack".to_string(),
+            ]
+        );
+        let mouse_top_targets = clipboard_target_inputs("mouse", "mouse.top.buttonMiddle");
+        assert_eq!(mouse_top_targets.len(), 8);
+        assert!(!mouse_top_targets
+            .iter()
+            .any(|id| id == "mouse.top.buttonMiddle"));
+        assert!(mouse_top_targets
+            .iter()
+            .all(|id| id.starts_with("mouse.top.")));
+    }
+
+    #[test]
+    fn enter_clipboard_entries_maps_paste_copy_repeat_exit_unmapped_and_empty_history() {
+        let targets = clipboard_target_inputs("rc003", "menu");
+        assert!(targets.len() >= 2);
+        let entries = vec![
+            crate::clipboard_history::ClipboardEntry {
+                text: "alpha".into(),
+                copied_at_ms: 1,
+            },
+            crate::clipboard_history::ClipboardEntry {
+                text: "beta".into(),
+                copied_at_ms: 2,
+            },
+        ];
+
+        // 1. Paste mode maps slots in order, executes and exits, then passes through subsequent presses.
+        let mut mode = QuickMode::default();
+        assert!(mode.enter_clipboard_entries(
+            "dev",
+            "rc003",
+            "遥控器",
+            ClipboardOverlayAction::Paste,
+            "menu",
+            false,
+            &entries,
+        ));
+        assert!(mode.is_active());
+        assert_eq!(mode.active_slot_count(), 2);
+        assert!(matches!(
+            mode.edge(&targets[0], true, 10),
+            Intercept::Swallow
+        ));
+        match mode.edge(&targets[0], false, 40) {
+            Intercept::Execute(execs) => {
+                assert_eq!(execs.len(), 1);
+                assert_eq!(
+                    execs[0].behaviors,
+                    vec![NativeBehavior::Paste {
+                        enabled: true,
+                        text: "alpha".into(),
+                    }]
+                );
+            }
+            _ => panic!("expected paste execution"),
+        }
+        assert!(!mode.is_active());
+        assert!(matches!(
+            mode.edge(&targets[0], true, 60),
+            Intercept::PassThrough
+        ));
+
+        // 2. CopyText mode binds CopyText instead of Paste.
+        assert!(mode.enter_clipboard_entries(
+            "dev",
+            "rc003",
+            "遥控器",
+            ClipboardOverlayAction::CopyText,
+            "menu",
+            false,
+            &entries[..1],
+        ));
+        assert_eq!(mode.active_slot_count(), 1);
+        assert!(matches!(
+            mode.edge(&targets[0], true, 100),
+            Intercept::Swallow
+        ));
+        match mode.edge(&targets[0], false, 130) {
+            Intercept::Execute(execs) => {
+                assert_eq!(
+                    execs[0].behaviors,
+                    vec![NativeBehavior::CopyText {
+                        enabled: true,
+                        text: "alpha".into(),
+                        title: None,
+                    }]
+                );
+            }
+            _ => panic!("expected copyText execution"),
+        }
+        assert!(!mode.is_active());
+
+        // 3. Pressing trigger key again exits and swallows its paired release.
+        assert!(mode.enter_clipboard_entries(
+            "dev",
+            "rc003",
+            "遥控器",
+            ClipboardOverlayAction::Paste,
+            "menu",
+            false,
+            &entries,
+        ));
+        assert!(matches!(mode.edge("menu", true, 150), Intercept::Exited));
+        assert!(!mode.is_active());
+        assert!(matches!(mode.edge("menu", false, 180), Intercept::Swallow));
+
+        // 4. Pressing an unmapped key (when fewer entries than device keys) exits cleanly.
+        assert!(mode.enter_clipboard_entries(
+            "dev",
+            "rc003",
+            "遥控器",
+            ClipboardOverlayAction::Paste,
+            "menu",
+            false,
+            &entries[..1],
+        ));
+        assert!(matches!(
+            mode.edge(&targets[1], true, 200),
+            Intercept::Exited
+        ));
+        assert!(!mode.is_active());
+        assert!(matches!(
+            mode.edge(&targets[1], false, 230),
+            Intercept::Swallow
+        ));
+
+        // 5. Empty history still activates so empty overlay HUD opens, and trigger exits it.
+        assert!(mode.enter_clipboard_entries(
+            "dev",
+            "rc003",
+            "遥控器",
+            ClipboardOverlayAction::Paste,
+            "menu",
+            false,
+            &[],
+        ));
+        assert!(mode.is_active());
+        assert_eq!(mode.active_slot_count(), 0);
+        assert!(matches!(mode.edge("menu", true, 250), Intercept::Exited));
+        assert!(!mode.is_active());
+        assert!(matches!(mode.edge("menu", false, 280), Intercept::Swallow));
+    }
 }

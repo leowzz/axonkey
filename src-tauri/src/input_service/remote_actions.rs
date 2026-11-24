@@ -1243,4 +1243,84 @@ mod tests {
             vec![(7, 5, true)]
         );
     }
+
+    fn static_rc003_button(id: &str) -> &'static str {
+        [
+            "voice",
+            "power",
+            "up",
+            "left",
+            "confirm",
+            "right",
+            "down",
+            "back",
+            "home",
+            "menu",
+            "tv",
+            "volumeUp",
+            "volumeDown",
+        ]
+        .into_iter()
+        .find(|candidate| *candidate == id)
+        .unwrap_or_else(|| panic!("unexpected rc003 button id: {id}"))
+    }
+
+    #[test]
+    fn clipboard_overlay_in_remote_actions_spreads_history_and_exits_after_execution_or_repeat_trigger(
+    ) {
+        crate::clipboard_history::set_entries_for_test(vec![
+            "第一段剪贴板".into(),
+            "第二段剪贴板".into(),
+        ]);
+        let target_key = static_rc003_button(
+            &crate::input_service::quick_mode::clipboard_target_inputs("rc003", "menu")[0],
+        );
+        let mut config: NativeSettings = serde_json::from_value(json!({
+            "enabled": true,
+            "behaviors": {
+                "menu": { "click": [{ "type": "clipboardOverlay", "action": "paste" }] }
+            }
+        }))
+        .unwrap();
+        config.behaviors.insert(
+            target_key.to_owned(),
+            serde_json::from_value(json!({
+                "click": [{ "type": "key", "key": "B" }]
+            }))
+            .unwrap(),
+        );
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.set_source("rc-1", "rc003", "客厅遥控器");
+        actions.synchronize(1, true);
+
+        // 1. Tap `menu` -> enters clipboard overlay without emitting any output.
+        actions.edge("menu", true, &config, now);
+        actions.edge("menu", false, &config, now + Duration::from_millis(20));
+        assert!(outputs(&mut actions, now + Duration::from_millis(20)).is_empty());
+
+        // 2. Press `menu` again -> exits cleanly without executing anything.
+        actions.edge("menu", true, &config, now + Duration::from_millis(50));
+        actions.edge("menu", false, &config, now + Duration::from_millis(70));
+        assert!(outputs(&mut actions, now + Duration::from_millis(70)).is_empty());
+
+        // 3. Re-enter via `menu`, then tap first mapped target key -> emits Paste(#1) and exits.
+        actions.edge("menu", true, &config, now + Duration::from_millis(100));
+        actions.edge("menu", false, &config, now + Duration::from_millis(120));
+        actions.edge(target_key, true, &config, now + Duration::from_millis(150));
+        actions.edge(target_key, false, &config, now + Duration::from_millis(170));
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(170)),
+            [Output::Paste("第一段剪贴板".into())]
+        );
+
+        // 4. Subsequent press of target_key runs base profile Key("B") (`(7, 5, true)`).
+        actions.edge(target_key, true, &config, now + Duration::from_millis(220));
+        assert_eq!(
+            keys(&mut actions, now + Duration::from_millis(220)),
+            vec![(7, 5, true)]
+        );
+
+        crate::clipboard_history::clear();
+    }
 }
