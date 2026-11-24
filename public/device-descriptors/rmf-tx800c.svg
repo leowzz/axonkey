@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="168" height="694" viewBox="0 0 168 694" data-ak-schema="axonkey.device/1" data-ak-device="rmf-tx800c" data-ak-revision="3" role="img" aria-labelledby="device-title device-description">
-  <title id="device-title">RMF-TX800C 正面</title>
-  <desc id="device-description">十五个 HID 按键和一个 ATVV 麦克风键可映射，电源键走红外。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="168" height="420" viewBox="0 0 168 420" data-ak-schema="axonkey.device/1" data-ak-device="rmf-tx800c" data-ak-revision="4" role="img" aria-labelledby="device-title device-description">
+  <title id="device-title">RMF-TX800C 正面按键区</title>
+  <desc id="device-description">截取正面的按键区。十五个 HID 按键和一个 ATVV 麦克风键可映射，电源键走红外。</desc>
   <metadata>
-    <ak:device schema="axonkey.device/1" id="rmf-tx800c" vendor="Sony" model="RMF-TX800C" revision="3" display-name="Sony RMF-TX800C">
+    <ak:device schema="axonkey.device/1" id="rmf-tx800c" vendor="Sony" model="RMF-TX800C" revision="4" display-name="Sony RMF-TX800C">
       <ak:identity>
         <ak:match transport="bluetooth-hid" vid="0x02054C" pid="0x0DF7" service="00001812-0000-1000-8000-00805F9B34FB" windows-prefix="BTHLEDEVICE" information-required="true" manufacturer-contains="Sony_Corporation|Sony Corporation" />
       </ak:identity>
@@ -44,7 +44,7 @@
   </metadata>
 
   <g id="front-view" data-ak-view="front" aria-label="正面" fill="#333338">
-    <rect x="10" y="9" width="148" height="676" rx="33" fill="#414146" stroke="#303034" stroke-width="1.5"/>
+    <path d="M 10 420 V 42 A 33 33 0 0 1 43 9 H 125 A 33 33 0 0 1 158 42 V 420 Z" fill="#414146" stroke="#303034" stroke-width="1.5"/>
 
     <g id="key-power" aria-hidden="true">
       <circle cx="127" cy="38" r="15" stroke="#1b1b1e" stroke-width="1"/>

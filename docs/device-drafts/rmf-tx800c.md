@@ -1,7 +1,7 @@
 # RMF-TX800C 图稿交接
 
 - 设备 ID：`rmf-tx800c`，内置和已有本机适配共用 kind `rmfTx800c`。型号由用户提供，补充照片确认品牌为 Sony。
-- 图稿：[rmf-tx800c.svg](rmf-tx800c.svg)，`axonkey.device/1` 草稿，修订 3。根据正面和斜视照片绘制完整正面，按图稿规范省略品牌 Logo。没有可确认的侧键。
+- 图稿：[rmf-tx800c.svg](rmf-tx800c.svg)，`axonkey.device/1` 草稿，修订 4。根据正面和斜视照片绘制，画布裁到音量摇杆下方，保留按键原有坐标。没有可确认的侧键。
 - 接入：[内置描述符](../../public/device-descriptors/rmf-tx800c.svg)使用本机「适配新设备」保存的 15 组 HID 按下/松开样本，另有一个由 Windows ATVV 控制事件驱动的麦克风热区。电源键只有外观，保留稳定 ID 供旧配置读取。
 
 Windows 枚举名为 `SONY TV VRC 001`，BLE HID 服务 `0x1812`，硬件 ID 片段 `DEV_VID&02054C_PID&0DF7`。PnP ID 对应 USB 厂商/产品 ID `054C:0DF7`。GATT 截图记录厂商 `Sony Corporation`、型号字符串 `SMPL_CN`、固件 `22.01.01.022`；Windows 采集工具也观察到厂商拼法 `Sony_Corporation`。匹配不写入单台遥控器的蓝牙地址。

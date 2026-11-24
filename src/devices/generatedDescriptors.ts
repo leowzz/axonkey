@@ -2678,7 +2678,7 @@ export const deviceDescriptors = {
     },
     "viewBox": {
       "width": 168,
-      "height": 694
+      "height": 420
     },
     "inputs": [
       {
