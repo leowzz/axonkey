@@ -240,8 +240,8 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
       ? `已连接 · ${connectedName}`
       : status?.running
         ? pairedTotal > 0
-          ? `等待手机连接 · 已配对 ${pairedTotal} 台`
-          : '等待扫码配对'
+          ? `等待手机连接 · 已配对 ${pairedTotal} 台（需同一局域网）`
+          : '等待扫码配对 · 请确保双端在同一局域网'
         : '服务未就绪'
   const dotTone = connectedName ? 'online' : status?.running ? (pairedTotal > 0 ? 'ready' : 'waiting') : ''
   const lanSummary = status?.addrs?.length ? status.addrs.join(' · ') : null
@@ -360,6 +360,8 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
                     <span>自动发现 :{UDP_DISCOVERY_PORT}</span>
                   </span>
                 </div>
+
+                <p className="mobile-pair-lan-hint">请确保手机与电脑连接在同一局域网（同一 Wi‑Fi 或热点）下</p>
 
                 <div className="mobile-pair-actions">
                   <button
