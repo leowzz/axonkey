@@ -37,4 +37,21 @@ test('Windows NSIS installer never reads or modifies user or system Environment/
   assert.doesNotMatch(template, /\bEnVar::/i)
   assert.doesNotMatch(template, /STR:Environment/i)
   assert.doesNotMatch(template, /\bsetx\b/i)
+
+  const mobileVhidCleanupIdx = template.indexOf(
+    'ExecWait \'"$INSTDIR\\${MAINBINARYNAME}.exe" --uninstall-mobile-vhid-if-present\' $0',
+  )
+  const quarborUninstallAllIdx = template.indexOf(
+    'ExecWait \'"$INSTDIR\\vendor\\QuarborUniversalKeyboardDriverInstaller\\QuarborUniversalKeyboardDriverInstaller.exe" --uninstall-all\' $0',
+  )
+  const deleteMainBinaryIdx = template.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"')
+  assert.ok(mobileVhidCleanupIdx > 0, 'NSIS Uninstall section must clean up standalone mobile virtual HID node if present')
+  assert.ok(
+    mobileVhidCleanupIdx < quarborUninstallAllIdx,
+    'Standalone mobile virtual HID node must be removed before QuarborUniversalKeyboardDriverInstaller --uninstall-all purges Driver Store packages',
+  )
+  assert.ok(
+    quarborUninstallAllIdx < deleteMainBinaryIdx,
+    'Driver uninstallers must run before deleting bundled executables',
+  )
 })

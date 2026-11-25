@@ -37,7 +37,13 @@ impl MobileInputBackend for SystemMobileBackend {
                     NativeBehavior::Delay { ms, .. } => {
                         std::thread::sleep(std::time::Duration::from_millis((*ms).min(10_000)));
                     }
-                    _ => super::windows::execute_mouse_behavior(behavior, 0),
+                    _ => {
+                        #[cfg(not(test))]
+                        if super::mobile_quarbor::try_execute_behavior(behavior) {
+                            continue;
+                        }
+                        super::windows::execute_mouse_behavior(behavior, 0);
+                    }
                 }
             }
             return Ok(());
@@ -57,6 +63,10 @@ impl MobileInputBackend for SystemMobileBackend {
     fn inject_relative_motion(&self, dx: i32, dy: i32) -> Result<(), String> {
         #[cfg(windows)]
         {
+            #[cfg(not(test))]
+            if super::mobile_quarbor::try_relative_motion(dx, dy) {
+                return Ok(());
+            }
             return super::windows::inject_relative_motion(dx, dy);
         }
         #[cfg(not(windows))]
@@ -93,6 +103,10 @@ impl MobileInputBackend for SystemMobileBackend {
     fn inject_mouse_button(&self, button: MouseButton, down: bool) -> Result<(), String> {
         #[cfg(windows)]
         {
+            #[cfg(not(test))]
+            if super::mobile_quarbor::try_mouse_button_edge(button, down)? {
+                return Ok(());
+            }
             return super::windows::inject_mouse_button_edge(button, down);
         }
         #[cfg(not(windows))]
@@ -105,6 +119,10 @@ impl MobileInputBackend for SystemMobileBackend {
     fn inject_key_edge(&self, key: &str, down: bool) -> Result<(), String> {
         #[cfg(windows)]
         {
+            #[cfg(not(test))]
+            if super::mobile_quarbor::try_key_edge(key, down)? {
+                return Ok(());
+            }
             return super::windows::inject_virtual_key_edge(key, down);
         }
         #[cfg(not(windows))]
@@ -276,6 +294,7 @@ impl<B: MobileInputBackend> MobileInputController<B> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.accumulators.remove(session_id);
         let to_release = state.ledger.revoke_owner(session_id);
+        let all_idle = state.ledger.is_empty();
         let mut first_err: Option<String> = None;
         for out in to_release {
             if let Err(err) = self.apply_held_output(&out, false) {
@@ -284,6 +303,12 @@ impl<B: MobileInputBackend> MobileInputController<B> {
                 }
             }
         }
+        #[cfg(all(windows, not(test)))]
+        if all_idle {
+            super::mobile_quarbor::reset_all_inputs();
+        }
+        #[cfg(not(all(windows, not(test))))]
+        let _ = all_idle;
         match first_err {
             Some(err) => Err(err),
             None => Ok(()),

@@ -588,6 +588,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         }
     }
 
+    #[cfg(test)]
     pub fn handle_pair_request(&mut self, pair_token: &str, device_name: &str) -> ServerMessage {
         self.handle_pair_request_with_handshake(
             pair_token,
@@ -635,6 +636,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
     }
 
     /// Authenticates a paired peer, serially revokes any previous session, and activates a new session.
+    #[cfg(test)]
     pub fn claim_control(
         &mut self,
         peer_id: &str,
@@ -961,6 +963,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         true
     }
 
+    #[cfg(test)]
     pub fn handle_session_message(
         &mut self,
         conn_session_id: &str,

@@ -109,6 +109,7 @@ pub struct ClientVersionHandshake {
     pub min_recommended_host_version: Option<String>,
 }
 
+#[cfg(test)]
 impl ClientVersionHandshake {
     pub fn current_compatible_default() -> Self {
         Self {

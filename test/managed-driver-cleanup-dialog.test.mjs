@@ -245,3 +245,55 @@ test('console-added Quarbor devices are included by dynamic model name while dri
     integrationModel.resetRuntimeSupportPackages()
   }
 })
+
+test('axonkeyMobile is excluded when sharing an existing remote driver and included when its standalone virtual HID node is installed', async () => {
+  const sharedOnly = await mount(async () => ({
+    store: {
+      instances: [
+        { id: 'remote-111111', kind: 'rc003', name: '客厅遥控器', binding: 'hid-one', enabled: true },
+        { id: 'mobile-999999', kind: 'axonkeyMobile', name: '手机控制器', binding: null, enabled: true },
+      ],
+    },
+    runtime: {
+      'remote-111111': { state: 'exclusive', error: null, reports: 1, driverInstalled: true, driverState: 'connected' },
+      'mobile-999999': {
+        state: 'exclusive',
+        error: null,
+        reports: 0,
+        driverInstalled: true,
+        standaloneDriverInstalled: false,
+        driverState: 'connected',
+      },
+    },
+  }))
+  try {
+    const list = sharedOnly.view.root.findByProps({ 'aria-label': '本次解绑设备' })
+    assert.equal(list.findAllByType('li').length, 1)
+    assert.doesNotMatch(text(list), /手机控制器/)
+  } finally {
+    sharedOnly.unmount()
+  }
+
+  const standaloneInstalled = await mount(async () => ({
+    store: {
+      instances: [{ id: 'mobile-999999', kind: 'axonkeyMobile', name: '手机控制器', binding: null, enabled: true }],
+    },
+    runtime: {
+      'mobile-999999': {
+        state: 'exclusive',
+        error: null,
+        reports: 0,
+        driverInstalled: true,
+        standaloneDriverInstalled: true,
+        driverState: 'connected',
+      },
+    },
+  }))
+  try {
+    const list = standaloneInstalled.view.root.findByProps({ 'aria-label': '本次解绑设备' })
+    assert.equal(list.findAllByType('li').length, 1)
+    assert.match(text(list), /手机控制器/)
+  } finally {
+    standaloneInstalled.unmount()
+  }
+})

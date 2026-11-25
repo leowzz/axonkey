@@ -11,6 +11,8 @@ pub(crate) mod quick_mode;
 pub(crate) mod text_output;
 
 #[cfg(windows)]
+pub(crate) mod mobile_quarbor;
+#[cfg(windows)]
 pub(super) mod windows_quarbor;
 
 #[cfg(any(windows, target_os = "macos", test))]

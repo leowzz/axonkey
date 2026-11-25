@@ -639,19 +639,20 @@ export function InstanceWorkspace({
   const standbyVoiceLabel = '语音待机'
   const voiceDeviceTitle = platform === 'macos' ? '虚拟麦克风：MiRemoteV 2ch' : '虚拟麦克风：Quarbor Virtual Microphone'
   const supportsDriver = supportsWindowsDriver(instance.kind)
+  const hasDriverTarget = Boolean(instance.binding || isNetworkDevice)
   const ready = status?.state === 'exclusive'
   const connectionState = native ? instanceState(instance, controller.snapshot) : undefined
   const connectionLabel = native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
   const driverMissing =
-    native && platform === 'windows' && supportsDriver && (!instance.binding || status?.driverState === 'missing')
-  const currentDriverAction = instance.binding && driverAction?.instanceId === instance.id ? driverAction : null
+    native && platform === 'windows' && supportsDriver && (!hasDriverTarget || status?.driverState === 'missing')
+  const currentDriverAction = hasDriverTarget && driverAction?.instanceId === instance.id ? driverAction : null
   const driverRunning = currentDriverAction?.status === 'running'
   const driverRestartRequired = currentDriverAction?.status === 'restartRequired'
   const driverInstalled = status?.driverInstalled === true
   const driverCommunicationError =
-    native && platform === 'windows' && supportsDriver && instance.binding && driverInstalled && !deviceOffline
+    native && platform === 'windows' && supportsDriver && hasDriverTarget && driverInstalled && !deviceOffline
       ? status?.error
       : null
   const driverBusy = driverAction?.status === 'running'
@@ -708,11 +709,13 @@ export function InstanceWorkspace({
       ? (currentDriverAction?.message ?? '需要重启 Windows 后继续安装驱动。')
       : deviceOffline
         ? '设备不在线'
-        : !instance.binding
+        : !hasDriverTarget
           ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
           : driverRunning
             ? '正在安装按键驱动，请完成 Windows 管理员授权…'
-            : '按键驱动未安装，请先安装此设备的按键驱动。'
+            : isNetworkDevice
+              ? '当前未检测到 Quarbor 按键驱动（安装后可支持唤醒豆包语音等防注入全局热键）。'
+              : '按键驱动未安装，请先安装此设备的按键驱动。'
   if (profile.quick) {
     const quickTriggerBinding = findQuickOverlayTriggerBinding(instance, profile.id)
     return (
@@ -855,9 +858,9 @@ export function InstanceWorkspace({
                 type="button"
                 className="managed-driver-notice-install"
                 disabled={driverBusy}
-                onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
+                onClick={hasDriverTarget ? () => onInstallDriver(instance.id) : onBind}
               >
-                {!instance.binding
+                {!hasDriverTarget
                   ? '绑定设备'
                   : driverRunning
                     ? '正在安装…'
@@ -1237,7 +1240,7 @@ export function InstanceWorkspace({
                       {native && !deviceOffline && !driverRestartRequired && (
                         <button
                           type="button"
-                          disabled={driverBusy || !instance.binding}
+                          disabled={driverBusy || !hasDriverTarget}
                           onClick={() => onInstallDriver(instance.id)}
                         >
                           {driverRunning ? '正在安装…' : driverInstalled ? '重新安装驱动' : '安装驱动'}

@@ -111,6 +111,7 @@ export type DeviceSnapshot = {
       recording?: boolean
       effectiveProfileId?: string
       driverInstalled?: boolean
+      standaloneDriverInstalled?: boolean
       driverState?: string
       mappingErrors?: Record<string, Record<string, string>>
     }
@@ -429,7 +430,9 @@ export function isNetworkManagedKind(kind: DeviceKind | undefined): boolean {
   return kind === 'axonkeyMobile' || packageFor(kind).remoteView?.voice?.transport === 'network'
 }
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
-  if (kind === undefined || kind === 'mouse' || isNetworkManagedKind(kind)) return false
+  if (kind === undefined || kind === 'mouse') return false
+  if (kind === 'axonkeyMobile') return true
+  if (isNetworkManagedKind(kind)) return false
   const view = packageFor(kind).remoteView
   if (!view || view.identities.length === 0) return false
   if (view.usesVendorUsbHid !== undefined) return !view.usesVendorUsbHid

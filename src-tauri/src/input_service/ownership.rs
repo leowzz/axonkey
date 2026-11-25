@@ -71,8 +71,13 @@ impl OwnershipLedger {
         released
     }
 
+    #[cfg(test)]
     pub fn held_count(&self, owner: &str) -> usize {
         self.leases.keys().filter(|(o, _)| o == owner).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.leases.is_empty()
     }
 
     fn decrement(&mut self, outputs: Vec<HeldOutput>) -> Vec<HeldOutput> {

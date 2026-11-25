@@ -41,7 +41,12 @@ export function ManagedDriverCleanupDialog({
     try {
       const snapshot = await invoke<DeviceSnapshot>('device_snapshot')
       setDevices(
-        snapshot.store.instances.filter(device => supportsWindowsDriver(device.kind) && device.binding !== null),
+        snapshot.store.instances.filter(
+          device =>
+            supportsWindowsDriver(device.kind) &&
+            (device.binding !== null ||
+              (device.kind === 'axonkeyMobile' && snapshot.runtime?.[device.id]?.standaloneDriverInstalled === true)),
+        ),
       )
     } catch (error) {
       setState({ status: 'idle', error: `无法读取设备：${String(error)}` })
