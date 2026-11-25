@@ -61,6 +61,7 @@ import {
   instanceState,
   isMobileRemoteDevice,
   isMobileRemoteKind,
+  isNetworkManagedKind,
   mobileRemoteKindForSoftware,
   mobileRemoteKinds,
   mobileRemoteFallbackKind,
@@ -436,7 +437,7 @@ export function DeviceHub(props: Props) {
                         subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
                         status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
                         state={native ? instanceState(item, snapshot) : undefined}
-                        unbound={!item.binding}
+                        unbound={!item.binding && !isNetworkManagedKind(item.kind)}
                         batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
                         profile={
                           item.profiles.find(
@@ -1256,7 +1257,11 @@ function IntegrationDialog({
         initial.instance ??
         (() => {
           const fresh = newInstance(kind, null)
-          if (!selectedPreset) return fresh
+          if (!selectedPreset) {
+            return effectivePresetSlug === 'blank'
+              ? { ...fresh, profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
+              : fresh
+          }
           const initialProfile = materializePresetToProfile(selectedPreset)
           return { ...fresh, activeProfileId: initialProfile.id, profiles: [initialProfile] }
         })()
@@ -1527,17 +1532,19 @@ function IntegrationDialog({
                     }}
                   />
                 </label>
-                <div className="settings-form-row">
-                  <span className="settings-form-label" id="integration-binding-label">
-                    绑定设备
-                  </span>
-                  <DeviceBindingPicker
-                    labelledBy="integration-binding-label"
-                    value={binding}
-                    devices={candidates}
-                    onChange={setBindingChoice}
-                  />
-                </div>
+                {!isNetworkManagedKind(kind) && (
+                  <div className="settings-form-row">
+                    <span className="settings-form-label" id="integration-binding-label">
+                      绑定设备
+                    </span>
+                    <DeviceBindingPicker
+                      labelledBy="integration-binding-label"
+                      value={binding}
+                      devices={candidates}
+                      onChange={setBindingChoice}
+                    />
+                  </div>
+                )}
                 {!initial.instance && !needsMobileModelSelection && devicePresets.length > 0 && (
                   <label className="settings-form-row" htmlFor="integration-preset-select">
                     <span className="settings-form-label">初始配置</span>

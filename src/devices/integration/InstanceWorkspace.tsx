@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -51,6 +61,10 @@ import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
 import { KivoScreenEditor } from '../kivo-k18-lite/KivoScreenEditor'
 import { DeviceBindingPicker } from './IntegrationControls'
+
+const MobileDeviceConnectionCard = lazy(() =>
+  import('../axonkey-mobile/MobileDeviceConnectionCard').then(mod => ({ default: mod.MobileDeviceConnectionCard })),
+)
 import {
   defaultRecordingMode,
   deviceMatchesKind,
@@ -59,9 +73,10 @@ import {
   getLocalCloudDescriptorOverrides,
   getSupportPackages,
   instanceState,
+  instanceStatusLabel,
+  isNetworkManagedKind,
   localCloudOverrideWarningText,
   packageFor,
-  stateLabel,
   subscribeSupportPackages,
   supportsWindowsDriver,
   supportsDeviceInformation,
@@ -615,15 +630,18 @@ export function InstanceWorkspace({
     inputWarnings,
   )
   const diagramTabLabel = instance.kind === 'xboxBluetooth' ? '手柄' : singleLaneWorkspace ? '控制器' : '遥控器'
+  const isNetworkDevice = isNetworkManagedKind(instance.kind)
   const showCalibrationButton =
     !!voice &&
-    (voice.transport === 'gatt' || (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos')))
+    (voice.transport === 'gatt' ||
+      ((usesHidVoice(instance.kind) || voice.transport === 'network') &&
+        (platform === 'windows' || platform === 'macos')))
   const standbyVoiceLabel = '语音待机'
   const voiceDeviceTitle = platform === 'macos' ? '虚拟麦克风：MiRemoteV 2ch' : '虚拟麦克风：Quarbor Virtual Microphone'
   const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
   const connectionState = native ? instanceState(instance, controller.snapshot) : undefined
-  const connectionLabel = native ? stateLabel(connectionState) : '预览模式'
+  const connectionLabel = native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
   const driverMissing =
@@ -854,7 +872,7 @@ export function InstanceWorkspace({
         )}
         <aside className="mapping-device-rail panel-surface">
           <section className="managed-instance-status" aria-label="设备状态">
-            {instance.binding ? (
+            {instance.binding || isNetworkDevice ? (
               <span
                 className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
                 title={connectionLabel}
@@ -986,7 +1004,13 @@ export function InstanceWorkspace({
               <DeviceRecordingStatus
                 recording={recording}
                 onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
-                disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
+                disabled={
+                  !native ||
+                  !instance.enabled ||
+                  (!informationAvailable && !isNetworkDevice) ||
+                  !ready ||
+                  recordingPending
+                }
                 idleLabel={standbyVoiceLabel}
                 title={voiceDeviceTitle}
                 amplitudes={voiceAmplitudes}
@@ -1005,6 +1029,16 @@ export function InstanceWorkspace({
                 </button>
               )}
             </div>
+          )}
+          {instance.kind === 'axonkeyMobile' && (
+            <Suspense fallback={null}>
+              <MobileDeviceConnectionCard
+                native={native}
+                instanceId={instance.id}
+                controller={controller}
+                onToast={onToast}
+              />
+            </Suspense>
           )}
         </aside>
         <MappingColumnSplitter panel="diagram" onResize={width => panelLayout.resize('diagram', width)} />
@@ -1223,7 +1257,8 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {voiceModes.includes('hold') &&
+                  {voice?.transport !== 'network' &&
+                    voiceModes.includes('hold') &&
                     voiceModes.includes('click') &&
                     (platform === 'windows' || platform === 'macos') && (
                       <label className="settings-form-row">
@@ -1263,31 +1298,33 @@ export function InstanceWorkspace({
                     <span className="settings-form-label">设备型号：</span>
                     <span className="settings-form-control">{pkg.model}</span>
                   </div>
-                  <div className="settings-form-row">
-                    <span className="settings-form-label" id="instance-binding-label">
-                      物理设备：
-                    </span>
-                    <div className="settings-form-control managed-instance-binding-control">
-                      {instance.binding ? (
-                        <BoundDeviceInfo
-                          binding={instance.binding}
-                          device={boundDevice}
-                          onRebind={onBind}
-                          onUnbind={unbindDevice}
-                          disabled={pendingPhysicalAction !== null}
-                        />
-                      ) : (
-                        <DeviceBindingPicker
-                          labelledBy="instance-binding-label"
-                          value=""
-                          devices={availableDevices}
-                          onChange={binding => {
-                            if (binding) update(item => ({ ...item, binding }))
-                          }}
-                        />
-                      )}
+                  {!isNetworkDevice && (
+                    <div className="settings-form-row">
+                      <span className="settings-form-label" id="instance-binding-label">
+                        物理设备：
+                      </span>
+                      <div className="settings-form-control managed-instance-binding-control">
+                        {instance.binding ? (
+                          <BoundDeviceInfo
+                            binding={instance.binding}
+                            device={boundDevice}
+                            onRebind={onBind}
+                            onUnbind={unbindDevice}
+                            disabled={pendingPhysicalAction !== null}
+                          />
+                        ) : (
+                          <DeviceBindingPicker
+                            labelledBy="instance-binding-label"
+                            value=""
+                            devices={availableDevices}
+                            onChange={binding => {
+                              if (binding) update(item => ({ ...item, binding }))
+                            }}
+                          />
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <div className="managed-remove">
                   {confirmRemove ? (

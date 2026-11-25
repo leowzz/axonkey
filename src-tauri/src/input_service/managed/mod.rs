@@ -550,6 +550,22 @@ fn reconcile_registered_instances(
     *preserved = next_preserved;
     *store = next_store;
 }
+fn resolve_managed_profile_key<'a>(
+    kind: &str,
+    input: &'a str,
+) -> Option<std::borrow::Cow<'a, str>> {
+    if let Some(canonical) = crate::devices::descriptor_registry::profile_key(kind, input) {
+        return Some(std::borrow::Cow::Borrowed(canonical));
+    }
+    if kind == "axonkeyMobile" {
+        let trimmed = input.trim();
+        if !trimmed.is_empty() && trimmed.len() <= 96 && !trimmed.chars().any(char::is_control) {
+            return Some(std::borrow::Cow::Borrowed(trimmed));
+        }
+    }
+    None
+}
+
 fn normalize_instance(instance: &mut Instance) {
     for profile in &mut instance.profiles {
         let behaviors = profile
@@ -559,9 +575,16 @@ fn normalize_instance(instance: &mut Instance) {
         *behaviors = std::mem::take(behaviors)
             .into_iter()
             .map(|(input, behavior)| {
-                let key = crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
+                let key = resolve_managed_profile_key(&instance.kind, &input)
                     .expect("validated profile input has a descriptor key");
-                (if key == input { input } else { key.to_string() }, behavior)
+                (
+                    if key.as_ref() == input {
+                        input
+                    } else {
+                        key.into_owned()
+                    },
+                    behavior,
+                )
             })
             .collect();
     }
@@ -673,15 +696,13 @@ fn validate(store: &Store) -> Result<(), String> {
             };
             let mut inputs = HashSet::new();
             for (input, mapping) in maps {
-                let Some(key) =
-                    crate::devices::descriptor_registry::profile_key(&instance.kind, input)
-                else {
+                let Some(key) = resolve_managed_profile_key(&instance.kind, input) else {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
                 };
                 if raw_trigger_action_count(mapping) > 256 {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
                 }
-                if !inputs.insert(key) {
+                if !inputs.insert(key.into_owned()) {
                     return Err(format!("同一输入重复配置：{input}"));
                 }
             }
@@ -710,9 +731,7 @@ fn sanitize_loaded_instance_inputs(instance: &mut Instance) {
         let mut seen = HashSet::new();
         let mut sanitized = serde_json::Map::with_capacity(obj.len());
         for (input, value) in std::mem::take(obj) {
-            let Some(canonical) =
-                crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
-            else {
+            let Some(canonical) = resolve_managed_profile_key(&instance.kind, &input) else {
                 log::warn!(
                     target: "axonkey::devices",
                     "Ignoring unsupported input '{input}' on loaded instance {}",
@@ -720,8 +739,9 @@ fn sanitize_loaded_instance_inputs(instance: &mut Instance) {
                 );
                 continue;
             };
-            if seen.insert(canonical.to_string()) {
-                sanitized.insert(canonical.to_string(), value);
+            let canonical_str = canonical.into_owned();
+            if seen.insert(canonical_str.clone()) {
+                sanitized.insert(canonical_str, value);
             }
         }
         *obj = sanitized;
@@ -738,12 +758,13 @@ fn instance_mapping_errors(instance: &Instance) -> BTreeMap<String, BTreeMap<Str
         };
         let mut by_input = BTreeMap::new();
         for (input, raw_triggers) in obj {
-            let canonical = crate::devices::descriptor_registry::profile_key(&instance.kind, input)
-                .unwrap_or(input);
+            let canonical = resolve_managed_profile_key(&instance.kind, input)
+                .map(std::borrow::Cow::into_owned)
+                .unwrap_or_else(|| input.clone());
             if let Some(reason) =
                 super::inspect_raw_trigger_errors(raw_triggers, Some(&valid_profile_ids))
             {
-                by_input.insert(canonical.to_string(), reason);
+                by_input.insert(canonical, reason);
             }
         }
         if !by_input.is_empty() {

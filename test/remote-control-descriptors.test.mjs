@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all fifteen protocol SVGs', () => {
+test('the committed device index is generated from all sixteen protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 15)
+  assert.equal(Object.keys(deviceDescriptors).length, 16)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -171,7 +171,11 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
   )
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.ok(descriptor.identities.length >= 1, `${descriptor.id} must declare runtime identity`)
-    if (descriptor.id !== 'kivo.k18Lite' && descriptor.id !== 'g17.touch') {
+    if (
+      descriptor.id !== 'kivo.k18Lite' &&
+      descriptor.id !== 'g17.touch' &&
+      descriptor.id !== 'axonkey.mobile'
+    ) {
       assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
     }
   }

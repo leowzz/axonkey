@@ -3,6 +3,7 @@ import { createBehavior, normalizeBehavior } from '../behaviorModel.ts'
 import type { Behavior, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
 import { behaviorSummary } from '../behaviorSummary.ts'
 import type { CatalogDeviceModel, CloudDevicePreset, CloudDevicePresetPlatform } from '../cloud/deviceModelCatalog.ts'
+import { createDefaultAxonkeyMobileBehaviors } from './axonkey-mobile/defaultBehaviors.ts'
 import type { InstanceProfile, ProfileDisplayConfig } from './integration/model.ts'
 
 export type DevicePresetOption = {
@@ -110,6 +111,8 @@ function makeTrigger(
 }
 
 const keyAct = (key: string) => createBehavior({ type: 'key', key })
+const shortcutAct = (keys: readonly string[]) => createBehavior({ type: 'shortcut', keys })
+const pasteAct = (text: string, title?: string) => createBehavior({ type: 'paste', text, title })
 const cursorAct = (direction: 'up' | 'down' | 'left' | 'right', distance = 28) =>
   createBehavior({ type: 'cursorMove', direction, distance })
 const wheelAct = (direction: 'up' | 'down' | 'left' | 'right') => createBehavior({ type: 'wheel', direction })
@@ -619,6 +622,114 @@ const BUNDLED_PRESETS_BY_KIND: Record<string, DevicePresetOption[]> = {
         'g17.touch.sub': makeTrigger([keyAct('VolumeDown')]),
         'g17.touch.dot': makeTrigger([keyAct('Esc')]),
       },
+    ),
+  ],
+  axonkeyMobile: [
+    bundledPreset(
+      'axonkeyMobile',
+      'vibe-remote',
+      '通用遥控与豆包语音',
+      '触控圆盘四向导航、确认、返回、音量与快捷按键开箱即用，底部语音键默认按住保持 Alt（直接唤醒豆包语音输入，亦可改为 Win+H 或清空仅用虚拟麦克风）。',
+      createDefaultAxonkeyMobileBehaviors(),
+      { isDefault: true, sortOrder: 10 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'ai-coding',
+      'AI 编程副屏',
+      '同时覆盖经典遥控器与 AI 编程副屏按键：一键发送继续执行提示词、采纳变更、撤销重做、唤起终端，语音键按住保持 Alt 口述需求。',
+      {
+        'remote.esc': makeTrigger([keyAct('Esc')]),
+        'remote.menu': makeTrigger([shortcutAct(['Ctrl', 'K'])]),
+        'remote.home': makeTrigger([shortcutAct(['Ctrl', 'L'])]),
+        'remote.back': makeTrigger([keyAct('Backspace')], [], [shortcutAct(['Ctrl', 'Z'])]),
+        'remote.up': makeTrigger([keyAct('Up')]),
+        'remote.down': makeTrigger([keyAct('Down')]),
+        'remote.left': makeTrigger([keyAct('Left')]),
+        'remote.right': makeTrigger([keyAct('Right')]),
+        'remote.ok': makeTrigger([keyAct('Enter')], [shortcutAct(['Ctrl', 'Enter'])]),
+        'remote.vol_up': makeTrigger([keyAct('VolumeUp')]),
+        'remote.vol_down': makeTrigger([keyAct('VolumeDown')]),
+        'remote.mute': makeTrigger([keyAct('VolumeMute')]),
+        'remote.q1': makeTrigger([pasteAct('继续执行，完成后汇报验证结果。', '继续执行'), keyAct('Enter')]),
+        'remote.q2': makeTrigger([shortcutAct(['Ctrl', 'Enter'])]),
+        'remote.q3': makeTrigger([shortcutAct(['Ctrl', 'Z'])], [shortcutAct(['Ctrl', 'Y'])]),
+        'remote.q4': makeTrigger([shortcutAct(['Ctrl', '`'])]),
+        'tile.continue': makeTrigger(
+          [pasteAct('继续执行，完成后汇报验证结果。', '继续执行'), keyAct('Enter')],
+          [],
+          [pasteAct('先停下来检查当前改动是否有边界问题，再继续。', '边界自检'), keyAct('Enter')],
+        ),
+        'tile.enter': makeTrigger([keyAct('Enter')]),
+        'tile.accept': makeTrigger([shortcutAct(['Ctrl', 'Enter'])]),
+        'tile.undo': makeTrigger([shortcutAct(['Ctrl', 'Z'])], [shortcutAct(['Ctrl', 'Y'])]),
+        'tile.esc': makeTrigger([keyAct('Esc')]),
+        'tile.copy': makeTrigger([shortcutAct(['Ctrl', 'C'])]),
+        'tile.paste': makeTrigger([shortcutAct(['Ctrl', 'V'])]),
+        'tile.terminal': makeTrigger([shortcutAct(['Ctrl', '`'])]),
+        'mobile.voice': makeTrigger([keyAct('Alt')]),
+      },
+      { isDefault: false, sortOrder: 20 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'media-reading',
+      '影音与阅读',
+      '上下滚屏、左右快进后退、中心键播放暂停，适配视频观看与网页长文阅读，并保留语音键按住说话。',
+      {
+        'remote.esc': makeTrigger([keyAct('Esc')]),
+        'remote.menu': makeTrigger([mouseAct('right')]),
+        'remote.home': makeTrigger([keyAct('MediaPlayPause')]),
+        'remote.back': makeTrigger([mouseAct('back')], [], [keyAct('Esc')]),
+        'remote.up': makeTrigger([wheelAct('up')]),
+        'remote.down': makeTrigger([wheelAct('down')]),
+        'remote.left': makeTrigger([keyAct('Left')]),
+        'remote.right': makeTrigger([keyAct('Right')]),
+        'remote.ok': makeTrigger([keyAct('Space')], [keyAct('Enter')]),
+        'remote.vol_up': makeTrigger([keyAct('VolumeUp')]),
+        'remote.vol_down': makeTrigger([keyAct('VolumeDown')]),
+        'remote.mute': makeTrigger([keyAct('VolumeMute')]),
+        'remote.q1': makeTrigger([keyAct('MediaPrevious')]),
+        'remote.q2': makeTrigger([keyAct('MediaNext')]),
+        'remote.q3': makeTrigger([keyAct('PageUp')]),
+        'remote.q4': makeTrigger([keyAct('PageDown')]),
+        'mobile.voice': makeTrigger([keyAct('Alt')]),
+      },
+      { isDefault: false, sortOrder: 30 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'presentation',
+      '演示翻页',
+      '适合 PPT / Keynote 演讲：触控圆盘与返回键翻页、主页键 F5 放映、菜单键黑屏，并保留语音键输入。',
+      {
+        'remote.esc': makeTrigger([keyAct('Esc')]),
+        'remote.menu': makeTrigger([keyAct('B')]),
+        'remote.home': makeTrigger([keyAct('F5')], [], [keyAct('Esc')]),
+        'remote.back': makeTrigger([keyAct('PageUp')]),
+        'remote.up': makeTrigger([keyAct('PageUp')]),
+        'remote.left': makeTrigger([keyAct('PageUp')]),
+        'remote.down': makeTrigger([keyAct('PageDown')]),
+        'remote.right': makeTrigger([keyAct('PageDown')]),
+        'remote.ok': makeTrigger([keyAct('PageDown')]),
+        'remote.vol_up': makeTrigger([keyAct('VolumeUp')]),
+        'remote.vol_down': makeTrigger([keyAct('VolumeDown')]),
+        'remote.mute': makeTrigger([keyAct('VolumeMute')]),
+        'remote.q1': makeTrigger([keyAct('PageUp')]),
+        'remote.q2': makeTrigger([keyAct('PageDown')]),
+        'remote.q3': makeTrigger([keyAct('B')]),
+        'remote.q4': makeTrigger([keyAct('MediaPlayPause')]),
+        'mobile.voice': makeTrigger([keyAct('Alt')]),
+      },
+      { isDefault: false, sortOrder: 40 },
+    ),
+    bundledPreset(
+      'axonkeyMobile',
+      'blank-canvas',
+      '纯净空白起步',
+      '不包含任何预置按键动作与语音快捷键（纯虚拟麦克风模式），适合覆盖清空或从零创建自定义配置。',
+      {},
+      { isDefault: false, sortOrder: 50 },
     ),
   ],
 }

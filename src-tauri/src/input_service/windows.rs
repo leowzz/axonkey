@@ -1921,14 +1921,40 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
     }
 }
 
+fn normalize_injected_virtual_key(key: u16) -> u16 {
+    match key {
+        0x10 => 0xa0, // VK_SHIFT -> VK_LSHIFT
+        0x11 => 0xa2, // VK_CONTROL -> VK_LCONTROL
+        0x12 => 0xa4, // VK_MENU -> VK_LMENU
+        other => other,
+    }
+}
+
+fn is_extended_virtual_key(vk: u16) -> bool {
+    matches!(
+        vk,
+        0x21..=0x28 // PageUp, PageDown, End, Home, Left, Up, Right, Down
+        | 0x2d      // Insert
+        | 0x2e      // Delete
+        | 0x5b      // VK_LWIN
+        | 0x5c      // VK_RWIN
+        | 0x6f      // VK_DIVIDE
+        | 0x90      // VK_NUMLOCK
+        | 0xa3      // VK_RCONTROL
+        | 0xa5 // VK_RMENU
+    ) || (unsafe { MapVirtualKeyW(u32::from(vk), 4) } >> 8) == 0xe0
+}
+
 fn virtual_key_input(key: u16) -> Input {
-    let extended = unsafe { MapVirtualKeyW(key as u32, 4) } >> 8 == 0xe0;
+    let vk = normalize_injected_virtual_key(key);
+    let scan_code = unsafe { MapVirtualKeyW(u32::from(vk), 0) as u16 };
+    let extended = is_extended_virtual_key(vk);
     Input {
         kind: 1,
         value: InputValue {
             keyboard: KeyboardInput {
-                virtual_key: key,
-                scan_code: 0,
+                virtual_key: vk,
+                scan_code,
                 flags: u32::from(extended),
                 time: 0,
                 extra_info: 0,
@@ -2313,10 +2339,31 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct WinPoint {
     x: i32,
     y: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+#[allow(dead_code)]
+struct WinRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct WinMonitorInfo {
+    size: u32,
+    monitor: WinRect,
+    work: WinRect,
+    flags: u32,
 }
 
 #[repr(C)]
@@ -2381,6 +2428,7 @@ thread_local! {
     static ABSOLUTE_MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_BUTTON_EVENTS: std::cell::RefCell<Vec<(u32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static UNICODE_EVENTS: std::cell::RefCell<Vec<(u16, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static VIRTUAL_KEY_EDGES: std::cell::RefCell<Vec<(u16, u16, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 fn wheel_horizontal(direction: WheelDirection) -> bool {
@@ -2489,6 +2537,269 @@ fn send_mouse_move(dx: i32, dy: i32) {
     }
 }
 
+/// Pure relative pointer motion for Axonkey Mobile trackpad.
+/// Uses `MOUSEEVENTF_MOVE` without `ABSOLUTE` or `VIRTUALDESK` and never calls `GetCursorPos`.
+pub(super) fn inject_relative_motion(dx: i32, dy: i32) -> Result<(), String> {
+    #[cfg(test)]
+    {
+        MOUSE_MOVES.with(|events| events.borrow_mut().push((dx, dy)));
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        const MOUSEEVENTF_MOVE: u32 = 0x0001;
+        let input = Input {
+            kind: 0,
+            value: InputValue {
+                mouse: MouseInput {
+                    dx,
+                    dy,
+                    mouse_data: 0,
+                    flags: MOUSEEVENTF_MOVE,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Relative pointer injection failed (dx={dx}, dy={dy}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_mouse_button_edge(
+    button: super::MouseButton,
+    down: bool,
+) -> Result<(), String> {
+    let (down_flag, up_flag, mouse_data) = match button {
+        super::MouseButton::Left => (0x0002, 0x0004, 0),
+        super::MouseButton::Right => (0x0008, 0x0010, 0),
+        super::MouseButton::Middle => (0x0020, 0x0040, 0),
+        super::MouseButton::Back => (0x0080, 0x0100, 1),
+        super::MouseButton::Forward => (0x0080, 0x0100, 2),
+    };
+    let flags = if down { down_flag } else { up_flag };
+    let input = Input {
+        kind: 0,
+        value: InputValue {
+            mouse: MouseInput {
+                dx: 0,
+                dy: 0,
+                mouse_data,
+                flags,
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    #[cfg(test)]
+    {
+        MOUSE_BUTTON_EVENTS.with(|events| {
+            let mouse = unsafe { input.value.mouse };
+            events.borrow_mut().push((mouse.flags, mouse.mouse_data));
+        });
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Mouse button injection failed (button={button:?}, down={down}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_wheel_delta(delta: i32, horizontal: bool) -> Result<(), String> {
+    let input = wheel_input(delta, horizontal);
+    #[cfg(test)]
+    {
+        WHEEL_EVENTS.with(|events| {
+            events
+                .borrow_mut()
+                .push(unsafe { input.value.mouse.mouse_data } as i32)
+        });
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Wheel injection failed (delta={delta}, horizontal={horizontal}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn inject_virtual_key_edge(key: &str, down: bool) -> Result<(), String> {
+    let behavior = super::NativeBehavior::Key {
+        enabled: true,
+        key: key.to_owned(),
+    };
+    let Some(keys) = behavior_chord(&behavior) else {
+        return Err(format!("Unsupported virtual key: {key}"));
+    };
+    let mut inputs = Vec::with_capacity(keys.len());
+    for vk in keys {
+        let mut input = virtual_key_input(vk);
+        if !down {
+            unsafe {
+                input.value.keyboard.flags |= 0x0002; // KEYEVENTF_KEYUP
+            }
+        }
+        inputs.push(input);
+    }
+    #[cfg(test)]
+    {
+        VIRTUAL_KEY_EDGES.with(|events| {
+            events.borrow_mut().extend(inputs.iter().map(|input| {
+                let kb = unsafe { input.value.keyboard };
+                (kb.virtual_key, kb.scan_code, kb.flags)
+            }));
+        });
+        return Ok(());
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<Input>() as i32,
+            )
+        };
+        if sent as usize != inputs.len() {
+            return Err(format!(
+                "Keyboard edge injection failed (key={key}, down={down}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn normalize_primary_to_virtual_desk(
+    u: f64,
+    v: f64,
+    primary: (i32, i32, i32, i32),
+    virtual_desk: (i32, i32, i32, i32),
+) -> (i32, i32) {
+    let u = u.clamp(0.0, 1.0);
+    let v = v.clamp(0.0, 1.0);
+    let (lm, tm, wm, hm) = primary;
+    let (vx, vy, vw, vh) = virtual_desk;
+    let wm = wm.max(1);
+    let hm = hm.max(1);
+    let vw = vw.max(1);
+    let vh = vh.max(1);
+
+    let px = f64::from(lm) + u * f64::from(wm - 1);
+    let py = f64::from(tm) + v * f64::from(hm - 1);
+    let clamped_px = px.clamp(f64::from(vx), f64::from(vx + vw - 1));
+    let clamped_py = py.clamp(f64::from(vy), f64::from(vy + vh - 1));
+
+    let denom_x = f64::from((vw - 1).max(1));
+    let denom_y = f64::from((vh - 1).max(1));
+    let abs_x = (65535.0 * (clamped_px - f64::from(vx)) / denom_x)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
+    let abs_y = (65535.0 * (clamped_py - f64::from(vy)) / denom_y)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
+    (abs_x, abs_y)
+}
+
+#[cfg(all(target_os = "windows", not(test)))]
+fn primary_monitor_physical_rect() -> (i32, i32, i32, i32) {
+    const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
+    let monitor = unsafe { MonitorFromPoint(WinPoint { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+    let mut info = WinMonitorInfo {
+        size: std::mem::size_of::<WinMonitorInfo>() as u32,
+        monitor: WinRect::default(),
+        work: WinRect::default(),
+        flags: 0,
+    };
+    if monitor != 0 && unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+        let w = (info.monitor.right - info.monitor.left).max(1);
+        let h = (info.monitor.bottom - info.monitor.top).max(1);
+        return (info.monitor.left, info.monitor.top, w, h);
+    }
+    let w = unsafe { GetSystemMetrics(0) }.max(1);
+    let h = unsafe { GetSystemMetrics(1) }.max(1);
+    (0, 0, w, h)
+}
+
+/// Maps normalized `[0, 1]` coordinates onto the primary monitor's physical pixel rectangle,
+/// then normalizes across the full virtual desktop (`SM_XVIRTUALSCREEN..SM_CXVIRTUALSCREEN`,
+/// `SM_YVIRTUALSCREEN..SM_CYVIRTUALSCREEN`) with `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`.
+pub(super) fn inject_absolute_virtual_desk(u: f64, v: f64) -> Result<(), String> {
+    if !u.is_finite() || !v.is_finite() {
+        return Err("Absolute pointer coordinates must be finite".into());
+    }
+    const MOUSEEVENTF_MOVE: u32 = 0x0001;
+    const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
+    const MOUSEEVENTF_VIRTUALDESK: u32 = 0x4000;
+    const FLAGS: u32 = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+
+    #[cfg(test)]
+    {
+        let (abs_x, abs_y) =
+            normalize_primary_to_virtual_desk(u, v, (0, 0, 1920, 1080), (0, 0, 1920, 1080));
+        ABSOLUTE_MOUSE_MOVES.with(|events| {
+            events.borrow_mut().push((abs_x, abs_y, FLAGS));
+        });
+        return Ok(());
+    }
+
+    #[cfg(all(target_os = "windows", not(test)))]
+    {
+        let primary = primary_monitor_physical_rect();
+        let vx = unsafe { GetSystemMetrics(76) };
+        let vy = unsafe { GetSystemMetrics(77) };
+        let vw = unsafe { GetSystemMetrics(78) }.max(1);
+        let vh = unsafe { GetSystemMetrics(79) }.max(1);
+        let (abs_x, abs_y) = normalize_primary_to_virtual_desk(u, v, primary, (vx, vy, vw, vh));
+        let input = Input {
+            kind: 0,
+            value: InputValue {
+                mouse: MouseInput {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouse_data: 0,
+                    flags: FLAGS,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            return Err(format!(
+                "Absolute virtual desk pointer injection failed (u={u:.4}, v={v:.4}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(test)))]
+    {
+        let _ = (u, v, FLAGS);
+        Err("Absolute virtual desk pointer injection is only supported on Windows".into())
+    }
+}
+
 pub(super) fn send_absolute_mouse_move(abs_x: u16, abs_y: u16) {
     const MOUSEEVENTF_MOVE: u32 = 0x0001;
     const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
@@ -2594,12 +2905,23 @@ extern "system" {
     fn SendInput(input_count: u32, inputs: *const Input, input_size: i32) -> u32;
     fn GetCursorPos(point: *mut WinPoint) -> i32;
     fn GetSystemMetrics(index: i32) -> i32;
+    fn MonitorFromPoint(point: WinPoint, flags: u32) -> isize;
+    fn GetMonitorInfoW(monitor: isize, info: *mut WinMonitorInfo) -> i32;
 }
 
 #[cfg(not(target_os = "windows"))]
 #[allow(non_snake_case)]
-unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 {
-    0
+unsafe fn MapVirtualKeyW(code: u32, map_type: u32) -> u32 {
+    match (code, map_type) {
+        (0xa0, 0) => 0x2a,
+        (0xa2 | 0xa3, 0) => 0x1d,
+        (0xa4 | 0xa5, 0) => 0x38,
+        (0xa3, 4) => 0xe01d,
+        (0xa5, 4) => 0xe038,
+        (0x5b, 0) => 0x5b,
+        (0x5c, 0) => 0x5c,
+        _ => 0,
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -3660,7 +3982,7 @@ mod tests {
         MOUSE_KEY_BATCHES.with(|events| {
             assert_eq!(
                 events.borrow().concat(),
-                vec![(0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2)]
+                vec![(0xa2, 0), (0x56, 0), (0x56, 2), (0xa2, 2)]
             )
         });
     }
@@ -3881,7 +4203,7 @@ mod tests {
         MOUSE_KEY_BATCHES.with(|batches| {
             assert_eq!(
                 *batches.borrow(),
-                vec![vec![(0x11, 0), (0x43, 0), (0x43, 2), (0x11, 2)]]
+                vec![vec![(0xa2, 0), (0x43, 0), (0x43, 2), (0xa2, 2)]]
             );
         });
     }
@@ -4850,5 +5172,92 @@ mod tests {
         );
         assert!(monitor.take_disconnect());
         assert!(!monitor.take_disconnect());
+    }
+
+    #[test]
+    fn absolute_virtual_desk_maps_primary_monitor_into_negative_origin_multimonitor_space() {
+        // Left secondary (-1920..0), Primary (0..2560 x 0..1440), Right secondary (2560..4480)
+        // Full virtual screen: L_v = -1920, T_v = 0, W_v = 6400, H_v = 1440
+        let primary = (0, 0, 2560, 1440);
+        let vdesk = (-1920, 0, 6400, 1440);
+
+        // Top-left of primary (px = 0, py = 0) -> (0 - (-1920)) / 6399 * 65535
+        let (tl_x, tl_y) = normalize_primary_to_virtual_desk(0.0, 0.0, primary, vdesk);
+        assert_eq!(tl_x, (65535.0 * 1920.0 / 6399.0_f64).round() as i32);
+        assert_eq!(tl_y, 0);
+
+        // Bottom-right of primary (px = 2559, py = 1439) -> (2559 - (-1920)) / 6399 * 65535
+        let (br_x, br_y) = normalize_primary_to_virtual_desk(1.0, 1.0, primary, vdesk);
+        assert_eq!(br_x, (65535.0 * 4479.0 / 6399.0_f64).round() as i32);
+        assert_eq!(br_y, 65535);
+
+        // Out-of-bounds u/v clamp cleanly to primary monitor edges, and NaN is rejected
+        assert!(inject_absolute_virtual_desk(f64::NAN, 0.5).is_err());
+        ABSOLUTE_MOUSE_MOVES.with(|events| events.borrow_mut().clear());
+        inject_absolute_virtual_desk(0.5, 0.5).unwrap();
+        ABSOLUTE_MOUSE_MOVES.with(|events| {
+            let moves = events.borrow();
+            assert_eq!(moves.len(), 1);
+            assert_eq!(moves[0].2, 0x0001 | 0x8000 | 0x4000);
+        });
+    }
+
+    #[test]
+    fn virtual_key_edge_normalizes_left_modifiers_populates_scan_code_and_sets_extended_flags() {
+        VIRTUAL_KEY_EDGES.with(|events| events.borrow_mut().clear());
+
+        // Generic "Alt" must resolve to VK_LMENU (0xA4) with physical Left Alt scan code (0x38)
+        // and non-extended flags (0 on down, KEYEVENTF_KEYUP=0x0002 on up) so WH_KEYBOARD_LL hooks (e.g. Doubao) accept it!
+        inject_virtual_key_edge("Alt", true).unwrap();
+        inject_virtual_key_edge("Alt", false).unwrap();
+
+        // "RAlt" must resolve to VK_RMENU (0xA5) + KEYEVENTF_EXTENDEDKEY (0x0001) + non-zero scan code!
+        inject_virtual_key_edge("RAlt", true).unwrap();
+        inject_virtual_key_edge("RAlt", false).unwrap();
+
+        // Generic "Ctrl" and "Shift" normalize to VK_LCONTROL (0xA2) and VK_LSHIFT (0xA0)
+        inject_virtual_key_edge("Ctrl", true).unwrap();
+        inject_virtual_key_edge("Shift", true).unwrap();
+
+        // "RCtrl", "Win", and navigation/arrow keys set KEYEVENTF_EXTENDEDKEY (0x0001)
+        inject_virtual_key_edge("RCtrl", true).unwrap();
+        inject_virtual_key_edge("Win", true).unwrap();
+        inject_virtual_key_edge("ArrowUp", true).unwrap();
+        inject_virtual_key_edge("PageDown", false).unwrap();
+
+        VIRTUAL_KEY_EDGES.with(|events| {
+            let recorded = events.borrow();
+            assert_eq!(recorded.len(), 10);
+
+            // Alt down & up -> VK_LMENU (0xA4), scan_code == 0x38 (non-zero!), flags 0 / 2
+            assert_eq!(recorded[0].0, 0xa4);
+            assert_eq!(recorded[0].1, 0x38);
+            assert_eq!(recorded[0].2, 0x0000);
+            assert_eq!(recorded[1].0, 0xa4);
+            assert_eq!(recorded[1].1, 0x38);
+            assert_eq!(recorded[1].2, 0x0002);
+
+            // RAlt down & up -> VK_RMENU (0xA5), non-zero scan_code, KEYEVENTF_EXTENDEDKEY (0x0001 / 0x0003)
+            assert_eq!(recorded[2].0, 0xa5);
+            assert_ne!(recorded[2].1, 0);
+            assert_eq!(recorded[2].2, 0x0001);
+            assert_eq!(recorded[3].0, 0xa5);
+            assert_ne!(recorded[3].1, 0);
+            assert_eq!(recorded[3].2, 0x0001 | 0x0002);
+
+            // Ctrl -> VK_LCONTROL (0xA2), Shift -> VK_LSHIFT (0xA0)
+            assert_eq!(recorded[4].0, 0xa2);
+            assert_ne!(recorded[4].1, 0);
+            assert_eq!(recorded[4].2, 0x0000);
+            assert_eq!(recorded[5].0, 0xa0);
+            assert_ne!(recorded[5].1, 0);
+            assert_eq!(recorded[5].2, 0x0000);
+
+            // RCtrl (0xA3), Win (0x5B), ArrowUp (0x26), PageDown up (0x22) -> KEYEVENTF_EXTENDEDKEY
+            assert_eq!((recorded[6].0, recorded[6].2), (0xa3, 0x0001));
+            assert_eq!((recorded[7].0, recorded[7].2), (0x5b, 0x0001));
+            assert_eq!((recorded[8].0, recorded[8].2), (0x26, 0x0001));
+            assert_eq!((recorded[9].0, recorded[9].2), (0x22, 0x0001 | 0x0002));
+        });
     }
 }

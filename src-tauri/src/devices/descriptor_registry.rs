@@ -22,6 +22,7 @@ pub(crate) const KINDS: &[&str] = &[
     "xboxBluetooth",
     "kivoK18Lite",
     "g17Touch",
+    "axonkeyMobile",
 ];
 
 #[allow(dead_code)]
@@ -624,6 +625,7 @@ pub(crate) fn bundled_descriptor_for_kind(kind: &str) -> Option<&'static DeviceD
         "xboxBluetooth" => xbox(),
         "kivoK18Lite" => crate::devices::kivo_k18_lite::descriptor(),
         "g17Touch" => g17_touch(),
+        "axonkeyMobile" => axonkey_mobile(),
         _ => None,
     }
 }
@@ -699,6 +701,14 @@ fn g17_touch() -> Option<&'static DeviceDescriptor> {
     )
 }
 
+fn axonkey_mobile() -> Option<&'static DeviceDescriptor> {
+    static DESCRIPTOR: OnceLock<Option<DeviceDescriptor>> = OnceLock::new();
+    load(
+        include_str!("../../../public/device-descriptors/axonkey-mobile.svg"),
+        &DESCRIPTOR,
+    )
+}
+
 /// Compatibility key used by saved profiles while a descriptor can expose a
 /// namespaced stable key.
 pub(crate) fn input_key(input: &super::device_descriptor::InputDescriptor) -> &str {
@@ -710,6 +720,9 @@ pub(crate) fn input_key(input: &super::device_descriptor::InputDescriptor) -> &s
 }
 
 pub(crate) fn profile_key(kind: &str, key: &str) -> Option<&'static str> {
+    if kind == "axonkeyMobile" && key == "mobile.voice" {
+        return Some("mobile.voice");
+    }
     descriptor_for_kind(kind)?
         .inputs
         .iter()
@@ -856,6 +869,17 @@ pub(crate) fn matches_hardware_for_transport(
 ) -> bool {
     descriptor_for_kind(kind).is_some_and(|descriptor| {
         descriptor.identities.iter().any(|identity| {
+            // Network-only descriptors (or identities lacking explicit VID/PID) must never
+            // wildcard-match physical USB/Bluetooth HID devices.
+            if identity
+                .attributes
+                .get("transport")
+                .is_some_and(|t| t == "network")
+                || !identity.attributes.contains_key("vid")
+                || !identity.attributes.contains_key("pid")
+            {
+                return false;
+            }
             matches_identity_transport(identity, transport)
                 && matches_identity_number(identity, "vid", Some(vid))
                 && matches_identity_number(identity, "pid", Some(pid))
@@ -951,6 +975,15 @@ fn identity_matches_hardware_id(
     identity: &super::device_descriptor::IdentityDescriptor,
     id: &str,
 ) -> bool {
+    if identity
+        .attributes
+        .get("transport")
+        .is_some_and(|t| t == "network")
+        || !identity.attributes.contains_key("vid")
+        || !identity.attributes.contains_key("pid")
+    {
+        return false;
+    }
     let Some((vid, pid)) = parse_hardware_id_vid_pid(id) else {
         return false;
     };

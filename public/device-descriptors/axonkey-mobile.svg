@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="320" height="598" viewBox="0 0 320 598" fill="none"
+     class="axonkey-mobile-svg"
+     font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+     role="img" aria-labelledby="axonkey-mobile-title axonkey-mobile-desc"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="axonkey.mobile"
+     data-ak-revision="1">
+  <title id="axonkey-mobile-title">Axonkey Mobile 手机遥控器按键示意图</title>
+  <desc id="axonkey-mobile-desc">手机端一体化深空灰智能遥控布局，含顶部 3 颗功能键、中部同心触控圆盘、4 颗媒体控制键、4 颗快捷按键，以及底部按住说话语音键。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="axonkey.mobile" revision="1"
+               vendor="Axonkey" model="Axonkey Mobile" display-name="Axonkey Mobile">
+      <ak:identity>
+        <ak:match transport="network" vendor-usb-hid="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="mobile" direction="input" encoding="vendor-state" engine="mobile-wss" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="remote.esc" label="退出 / 中断" short="退出" icon="power" kind="button" target="#key-esc" order="1">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.menu" label="命令菜单" short="菜单" icon="menu" kind="button" target="#key-menu" order="2">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.home" label="主页 / 对话" short="主页" icon="home" kind="button" target="#key-home" order="3">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.up" label="方向上" short="上" icon="up" kind="button" target="#key-up" order="4">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.left" label="方向左" short="左" icon="left" kind="button" target="#key-left" order="5">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.ok" label="确认" short="OK" icon="center" kind="button" target="#key-ok" order="6">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.right" label="方向右" short="右" icon="right" kind="button" target="#key-right" order="7">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.down" label="方向下" short="下" icon="down" kind="button" target="#key-down" order="8">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.back" label="返回" short="返回" icon="back" kind="button" target="#key-back" order="9">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.mute" label="静音" short="静音" icon="mute" kind="button" target="#key-mute" order="10">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.vol_down" label="音量减" short="音量-" icon="volumeDown" kind="button" target="#key-vol-down" order="11">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.vol_up" label="音量加" short="音量+" icon="volumeUp" kind="button" target="#key-vol-up" order="12">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.q1" label="快捷 1（继续执行）" short="Q1" icon="locate" kind="button" target="#key-q1" order="13">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.q2" label="快捷 2（接受变更）" short="Q2" icon="center" kind="button" target="#key-q2" order="14">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.q3" label="快捷 3（撤销）" short="Q3" icon="back" kind="button" target="#key-q3" order="15">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="remote.q4" label="快捷 4（播放/暂停）" short="Q4" icon="tv" kind="button" target="#key-q4" order="16">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+        <ak:input id="mobile.voice" label="语音键（按住说话）" short="语音" icon="mic" kind="button" target="#key-voice" order="17">
+          <ak:source report="mobile" engine="mobile-wss" />
+        </ak:input>
+      </ak:inputs>
+      <ak:voice id="axonkey.mobile.mic" trigger-key="mobile.voice" engine="axonkey-mobile.pcm" transport="network" trigger-modes="hold click" />
+    </ak:device>
+  </metadata>
+
+  <defs>
+    <linearGradient id="am-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#272930" />
+      <stop offset="100%" stop-color="#18191e" />
+    </linearGradient>
+    <linearGradient id="am-ring" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#25272f" />
+      <stop offset="100%" stop-color="#1c1d23" />
+    </linearGradient>
+    <linearGradient id="am-ok" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2d3039" />
+      <stop offset="100%" stop-color="#21232a" />
+    </linearGradient>
+  </defs>
+
+  <!-- Machined space-gray aluminum chassis & OLED screen -->
+  <rect x="14" y="8" width="292" height="582" rx="34" fill="url(#am-body)" stroke="#383b44" stroke-width="1.8" />
+  <rect x="24" y="18" width="272" height="562" rx="26" fill="#141518" stroke="#22242b" stroke-width="1.2" />
+  <rect x="128" y="25" width="64" height="5" rx="2.5" fill="#272930" />
+
+  <!-- Zone 1: Top Utility Row (3 cols) -->
+  <g id="key-esc" data-ak-key="remote.esc" data-ak-role="input">
+    <rect x="34" y="44" width="78.67" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="73.33" y="71.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">退出</text>
+  </g>
+  <g id="key-menu" data-ak-key="remote.menu" data-ak-role="input">
+    <rect x="120.67" y="44" width="78.67" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="160" y="71.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">菜单</text>
+  </g>
+  <g id="key-home" data-ak-key="remote.home" data-ak-role="input">
+    <rect x="207.33" y="44" width="78.67" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="246.67" y="71.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">主页</text>
+  </g>
+
+  <!-- Zone 2: Concentric Circular Tactile Clickpad Ring (触控圆盘, cy=200) -->
+  <g class="am-clickpad-ring">
+    <circle cx="160" cy="200" r="92" fill="#191a1f" stroke="#25272e" stroke-width="1.2" />
+    <circle cx="160" cy="200" r="88" fill="url(#am-ring)" stroke="#3a3d47" stroke-width="1.4" />
+    <circle cx="160" cy="200" r="40" fill="#141518" stroke="#2e3038" stroke-width="1" />
+  </g>
+  <g id="key-up" data-ak-key="remote.up" data-ak-role="input">
+    <path d="M 104.23 135.87 A 85 85 0 0 1 215.77 135.87 L 187.55 168.3 A 42 42 0 0 0 132.45 168.3 Z" fill="transparent" />
+    <path d="M 154.5 139 L 160 133.5 L 165.5 139" stroke="#f2f2f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="key-left" data-ak-key="remote.left" data-ak-role="input">
+    <path d="M 95.85 255.77 A 85 85 0 0 1 95.85 144.23 L 128.3 172.45 A 42 42 0 0 0 128.3 227.55 Z" fill="transparent" />
+    <path d="M 99 194.5 L 93.5 200 L 99 205.5" stroke="#f2f2f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="key-ok" data-ak-key="remote.ok" data-ak-role="input">
+    <circle cx="160" cy="200" r="36" fill="url(#am-ok)" stroke="#3a3d47" stroke-width="1.4" />
+    <text x="160" y="205" fill="#f2f2f7" font-size="14.5" font-weight="650" text-anchor="middle">OK</text>
+  </g>
+  <g id="key-right" data-ak-key="remote.right" data-ak-role="input">
+    <path d="M 224.15 144.23 A 85 85 0 0 1 224.15 255.77 L 191.7 227.55 A 42 42 0 0 0 191.7 172.45 Z" fill="transparent" />
+    <path d="M 221 194.5 L 226.5 200 L 221 205.5" stroke="#f2f2f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="key-down" data-ak-key="remote.down" data-ak-role="input">
+    <path d="M 215.77 264.13 A 85 85 0 0 1 104.23 264.13 L 132.45 231.7 A 42 42 0 0 0 187.55 231.7 Z" fill="transparent" />
+    <path d="M 154.5 261 L 160 266.5 L 165.5 261" stroke="#f2f2f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Zone 3: Media & Navigation Row (4 cols) -->
+  <g id="key-back" data-ak-key="remote.back" data-ak-role="input">
+    <rect x="34" y="310" width="57" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="62.5" y="337.5" fill="#f2f2f7" font-size="11" font-weight="600" text-anchor="middle">返回</text>
+  </g>
+  <g id="key-mute" data-ak-key="remote.mute" data-ak-role="input">
+    <rect x="99" y="310" width="57" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="127.5" y="337.5" fill="#f2f2f7" font-size="11" font-weight="600" text-anchor="middle">静音</text>
+  </g>
+  <g id="key-vol-down" data-ak-key="remote.vol_down" data-ak-role="input">
+    <rect x="164" y="310" width="57" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="192.5" y="337.5" fill="#f2f2f7" font-size="11" font-weight="600" text-anchor="middle">音量-</text>
+  </g>
+  <g id="key-vol-up" data-ak-key="remote.vol_up" data-ak-role="input">
+    <rect x="229" y="310" width="57" height="46" rx="12" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="257.5" y="337.5" fill="#f2f2f7" font-size="11" font-weight="600" text-anchor="middle">音量+</text>
+  </g>
+
+  <!-- Zone 4: 2x2 Quick Action Slots -->
+  <g id="key-q1" data-ak-key="remote.q1" data-ak-role="input">
+    <rect x="34" y="368" width="122" height="54" rx="14" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="95" y="399.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">快捷 1</text>
+  </g>
+  <g id="key-q2" data-ak-key="remote.q2" data-ak-role="input">
+    <rect x="164" y="368" width="122" height="54" rx="14" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="225" y="399.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">快捷 2</text>
+  </g>
+  <g id="key-q3" data-ak-key="remote.q3" data-ak-role="input">
+    <rect x="34" y="430" width="122" height="54" rx="14" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="95" y="461.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">快捷 3</text>
+  </g>
+  <g id="key-q4" data-ak-key="remote.q4" data-ak-role="input">
+    <rect x="164" y="430" width="122" height="54" rx="14" fill="#1f2025" stroke="#2e3038" stroke-width="1.15" />
+    <text x="225" y="461.5" fill="#f2f2f7" font-size="12" font-weight="600" text-anchor="middle">快捷 4</text>
+  </g>
+
+  <!-- Dedicated Voice Key (mobile.voice) -->
+  <g id="key-voice" data-ak-key="mobile.voice" data-ak-role="input">
+    <rect x="34" y="498" width="252" height="50" rx="15" fill="#272930" stroke="#3a3d47" stroke-width="1.3" />
+    <g transform="translate(114 513)" stroke="#f2f2f7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="1" width="6" height="10" rx="3" />
+      <path d="M2 8.5a6 6 0 0 0 12 0" />
+      <path d="M8 14.5v3.5" />
+      <path d="M5.5 18h5" />
+    </g>
+    <text x="168" y="527.5" fill="#f2f2f7" font-size="12.5" font-weight="600" text-anchor="middle">按住说话</text>
+  </g>
+
+  <!-- Home indicator pill -->
+  <rect x="124" y="562" width="72" height="4" rx="2" fill="#272930" />
+
+  <!-- Sub-pixel-exact Circular-Arc Hotzone Regions -->
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="remote.esc" data-ak-anchor="73.33 67" d="M 46 44 H 100.67 A 12 12 0 0 1 112.67 56 V 78 A 12 12 0 0 1 100.67 90 H 46 A 12 12 0 0 1 34 78 V 56 A 12 12 0 0 1 46 44 Z" />
+    <path data-ak-region="remote.menu" data-ak-anchor="160 67" d="M 132.67 44 H 187.33 A 12 12 0 0 1 199.33 56 V 78 A 12 12 0 0 1 187.33 90 H 132.67 A 12 12 0 0 1 120.67 78 V 56 A 12 12 0 0 1 132.67 44 Z" />
+    <path data-ak-region="remote.home" data-ak-anchor="246.67 67" d="M 219.33 44 H 274 A 12 12 0 0 1 286 56 V 78 A 12 12 0 0 1 274 90 H 219.33 A 12 12 0 0 1 207.33 78 V 56 A 12 12 0 0 1 219.33 44 Z" />
+
+    <path data-ak-region="remote.up" data-ak-anchor="160 136.5" d="M 104.23 135.87 A 85 85 0 0 1 215.77 135.87 L 187.55 168.3 A 42 42 0 0 0 132.45 168.3 Z" />
+    <path data-ak-region="remote.left" data-ak-anchor="96.5 200" d="M 95.85 255.77 A 85 85 0 0 1 95.85 144.23 L 128.3 172.45 A 42 42 0 0 0 128.3 227.55 Z" />
+    <path data-ak-region="remote.ok" data-ak-anchor="160 200" d="M 124 200 A 36 36 0 1 1 196 200 A 36 36 0 1 1 124 200 Z" />
+    <path data-ak-region="remote.right" data-ak-anchor="223.5 200" d="M 224.15 144.23 A 85 85 0 0 1 224.15 255.77 L 191.7 227.55 A 42 42 0 0 0 191.7 172.45 Z" />
+    <path data-ak-region="remote.down" data-ak-anchor="160 263.5" d="M 215.77 264.13 A 85 85 0 0 1 104.23 264.13 L 132.45 231.7 A 42 42 0 0 0 187.55 231.7 Z" />
+
+    <path data-ak-region="remote.back" data-ak-anchor="62.5 333" d="M 46 310 H 79 A 12 12 0 0 1 91 322 V 344 A 12 12 0 0 1 79 356 H 46 A 12 12 0 0 1 34 344 V 322 A 12 12 0 0 1 46 310 Z" />
+    <path data-ak-region="remote.mute" data-ak-anchor="127.5 333" d="M 111 310 H 144 A 12 12 0 0 1 156 322 V 344 A 12 12 0 0 1 144 356 H 111 A 12 12 0 0 1 99 344 V 322 A 12 12 0 0 1 111 310 Z" />
+    <path data-ak-region="remote.vol_down" data-ak-anchor="192.5 333" d="M 176 310 H 209 A 12 12 0 0 1 221 322 V 344 A 12 12 0 0 1 209 356 H 176 A 12 12 0 0 1 164 344 V 322 A 12 12 0 0 1 176 310 Z" />
+    <path data-ak-region="remote.vol_up" data-ak-anchor="257.5 333" d="M 241 310 H 274 A 12 12 0 0 1 286 322 V 344 A 12 12 0 0 1 274 356 H 241 A 12 12 0 0 1 229 344 V 322 A 12 12 0 0 1 241 310 Z" />
+
+    <path data-ak-region="remote.q1" data-ak-anchor="95 395" d="M 48 368 H 142 A 14 14 0 0 1 156 382 V 408 A 14 14 0 0 1 142 422 H 48 A 14 14 0 0 1 34 408 V 382 A 14 14 0 0 1 48 368 Z" />
+    <path data-ak-region="remote.q2" data-ak-anchor="225 395" d="M 178 368 H 272 A 14 14 0 0 1 286 382 V 408 A 14 14 0 0 1 272 422 H 178 A 14 14 0 0 1 164 408 V 382 A 14 14 0 0 1 178 368 Z" />
+    <path data-ak-region="remote.q3" data-ak-anchor="95 457" d="M 48 430 H 142 A 14 14 0 0 1 156 444 V 470 A 14 14 0 0 1 142 484 H 48 A 14 14 0 0 1 34 470 V 444 A 14 14 0 0 1 48 430 Z" />
+    <path data-ak-region="remote.q4" data-ak-anchor="225 457" d="M 178 430 H 272 A 14 14 0 0 1 286 444 V 470 A 14 14 0 0 1 272 484 H 178 A 14 14 0 0 1 164 470 V 444 A 14 14 0 0 1 178 430 Z" />
+
+    <path data-ak-region="mobile.voice" data-ak-anchor="160 523" d="M 49 498 H 271 A 15 15 0 0 1 286 513 V 533 A 15 15 0 0 1 271 548 H 49 A 15 15 0 0 1 34 533 V 513 A 15 15 0 0 1 49 498 Z" />
+  </g>
+</svg>
