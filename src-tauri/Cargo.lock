@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "axonkey"
-version = "1.9.22"
+version = "1.9.23"
 dependencies = [
  "base64 0.22.1",
  "cc",
