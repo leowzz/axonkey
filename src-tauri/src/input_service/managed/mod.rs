@@ -1450,16 +1450,9 @@ impl Reader {
 
     fn absorb_quick_overlay_triggers(&mut self, sequence: &mut Vec<gesture::Execution>) {
         sequence.retain(|exec| {
-            let Some(first_enabled) = exec.behaviors.iter().find(|b| b.enabled()) else {
+            let Some(trigger) = super::quick_mode::find_overlay_trigger(&exec.behaviors) else {
                 return true;
             };
-            let NativeBehavior::QuickOverlay { profile_id, .. } = first_enabled else {
-                return true;
-            };
-            let target_id = profile_id.trim();
-            if target_id.is_empty() {
-                return false;
-            }
             if !exec.sources.is_empty() {
                 crate::library_usage::record_trigger(
                     &format!("{}:{}", self.config.instance.id, exec.input),
@@ -1468,23 +1461,34 @@ impl Reader {
             }
             self.holds.release_instance(&self.config.instance.id);
             let still_down = self.local_pressed.contains(&exec.input);
-            let entered = self.quick_mode.lock().unwrap().enter_with_profiles(
+            let mut mode = self.quick_mode.lock().unwrap();
+            let entered = mode.enter_trigger(
                 &self.config.instance.id,
                 &self.config.instance.kind,
                 &self.config.instance.name,
-                target_id,
+                trigger,
                 &exec.input,
                 still_down,
                 &self.quick_profiles,
             );
             if entered {
                 if let Some(oled) = &self.oled {
-                    let name = self
-                        .quick_profiles
-                        .get(target_id)
-                        .map(|p| p.name.clone())
-                        .unwrap_or_else(|| "快捷交互窗".into());
-                    oled.show_profile_toast("快捷交互窗".into(), name);
+                    match trigger {
+                        super::quick_mode::OverlayTrigger::QuickProfile(target_id) => {
+                            let name = self
+                                .quick_profiles
+                                .get(target_id)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| "快捷交互窗".into());
+                            oled.show_profile_toast("快捷交互窗".into(), name);
+                        }
+                        super::quick_mode::OverlayTrigger::Clipboard(_) => {
+                            oled.show_profile_toast(
+                                "剪贴板".into(),
+                                format!("{} 条记录", mode.active_slot_count()),
+                            );
+                        }
+                    }
                 }
             }
             false
@@ -1718,16 +1722,22 @@ fn open_device(
     result
 }
 fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
+    let transport = match info.bus_type() {
+        hidapi::BusType::Bluetooth => Some("bluetooth-hid"),
+        hidapi::BusType::Usb => Some("usb-hid"),
+        _ => None,
+    };
     crate::devices::descriptor_registry::registered_kinds()
         .into_iter()
         .filter(|kind| cfg!(target_os = "macos") || !uses_hid_voice(kind))
         .find(|kind| {
-            crate::devices::descriptor_registry::matches_hardware(
+            crate::devices::descriptor_registry::matches_hardware_for_transport(
                 kind,
                 info.vendor_id(),
                 info.product_id(),
                 Some(info.usage_page()),
                 Some(info.usage()),
+                transport,
             )
         })
 }
@@ -1961,7 +1971,11 @@ fn merge_driver_devices(
             continue;
         };
         let Some((vendor_id, product_id)) =
-            crate::devices::descriptor_registry::primary_hardware(kind)
+            crate::devices::descriptor_registry::hardware_vid_pid(&device.instance_id)
+                .or_else(|| {
+                    crate::devices::descriptor_registry::hardware_vid_pid(&device.hardware_id)
+                })
+                .or_else(|| crate::devices::descriptor_registry::primary_hardware(kind))
         else {
             continue;
         };
@@ -2870,6 +2884,18 @@ fn spawn_action_worker(
                             );
                             break;
                         }
+                        NativeBehavior::ClipboardOverlay { action, .. } => {
+                            shared.holds.release_instance(&id);
+                            let _ = quick_mode.lock().unwrap().enter_clipboard(
+                                &id,
+                                &config.instance.kind,
+                                &config.instance.name,
+                                action,
+                                &execution.input,
+                                false,
+                            );
+                            break;
+                        }
                         _ => {
                             let _output = hold::output_lock();
                             if !is_current() {
@@ -3604,6 +3630,97 @@ mod tests {
             )
             .is_none());
             let _ = std::fs::remove_file(&manager.shared.path);
+        }
+    }
+
+    #[test]
+    fn tcl_rc902v_045e_0040_matches_device_kind_and_saves_without_rc902v_software_marker() {
+        let mut discovered = Discovered {
+            id: "phys-rc902v-045e".into(),
+            kind: "tclRc902v".into(),
+            name: "TCL Remote".into(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x045e,
+            product_id: 0x0040,
+            connected: true,
+            paired: true,
+            pairing_id: None,
+            bluetooth_address: Some("AA:BB:CC:DD:EE:FF".into()),
+            hid_instance_id: None,
+            device_info: device_info::DeviceInformation {
+                status: "ready".into(),
+                firmware_revision: Some("v1.5.8_20230825".into()),
+                ..Default::default()
+            },
+        };
+        assert!(device_kind_matches(&discovered, "tclRc902v"));
+        assert!(!device_kind_matches(&discovered, "tclRc902n"));
+
+        let mut remote = instance("remote", &discovered.id);
+        remote.kind = "tclRc902v".into();
+        remote.voice_target = discovered.bluetooth_address.clone();
+
+        let manager = offline_manager(vec![]);
+        manager.shared.snapshot.lock().unwrap().discovered = vec![discovered.clone()];
+        assert!(manager.put(0, remote.clone()).is_ok());
+
+        // 0417:0304 still strictly requires RC902V in softwareRevision.
+        discovered.vendor_id = 0x0417;
+        discovered.product_id = 0x0304;
+        discovered.device_info.software_revision = Some("v1.5.8_20230825".into());
+        assert!(!device_kind_matches(&discovered, "tclRc902v"));
+        assert!(!device_kind_matches(&discovered, "tclRc902n"));
+
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tcl_rc902v_045e_0040_driver_discovery_preserves_hardware_vid_pid_and_target() {
+        for vid_token in ["02045E", "01045E"] {
+            let devices = vec![crate::quarbor_installer::Device {
+                instance_id: format!(
+                    r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&{vid_token}_PID&0040_REV&0001_AABBCCDDEEFF\instance"
+                ),
+                hardware_id: String::new(),
+                bluetooth_address: None,
+                name: "TCL Remote".into(),
+                present: true,
+                bound: true,
+                recovery_active: false,
+                inf: String::new(),
+                section: String::new(),
+            }];
+            let mut discovered = vec![];
+            paired::merge(
+                &mut discovered,
+                &[paired::Device {
+                    address: "aabbccddeeff".into(),
+                    name: "TCL Remote".into(),
+                    vendor_id: 0x045e,
+                    product_id: 0x0040,
+                }],
+                &HashSet::new(),
+                &HashMap::new(),
+            );
+            merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+            assert_eq!(discovered.len(), 1);
+            assert_eq!(discovered[0].kind, "tclRc902v");
+            assert_eq!(discovered[0].vendor_id, 0x045e);
+            assert_eq!(discovered[0].product_id, 0x0040);
+            assert!(discovered[0].connected && discovered[0].paired);
+            assert!(device_kind_matches(&discovered[0], "tclRc902v"));
+
+            let mut remote = instance("remote", &discovered[0].id);
+            remote.kind = "tclRc902v".into();
+            remote.quarbor_target = Some(devices[0].instance_id.clone());
+            remote.voice_target = discovered[0].bluetooth_address.clone();
+            assert_eq!(
+                driver_target(&remote, &[remote.clone()], &discovered, &devices),
+                Some((devices[0].instance_id.clone(), true))
+            );
         }
     }
     #[test]

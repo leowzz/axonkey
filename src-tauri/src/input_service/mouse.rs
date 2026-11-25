@@ -158,14 +158,11 @@ fn quick_now_ms(epoch: &mut Option<Instant>, now: Instant) -> u64 {
         .unwrap_or(0)
 }
 
-fn immediate_quick_overlay_profile_id(actions: &[NativeBehavior]) -> Option<&str> {
+fn immediate_overlay_trigger(
+    actions: &[NativeBehavior],
+) -> Option<super::quick_mode::OverlayTrigger<'_>> {
     let first = actions.iter().find(|action| action.enabled())?;
-    match first {
-        NativeBehavior::QuickOverlay { profile_id, .. } if !profile_id.trim().is_empty() => {
-            Some(profile_id.trim())
-        }
-        _ => None,
-    }
+    super::quick_mode::find_overlay_trigger(std::slice::from_ref(first))
 }
 
 fn resolve_mouse_input(input: &str) -> &'static str {
@@ -191,9 +188,9 @@ fn resolve_mouse_input(input: &str) -> &'static str {
     "mouse.global.buttonMiddle"
 }
 
-fn try_enter_mouse_quick_mode(
+fn try_enter_mouse_overlay(
     shared: &Shared,
-    profile_id: &str,
+    trigger: super::quick_mode::OverlayTrigger<'_>,
     input: &'static str,
     still_down: bool,
 ) -> bool {
@@ -205,14 +202,14 @@ fn try_enter_mouse_quick_mode(
     let Ok(mut guard) = shared.quick_mode.lock() else {
         return false;
     };
-    guard.1.enter_from_settings(
+    guard.1.enter_trigger(
         "mouse",
         "mouse",
         "系统鼠标",
-        profile_id,
+        trigger,
         input,
         still_down,
-        &settings,
+        &settings.quick_profiles,
     )
 }
 
@@ -243,11 +240,11 @@ fn enqueue_or_enter_quick_mode(
     if actions.is_empty() || !current_job(shared, revision) {
         return;
     }
-    if let Some(profile_id) = immediate_quick_overlay_profile_id(&actions) {
+    if let Some(trigger) = immediate_overlay_trigger(&actions) {
         if !sources.is_empty() {
             crate::library_usage::record_trigger(input, &sources);
         }
-        let _ = try_enter_mouse_quick_mode(shared, profile_id, input, still_down);
+        let _ = try_enter_mouse_overlay(shared, trigger, input, still_down);
     } else {
         enqueue(shared, actions, sources, input, revision);
     }
@@ -329,6 +326,19 @@ impl MouseService {
                                             &settings,
                                         );
                                     }
+                                }
+                                break;
+                            } else if let NativeBehavior::ClipboardOverlay { action, .. } = behavior
+                            {
+                                if let Ok(mut guard) = state.quick_mode.lock() {
+                                    let _ = guard.1.enter_clipboard(
+                                        "mouse",
+                                        "mouse",
+                                        "系统鼠标",
+                                        *action,
+                                        job.input,
+                                        false,
+                                    );
                                 }
                                 break;
                             } else {
@@ -568,8 +578,11 @@ impl ScrollAccumulator {
             self.remainder = total;
             return true;
         }
-        if let Some(profile_id) = immediate_quick_overlay_profile_id(actions) {
-            let profile_id = profile_id.to_owned();
+        if let Some(trigger) = immediate_overlay_trigger(actions) {
+            let owned_trigger = match trigger {
+                super::quick_mode::OverlayTrigger::QuickProfile(id) => (Some(id.to_owned()), None),
+                super::quick_mode::OverlayTrigger::Clipboard(action) => (None, Some(action)),
+            };
             let sources = config
                 .settings
                 .behaviors
@@ -582,7 +595,25 @@ impl ScrollAccumulator {
             if !sources.is_empty() {
                 crate::library_usage::record_trigger(id, &sources);
             }
-            let _ = try_enter_mouse_quick_mode(shared, &profile_id, id, false);
+            match owned_trigger {
+                (Some(profile_id), None) => {
+                    let _ = try_enter_mouse_overlay(
+                        shared,
+                        super::quick_mode::OverlayTrigger::QuickProfile(&profile_id),
+                        id,
+                        false,
+                    );
+                }
+                (None, Some(action)) => {
+                    let _ = try_enter_mouse_overlay(
+                        shared,
+                        super::quick_mode::OverlayTrigger::Clipboard(action),
+                        id,
+                        false,
+                    );
+                }
+                _ => {}
+            }
             return true;
         }
         let job = Job {
@@ -731,7 +762,7 @@ impl ButtonTracker {
                     && now.duration_since(press.started) >= LONG_PRESS
                 {
                     press.long_fired = true;
-                    if immediate_quick_overlay_profile_id(&press.triggers.long_press).is_some() {
+                    if immediate_overlay_trigger(&press.triggers.long_press).is_some() {
                         enqueue_or_enter_quick_mode(
                             shared,
                             press.triggers.long_press.clone(),
@@ -1849,5 +1880,152 @@ mod tests {
         assert!(scroll.scroll_at(&shared, 0, 1.0, at(250)));
         assert!(!shared.quick_mode.lock().unwrap().1.is_active());
         assert_key(receiver.try_recv().unwrap(), "F12");
+    }
+
+    #[test]
+    fn mouse_clipboard_list_navigates_with_buttons_and_wheel_then_confirms_or_exits() {
+        crate::clipboard_history::set_entries_for_test(vec![
+            "剪贴板第一条".into(),
+            "剪贴板第二条".into(),
+            "剪贴板第三条".into(),
+        ]);
+        let (sender, receiver) = mpsc::sync_channel(32);
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "mouseIgnoreScrollAcceleration": false,
+            "mouseVerticalScrollIntervalMs": 0,
+            "mouseHorizontalScrollIntervalMs": 0,
+            "behaviors": {
+                "mouse.top.buttonRight": {
+                    "click": [{ "type": "clipboardOverlay", "action": "paste" }]
+                }
+            }
+        }))
+        .unwrap();
+        let shared = Shared {
+            configuration: Mutex::new(Configuration {
+                settings,
+                revision: 1,
+            }),
+            quick_mode: Mutex::new((None, crate::input_service::quick_mode::QuickMode::default())),
+            stop: AtomicBool::new(false),
+            ready: AtomicBool::new(true),
+            active: AtomicBool::new(true),
+            sender,
+        };
+        let mut buttons = ButtonTracker::default();
+        let mut scroll = ScrollAccumulator::default();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+
+        // 1. Trigger via top-right click -> enters clipboard HUD at item 0; center left click still passes through.
+        assert!(buttons.event(&shared, 1, true, Some(Edge::Top), (50.0, 0.0), at(0)));
+        assert!(buttons.event(&shared, 1, false, Some(Edge::Top), (50.0, 0.0), at(20)));
+        {
+            let mut guard = shared.quick_mode.lock().unwrap();
+            assert!(guard.1.is_active());
+            assert_eq!(guard.1.active_clipboard_selected(), Some(0));
+        }
+        assert!(!buttons.event(&shared, 0, true, None, (50.0, 50.0), at(30)));
+        assert!(!buttons.event(&shared, 0, false, None, (50.0, 50.0), at(40)));
+
+        // 2. Navigate with Side Back (index -> 1), top-edge Wheel Down (-> 2), top-edge Wheel Up (-> 1).
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(50)));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(70)));
+        assert_eq!(
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(1)
+        );
+        scroll.enter(Some(Edge::Top));
+        assert!(scroll.scroll_at(&shared, 1, 1.0, at(90)));
+        {
+            let mut guard = shared.quick_mode.lock().unwrap();
+            assert!(guard.1.is_active());
+            assert_eq!(guard.1.active_clipboard_selected(), Some(2));
+        }
+        assert!(scroll.scroll_at(&shared, 0, 1.0, at(110)));
+        assert_eq!(
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(1)
+        );
+
+        // 3. Click Middle button -> executes Paste for selected entry #2 ("剪贴板第二条") and exits.
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(130)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(150)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert_eq!(
+            receiver.try_recv().unwrap().behaviors,
+            vec![NativeBehavior::Paste {
+                enabled: true,
+                text: "剪贴板第二条".into()
+            }]
+        );
+
+        // 4. Switch config to CopyText triggered by Middle button: Side Back/Forward step, repeat Middle exits without executing.
+        let copy_settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "mouseIgnoreScrollAcceleration": false,
+            "mouseVerticalScrollIntervalMs": 0,
+            "mouseHorizontalScrollIntervalMs": 0,
+            "behaviors": {
+                "mouse.global.buttonMiddle": {
+                    "click": [{ "type": "clipboardOverlay", "action": "copyText" }]
+                },
+                "mouse.top.buttonRight": {
+                    "click": [{ "type": "clipboardOverlay", "action": "copyText" }]
+                }
+            }
+        }))
+        .unwrap();
+        *shared.configuration.lock().unwrap() = Configuration {
+            settings: copy_settings,
+            revision: 2,
+        };
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(200)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(220)));
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), at(240)));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), at(250)));
+        assert!(buttons.event(&shared, 3, true, None, (50.0, 50.0), at(260)));
+        assert!(buttons.event(&shared, 3, false, None, (50.0, 50.0), at(270)));
+        assert_eq!(
+            shared
+                .quick_mode
+                .lock()
+                .unwrap()
+                .1
+                .active_clipboard_selected(),
+            Some(0)
+        );
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(280)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(290)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert!(receiver.try_recv().is_err());
+
+        // 5. Trigger CopyText via top-right click, confirm with Middle -> executes CopyText(#1).
+        assert!(buttons.event(&shared, 1, true, Some(Edge::Top), (50.0, 0.0), at(310)));
+        assert!(buttons.event(&shared, 1, false, Some(Edge::Top), (50.0, 0.0), at(320)));
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(340)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(350)));
+        assert!(!shared.quick_mode.lock().unwrap().1.is_active());
+        assert_eq!(
+            receiver.try_recv().unwrap().behaviors,
+            vec![NativeBehavior::CopyText {
+                enabled: true,
+                text: "剪贴板第一条".into(),
+                title: None
+            }]
+        );
+
+        crate::clipboard_history::clear();
     }
 }

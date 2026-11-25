@@ -313,6 +313,7 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   httpRequest: '发送 HTTP 请求',
   switchProfile: '切换配置文件',
   quickOverlay: '快捷交互窗',
+  clipboardOverlay: '剪贴板浮窗',
   disabled: '禁用按键',
 }
 

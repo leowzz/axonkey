@@ -19,7 +19,9 @@
       "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat",
       "../vendor/QuarborVirtualMicrophoneDriverInstaller/License": "vendor/QuarborVirtualMicrophoneDriverInstaller/License",
       "../scripts/uninstall-old-driver.exe": "scripts/uninstall-old-driver.exe",
-      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../LICENSE": "LICENSE",
+      "../LICENSE-EXCEPTION.md": "LICENSE-EXCEPTION.md"
     },
     "windows": {
       "nsis": {

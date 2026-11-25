@@ -6,11 +6,15 @@ resolved versions from [package-lock.json](package-lock.json) and
 [src-tauri/Cargo.lock](src-tauri/Cargo.lock), checked for Axonkey 1.7.10 on
 2026-10-29. Platform-specific components are identified in their entries.
 
-Each component retains its own license. This overview does not enumerate the
-entire transitive Rust dependency graph or development-only JavaScript tools;
-their versions are recorded in the lockfiles and their license texts accompany
-the upstream packages. Repository-relative links refer to the Axonkey source
-tree, which is available at [leowzz/axonkey](https://github.com/leowzz/axonkey).
+Axonkey's own original source code and assets are licensed under
+[`GPL-3.0-only`](LICENSE) with a GPLv3 Section 7 additional permission for
+unmodified Quarbor Windows components documented in
+[`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md). Each third-party component
+retains its own license. This overview does not enumerate the entire transitive
+Rust dependency graph or development-only JavaScript tools; their versions are
+recorded in the lockfiles and their license texts accompany the upstream
+packages. Repository-relative links refer to the Axonkey source tree, which is
+available at [leowzz/axonkey](https://github.com/leowzz/axonkey).
 
 ## remote-mic-app
 
@@ -113,7 +117,10 @@ The license permits free use and free sharing of the original, unmodified
 software with its notices retained. It requires prior written authorization
 for commercial distribution or integration into a commercial software product,
 and restricts modification and resale. The full vendor license controls these
-permissions; Axonkey does not relicense the driver or SDK.
+permissions; Axonkey does not relicense the driver or SDK. The GPLv3 Section 7
+additional permission for building and distributing Windows releases with these
+unmodified vendor components is documented in
+[`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 
 ## QuarborVirtualMicrophoneDriver
 
@@ -135,6 +142,9 @@ This is proprietary software governed by the vendor's
 [Free Use / No Resale License](vendor/QuarborVirtualMicrophoneDriverInstaller/License).
 The original software and copyright notices are retained. Axonkey does not
 relicense the driver or SDK; the full vendor license controls use and distribution.
+The GPLv3 Section 7 additional permission for distributing Windows releases with
+this unmodified vendor package is documented in
+[`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 
 ## hidapi
 

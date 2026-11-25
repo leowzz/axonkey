@@ -17,12 +17,15 @@ export function quickOverlayClickBehaviors(behaviors: Record<string, TriggerBeha
 }
 
 export function quickOverlayAllowsToolboxStep(step: StepDefinition) {
-  if (step.type === 'switchProfile' || step.type === 'quickOverlay') return false
+  if (step.type === 'switchProfile' || step.type === 'quickOverlay' || step.type === 'clipboardOverlay') return false
   if (step.type !== 'savedSequence') return true
   const behaviors = savedSequenceBehaviors(step.properties as Pick<SavedSequence, 'sequence' | 'libraryItemIds'>)
   return (
     !!behaviors?.length &&
-    behaviors.every(behavior => behavior.type !== 'switchProfile' && behavior.type !== 'quickOverlay')
+    behaviors.every(
+      behavior =>
+        behavior.type !== 'switchProfile' && behavior.type !== 'quickOverlay' && behavior.type !== 'clipboardOverlay',
+    )
   )
 }
 

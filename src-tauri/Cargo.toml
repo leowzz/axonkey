@@ -1,10 +1,11 @@
 [package]
 name = "axonkey"
-version = "1.9.19"
+version = "1.9.21"
 default-run = "axonkey"
 description = "Axonkey local device mapping tool"
 authors = ["Axonkey"]
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "axonkey_lib"

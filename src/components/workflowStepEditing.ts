@@ -39,6 +39,7 @@ export function isEditableWorkflowStep(step: Step) {
       'httpRequest',
       'switchProfile',
       'quickOverlay',
+      'clipboardOverlay',
     ].includes(step.type) ||
     step.type.startsWith('cursor') ||
     step.type.startsWith('wheel') ||
@@ -102,6 +103,12 @@ export function workflowStepBehavior(step: Step): Behavior | null {
         ...base,
         type: 'quickOverlay',
         profileId: typeof step.properties.profileId === 'string' ? step.properties.profileId.trim() : '',
+      }
+    case 'clipboardOverlay':
+      return {
+        ...base,
+        type: 'clipboardOverlay',
+        action: step.properties.action === 'copyText' ? 'copyText' : 'paste',
       }
     case 'disabled':
       return { ...base, type: 'disabled' }
@@ -216,6 +223,12 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   if (step.type === 'quickOverlay' && behavior.type === 'quickOverlay') {
     const profileId = behavior.profileId.trim()
     return profileId ? { ...properties, profileId } : null
+  }
+  if (step.type === 'clipboardOverlay' && behavior.type === 'clipboardOverlay') {
+    return {
+      ...properties,
+      action: behavior.action === 'copyText' ? 'copyText' : 'paste',
+    }
   }
   if (step.type === 'openPath' && behavior.type === 'openPath') {
     const path = normalizeFilePath(behavior.path)

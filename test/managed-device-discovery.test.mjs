@@ -469,12 +469,17 @@ test('TCL identity requires actual information fields and never trusts kind or d
     }
   }
   assert.equal(model.deviceMatchesKind({ ...rc802a, productId: 0x0300 }, 'tclRc802a'), false)
-  for (const [software, expected] of [['TCL_RC902N_1.0', 'tclRc902n'], ['TCL_RC902V_1.0', 'tclRc902v'], ['', null]]) {
+  for (const [software, expected] of [['TCL_RC902N_1.0', 'tclRc902n'], ['TCL_RC902V_1.0', 'tclRc902v'], ['', null], ['v1.5.8_20230825', null]]) {
     const remote = { ...device, kind: 'tclRc902n', vendorId: 0x0417, productId: 0x0304,
       deviceInfo: { softwareRevision: software, detectedKind: 'tclRc902n' } }
     for (const kind of ['tclRc902n', 'tclRc902v']) {
       assert.equal(model.deviceMatchesKind(remote, kind), kind === expected)
     }
+  }
+  for (const deviceInfo of [undefined, {}, { firmwareRevision: 'v1.5.8_20230825' }, { softwareRevision: 'v1.5.8_20230825' }]) {
+    const rc902v045e = { ...device, kind: 'tclRc902v', vendorId: 0x045e, productId: 0x0040, deviceInfo }
+    assert.equal(model.deviceMatchesKind(rc902v045e, 'tclRc902v'), true)
+    assert.equal(model.deviceMatchesKind(rc902v045e, 'tclRc902n'), false)
   }
 })
 
@@ -1346,6 +1351,13 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     assert.equal(undoBtn().props.disabled, true)
     assert.equal(redoBtn().props.disabled, true)
     assert.equal(workflow().props.sequences.click.length, 0)
+
+    instance = { ...model.newInstance('rmfTx800c', null), id: 'sony-mic-mapping' }
+    snapshot.store.instances = [instance]
+    act(() => view.update(render()))
+    act(() => remote().props.onSelect('rmf-tx800c.voice'))
+    assert.equal(workflow().props.button.id, 'rmf-tx800c.voice')
+    assert.match(text(view.root.findByProps({ className: 'key-picker-voice-guidance' })), /此键只报告点按/)
   } finally {
     act(() => view.unmount())
   }

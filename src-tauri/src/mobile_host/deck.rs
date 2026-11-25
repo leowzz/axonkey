@@ -676,6 +676,7 @@ fn summarize_behaviors(behaviors: &[NativeBehavior]) -> Option<String> {
         NativeBehavior::HttpRequest { method, .. } => format!("HTTP {method}"),
         NativeBehavior::SwitchProfile { .. } => "切换配置".into(),
         NativeBehavior::QuickOverlay { .. } => "快捷交互窗".into(),
+        NativeBehavior::ClipboardOverlay { .. } => "剪贴板历史".into(),
         NativeBehavior::Delay { ms, .. } => format!("延时 {ms}ms"),
         NativeBehavior::Disabled { .. } => return None,
     };

@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all fifteen protocol SVGs', () => {
+test('the committed device index is generated from all sixteen protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 15)
+  assert.equal(Object.keys(deviceDescriptors).length, 16)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -24,8 +24,12 @@ test('the committed device index is generated from all fifteen protocol SVGs', (
 
 test('Sony RMF-TX800C retains its stable inputs and uses click-only GATT voice', () => {
   const sony = deviceDescriptors['rmf-tx800c']
-  assert.equal(sony.inputs.length, 15)
-  assert.ok(sony.inputs.every(input => !['rmf-tx800c.power', 'rmf-tx800c.voice'].includes(input.id)))
+  assert.equal(sony.inputs.length, 16)
+  const microphone = sony.inputs.find(input => input.id === 'rmf-tx800c.voice')
+  assert.ok(microphone)
+  assert.equal(microphone.label, '麦克风')
+  assert.equal(microphone.short, '麦克风')
+  assert.ok(sony.inputs.every(input => input.id !== 'rmf-tx800c.power'))
   assert.ok(sony.inputs.every(input => input.id === input.stableId && input.id.startsWith('rmf-tx800c.')))
   assert.deepEqual(sony.identities[0].vendorIds, [0x054c])
   assert.deepEqual(sony.identities[0].productIds, [0x0df7])
@@ -36,23 +40,19 @@ test('Sony RMF-TX800C retains its stable inputs and uses click-only GATT voice',
   })
 })
 
-test('Sony power and microphone artwork remain visible without interactive hotzones', () => {
+test('Sony microphone has an interactive hotspot while infrared power stays decorative', () => {
   for (const path of ['../docs/device-drafts/rmf-tx800c.svg', '../public/device-descriptors/rmf-tx800c.svg']) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8')
-    for (const key of ['power', 'voice']) {
-      const group = source.match(new RegExp('<g\\b[^>]*\\bid="key-' + key + '"[^>]*>'))?.[0]
-      assert.ok(group, path + ': missing ' + key + ' artwork')
-      assert.doesNotMatch(group, /data-ak-key|data-ak-role|role="button"|tabindex/)
-      assert.ok(!source.includes('data-ak-region="rmf-tx800c.' + key + '"'))
-    }
+    const power = source.match(/<g\b[^>]*\bid="key-power"[^>]*>/)?.[0]
+    assert.ok(power, path + ': missing power artwork')
+    assert.doesNotMatch(power, /data-ak-key|data-ak-role|role="button"|tabindex/)
+    assert.ok(!source.includes('data-ak-region="rmf-tx800c.power"'))
+    assert.match(source, /<g\b[^>]*\bid="key-voice"[^>]*data-ak-key="rmf-tx800c\.voice"[^>]*tabindex="0"[^>]*aria-label="麦克风"/)
+    assert.match(source, /data-ak-region="rmf-tx800c\.voice" data-ak-anchor="83\.5 289"/)
   }
   const source = readFileSync(new URL('../public/device-descriptors/rmf-tx800c.svg', import.meta.url), 'utf8')
   assert.match(source, /<ak:voice\b[^>]*trigger-key="rmf-tx800c\.voice"/)
-  for (const key of ['power', 'voice']) {
-    const input = source.match(new RegExp('<ak:input\\b[^>]*\\bid="rmf-tx800c\\.' + key + '"[^>]*>'))?.[0]
-    assert.ok(input)
-    assert.doesNotMatch(input, /\btarget=/)
-  }
+  assert.match(source, /<ak:input\b[^>]*id="rmf-tx800c\.voice"[^>]*target="#key-voice"[^>]*>\s*<ak:source report="voice-control" field="start-search"/)
 })
 
 test('stable RC003 protocol IDs retain existing saved mapping IDs', () => {
@@ -103,6 +103,31 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
       triggerModes: ['hold'],
     })
   }
+  assert.deepEqual(
+    deviceDescriptors['tcl-rc902v'].identities.map(identity => ({
+      vendorIds: identity.vendorIds,
+      productIds: identity.productIds,
+      informationRequired: identity.informationRequired,
+      softwareContains: identity.softwareContains,
+      windowsPrefix: identity.windowsPrefix,
+    })),
+    [
+      {
+        vendorIds: [0x0417],
+        productIds: [0x0304],
+        informationRequired: true,
+        softwareContains: 'RC902V',
+        windowsPrefix: 'BTHLEDEVICE',
+      },
+      {
+        vendorIds: [0x045e, 0x045e, 0x045e],
+        productIds: [0x0040],
+        informationRequired: false,
+        softwareContains: '',
+        windowsPrefix: 'BTHLEDEVICE',
+      },
+    ],
+  )
   assert.equal(deviceDescriptors.rc003.voice.transport, 'gatt')
   assert.equal(deviceDescriptors.xbox.voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].voice, null)
@@ -146,7 +171,11 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
   )
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.ok(descriptor.identities.length >= 1, `${descriptor.id} must declare runtime identity`)
-    if (descriptor.id !== 'kivo.k18Lite' && descriptor.id !== 'g17.touch') {
+    if (
+      descriptor.id !== 'kivo.k18Lite' &&
+      descriptor.id !== 'g17.touch' &&
+      descriptor.id !== 'axonkey.mobile'
+    ) {
       assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
     }
   }

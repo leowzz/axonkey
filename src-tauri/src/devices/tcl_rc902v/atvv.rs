@@ -401,6 +401,7 @@ pub(crate) enum SessionState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SessionEvent {
     Capabilities(Capabilities),
+    VoiceTap(Instant),
     SessionStarted { stream_id: u8, sample_rate: u32 },
     PcmChunk { sample_rate: u32, samples: Vec<i16> },
     SessionStopped { stream_id: u8, reason: u8 },
@@ -542,7 +543,17 @@ impl AtvvSession {
         }
     }
 
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn handle_control(&mut self, bytes: &[u8], now: Instant) -> SessionAction {
+        self.handle_control_with_audio(bytes, now, true)
+    }
+
+    pub(crate) fn handle_control_with_audio(
+        &mut self,
+        bytes: &[u8],
+        now: Instant,
+        audio_available: bool,
+    ) -> SessionAction {
         let mut out = SessionAction::default();
         let parsed = match ControlEvent::parse_for(bytes, self.capabilities.as_ref()) {
             Ok(event) => event,
@@ -558,7 +569,7 @@ impl AtvvSession {
 
         match parsed {
             ControlEvent::CapsResp(caps) => self.on_capabilities(caps, &mut out),
-            ControlEvent::StartSearch => self.on_start_search(now, &mut out),
+            ControlEvent::StartSearch => self.on_start_search(now, audio_available, &mut out),
             ControlEvent::AudioStart {
                 reason,
                 codec,
@@ -846,7 +857,7 @@ impl AtvvSession {
         out.events.push(SessionEvent::Capabilities(caps));
     }
 
-    fn on_start_search(&mut self, now: Instant, out: &mut SessionAction) {
+    fn on_start_search(&mut self, now: Instant, audio_available: bool, out: &mut SessionAction) {
         if !self
             .capabilities
             .as_ref()
@@ -854,6 +865,8 @@ impl AtvvSession {
         {
             return;
         }
+        // START_SEARCH is a button tap even when recording cannot start.
+        out.events.push(SessionEvent::VoiceTap(now));
         if self
             .suppress_start_until
             .take()
@@ -870,6 +883,9 @@ impl AtvvSession {
             if was_pending {
                 self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
             }
+            return;
+        }
+        if !audio_available {
             return;
         }
         self.mic_open_pending = true;
@@ -1770,6 +1786,27 @@ mod tests {
                 kind,
                 address_only,
                 Some("a1:b2:c3:d4:e5:f6")
+            ));
+        }
+
+        for vid_token in ["01045E", "02045E"] {
+            let pnp_045e = format!(
+                r"\\?\BTHLEDevice#{{ab5e0001-5a21-4f05-bc7d-af01f617b664}}_Dev_VID&{vid_token}_PID&0040_REV&0001_A1B2C3D4E5F6#device"
+            );
+            assert!(approved_rc902_service_id(
+                "tclRc902v",
+                &pnp_045e,
+                Some("A1:B2:C3:D4:E5:F6")
+            ));
+            assert!(!approved_rc902_service_id(
+                "tclRc902v",
+                &pnp_045e,
+                Some("00:11:22:33:44:55")
+            ));
+            assert!(!approved_rc902_service_id(
+                "tclRc902n",
+                &pnp_045e,
+                Some("A1:B2:C3:D4:E5:F6")
             ));
         }
     }

@@ -291,7 +291,12 @@ pub(crate) fn scan() -> Result<Vec<Device>, String> {
                 let Some(kind) = kind(vendor_id, product_id) else {
                     continue;
                 };
-                if source != Some(2) && !super::uses_hid_voice(kind) {
+                if source != Some(2)
+                    && !super::uses_hid_voice(kind)
+                    && !crate::devices::descriptor_registry::matches_bluetooth_vendor_source(
+                        kind, vendor_id, product_id, source,
+                    )
+                {
                     continue;
                 }
                 let address = if let Some(address) = property("System.Devices.Aep.DeviceAddress")

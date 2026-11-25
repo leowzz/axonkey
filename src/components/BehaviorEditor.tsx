@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
+  ClipboardList,
   ClipboardPaste,
   Copy,
   Clock3,
@@ -36,7 +37,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react'
-import type { Behavior, TriggerType } from '../behaviorModel'
+import type { Behavior, ClipboardOverlayAction, TriggerType } from '../behaviorModel'
 import {
   defaultCursorDistance,
   httpRequestMethods,
@@ -605,6 +606,11 @@ export function BehaviorEditor<Id extends string>({
                   label="打开网站"
                   onClick={() => onAddAdvancedBehavior('openWebsite')}
                 />
+                <BehaviorActionButton
+                  icon={<ClipboardList size={17} />}
+                  label="剪贴板浮窗"
+                  onClick={() => onAddAdvancedBehavior('clipboardOverlay')}
+                />
               </>
             )}
           </div>
@@ -695,6 +701,7 @@ export type QuickOverlayEditorContext = {
   onCreateQuickProfile: (name: string) => Promise<string | null> | string | null
   onEditProfile?: (profileId: string) => void
   onPreviewProfile?: (profileId: string, triggerInputId: string) => void
+  onPreviewClipboard?: (triggerInputId: string, action: ClipboardOverlayAction) => void
 }
 
 type BehaviorEditDialogProps = {
@@ -943,6 +950,73 @@ function QuickOverlayEditorFields({
                 <Eye size={14} aria-hidden="true" /> 预览交互窗
               </button>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClipboardOverlayEditorFields({
+  action,
+  triggerInputId,
+  context,
+  onSelectAction,
+}: {
+  action: ClipboardOverlayAction
+  triggerInputId: string
+  context?: QuickOverlayEditorContext
+  onSelectAction: (action: ClipboardOverlayAction) => void
+}) {
+  const fieldId = useId()
+  return (
+    <div className="settings-form-fields behavior-dialog-form">
+      <div className="settings-form-row">
+        <div className="behavior-launch-label">
+          <span className="settings-form-label" id={`${fieldId}-behavior-clipboard-action-label`}>
+            选中后：
+          </span>
+          <SettingsHelp id={`${fieldId}-behavior-clipboard-overlay-help`} label="剪贴板浮窗">
+            按下此键弹出近期剪贴板历史列表（由新到旧）；使用上下方向键切换条目，按确认（OK）键执行粘贴或仅写入剪贴板并退出，按返回、Esc
+            或再次按下触发键直接关闭。
+          </SettingsHelp>
+        </div>
+        <div className="settings-form-control">
+          <div
+            className="shortcut-modifiers"
+            role="group"
+            aria-labelledby={`${fieldId}-behavior-clipboard-action-label`}
+          >
+            {(
+              [
+                ['paste', '直接粘贴'],
+                ['copyText', '仅写入剪贴板'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={action === value ? 'selected' : ''}
+                aria-pressed={action === value}
+                onClick={() => onSelectAction(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {context?.onPreviewClipboard && (
+        <div className="settings-form-row">
+          <span className="settings-form-label">预览：</span>
+          <div className="settings-form-control">
+            <button
+              type="button"
+              className="dialog-secondary"
+              onClick={() => context.onPreviewClipboard?.(triggerInputId, action)}
+            >
+              <Eye size={14} aria-hidden="true" /> 预览剪贴板浮窗
+            </button>
           </div>
         </div>
       )}
@@ -1239,7 +1313,9 @@ export function BehaviorEditDialog({
               ? httpValid
               : behavior.type === 'quickOverlay'
                 ? Boolean(behavior.profileId.trim())
-                : true
+                : behavior.type === 'clipboardOverlay'
+                  ? true
+                  : true
   const content = (
     <div
       className={inline ? 'behavior-inline-container' : 'behavior-dialog-backdrop'}
@@ -1569,6 +1645,17 @@ export function BehaviorEditDialog({
               onSelectProfile={nextProfileId =>
                 onUpdate(current =>
                   current.type === 'quickOverlay' ? { ...current, profileId: nextProfileId } : current,
+                )
+              }
+            />
+          ) : behavior.type === 'clipboardOverlay' ? (
+            <ClipboardOverlayEditorFields
+              action={behavior.action}
+              triggerInputId={button.id}
+              context={quickOverlayContext}
+              onSelectAction={nextAction =>
+                onUpdate(current =>
+                  current.type === 'clipboardOverlay' ? { ...current, action: nextAction } : current,
                 )
               }
             />

@@ -122,7 +122,7 @@ Windows RC003 输入和语音服务都按实例维护；每个实例注册自己
 | ------ | -------------------------------- | ----------------------------------- | --------------------------------------------------------------- | ---------- | ------------------------------------------ |
 | RC802A | `src/devices/tcl-rc802a-remote/` | `src-tauri/src/devices/tcl_rc802a/` | `DEV_VID&010416_PID&0301` + 2A24 含 `BT_RC802A` + 2A29 含 `TCL` | 22         | EB 启停 / EC ICO 按住语音                  |
 | RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N`                    | 22         | ATVV BLE HTT 语音（A 键，按住说话、松手停止） |
-| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V`                    | 27         | ATVV BLE HTT 语音（A 键，按住说话、松手停止） |
+| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V`，或 BLE `045E:0040` | 27         | ATVV BLE HTT 语音（A 键，按住说话、松手停止） |
 
 型号匹配声明来自 SVG。Windows/macOS 读取 Device Information 的 `2A24/modelNumber`、`2A29/manufacturer` 和 `2A28/softwareRevision`，发现候选不代表已确认型号。绑定、驱动目标和输入启动都要求真实信息字段匹配，不能仅凭名称或 `detectedKind` 回退。RC902N/V 共用硬件候选身份，识别后只更新型号，不重算已发现实物 ID。
 

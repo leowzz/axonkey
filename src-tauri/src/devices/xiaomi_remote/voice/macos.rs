@@ -491,6 +491,7 @@ fn apply_rc902v_action(shared: &Shared, action: Rc902vSessionAction) {
 
     for event in action.events {
         match event {
+            Rc902vSessionEvent::VoiceTap(_) => {}
             Rc902vSessionEvent::Capabilities(caps) => {
                 log::info!(
                     target: "axonkey::audio",

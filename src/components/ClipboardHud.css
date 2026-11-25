@@ -1,0 +1,295 @@
+.clipboard-hud-backdrop {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+.clipboard-hud-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 10px 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow:
+    0 4px 12px rgb(15 23 42 / 10%),
+    0 1px 2px rgb(15 23 42 / 6%);
+  user-select: none;
+  animation: clipboard-hud-in 80ms ease-out;
+}
+
+@keyframes clipboard-hud-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clipboard-hud-shell {
+    animation: none;
+  }
+}
+
+.clipboard-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 2px 4px;
+}
+
+.clipboard-hud-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.clipboard-hud-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-hud-pill.is-preview {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  background: var(--surface-subtle);
+  flex: 0 0 auto;
+}
+
+.clipboard-hud-count {
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.clipboard-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.clipboard-hud-clear,
+.clipboard-hud-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.clipboard-hud-clear {
+  padding: 0 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.clipboard-hud-close {
+  width: 24px;
+  padding: 0;
+}
+
+.clipboard-hud-clear:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.clipboard-hud-close:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.clipboard-hud-clear:focus-visible,
+.clipboard-hud-close:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.clipboard-hud-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(15 23 42 / 14%) transparent;
+}
+
+.clipboard-hud-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background-color 90ms ease;
+}
+
+.clipboard-hud-row:hover {
+  background: var(--surface-subtle);
+}
+
+.clipboard-hud-row:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.clipboard-hud-row.is-selected {
+  background: var(--blue-soft);
+}
+
+.clipboard-hud-index {
+  flex: 0 0 auto;
+  min-width: 16px;
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: transparent;
+}
+
+.clipboard-hud-row.is-selected .clipboard-hud-index {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.clipboard-hud-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clipboard-hud-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.clipboard-hud-row.is-selected .clipboard-hud-text {
+  color: var(--ink);
+  font-weight: 500;
+  white-space: pre-wrap;
+  -webkit-line-clamp: 4;
+}
+
+.clipboard-hud-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.clipboard-hud-confirm-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.clipboard-hud-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.clipboard-hud-empty p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+}
+
+.clipboard-hud-empty span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.clipboard-hud-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 4px 4px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.clipboard-hud-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.clipboard-hud-footer kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 3px;
+  background: var(--surface-subtle);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+}

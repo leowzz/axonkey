@@ -1631,4 +1631,39 @@ mod tests {
         retain_readings(&mut next, &previous, &cache);
         assert!(next.iter().all(|d| d.device_info.battery_level.is_none()));
     }
+
+    #[test]
+    fn tcl_rc902v_045e_0040_resolves_ready_without_rc902v_software_marker() {
+        for software in [None, Some("v1.5.8_20230825")] {
+            let manager = offline_manager(vec![]);
+            let mut remote = information_remote("tcl-rc902v-045e", "AA:BB:CC:DD:EE:01");
+            remote.kind = "tclRc902v".into();
+            remote.vendor_id = 0x045e;
+            remote.product_id = 0x0040;
+            let shared = &manager.shared;
+            shared.snapshot.lock().unwrap().discovered = vec![remote.clone()];
+            let key = (remote.id.clone(), remote.bluetooth_address.clone().unwrap());
+            let mut schedules = HashMap::from([(key.clone(), Schedule::default())]);
+            let mut in_flight = HashSet::from([key]);
+
+            Reading {
+                target: remote,
+                info: DeviceInformation {
+                    firmware_revision: Some("v1.5.8_20230825".into()),
+                    software_revision: software.map(str::to_owned),
+                    ..Default::default()
+                },
+                complete: true,
+            }
+            .apply(shared, &mut schedules, &mut in_flight);
+
+            let snapshot = manager.snapshot();
+            let info = &snapshot.discovered[0].device_info;
+            assert_eq!(info.status, "ready");
+            assert_eq!(info.error, None);
+            assert_eq!(info.detected_kind.as_deref(), Some("tclRc902v"));
+            assert_eq!(snapshot.discovered[0].kind, "tclRc902v");
+            let _ = fs::remove_file(&shared.path);
+        }
+    }
 }

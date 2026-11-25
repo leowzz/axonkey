@@ -9,6 +9,7 @@
 [![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat)](#系统要求)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat&logo=tauri&logoColor=white)](./src-tauri/Cargo.toml)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=white)](./package.json)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue?style=flat)](./LICENSE)
 
 [**⬇ 下载 Axonkey（macOS / Windows）**](https://github.com/leowzz/axonkey/releases)
 
@@ -85,6 +86,12 @@
 灵感来自 [remote-mic-app](https://github.com/HD838A/remote-mic-app)，感谢原项目。
 
 Windows 按键映射和虚拟麦克风使用 `QuarborUniversalKeyboardDriver`和`QuarborVirtualMicrophoneDriver`，感谢 `奇桦科技有限公司` 提供的专有驱动。
+
+## 开源协议
+
+- Axonkey 原创源码基于 **GNU General Public License v3.0 only（`GPL-3.0-only`）** 开源，完整条款见 [`LICENSE`](LICENSE)。
+- 协议作用域边界及针对 Windows 专有驱动 / SDK 的 GPLv3 第 7 条附加例外见 [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md)，第三方依赖与上游许可详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+- Windows 安装包内附带的奇桦科技 `QuarborUniversalKeyboardDriver` 与 `QuarborVirtualMicrophoneDriver` 仍受原厂《免费使用 / 禁止转售许可证》约束；如需商业分发、付费捆绑或商业集成，须另行获取奇桦科技书面授权。
 
 ## 投喂一点Token
 

@@ -15,3 +15,4 @@
 | [0005](0005-native-app-config-storage.md) | 桌面端持久化配置统一存储至软件数据目录 | `accepted` |
 | [0006](0006-cloud-device-preset-profiles.md) | 云端设备预制配置文件下发与实例化边界 | `accepted` |
 | [0007](0007-command-http-clipboard-behaviors-and-library-ia.md) | 命令 / HTTP / 剪贴板行为边界与行为库信息架构 | `accepted` |
+| [0008](0008-clipboard-history-quick-overlay.md) | 剪贴板浮窗（`clipboardOverlay`）与紧凑列表 HUD | `accepted` |

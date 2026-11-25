@@ -184,6 +184,7 @@ export type CommonBehaviorPreset =
   | 'openWebsite'
   | 'runCommand'
   | 'httpRequest'
+  | 'clipboardOverlay'
 
 export type AdvancedBehaviorType =
   | 'key'
@@ -196,6 +197,7 @@ export type AdvancedBehaviorType =
   | 'openWebsite'
   | 'runCommand'
   | 'httpRequest'
+  | 'clipboardOverlay'
 
 export type DraftBehaviorState = {
   behavior: Behavior

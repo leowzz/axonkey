@@ -13,6 +13,7 @@ import {
 } from '../cloud/deviceModelCatalog'
 import { getSupportPackages, subscribeSupportPackages } from '../devices/integration/model'
 import { logError } from '../runtimeLogging'
+import { ClipboardHud } from './ClipboardHud'
 import { conciseSlotShort, QuickOverlaySurface, renderKeyGlyph, slotKindClass } from './QuickOverlaySurface'
 import {
   buildQuickOverlayView,
@@ -199,15 +200,44 @@ export function QuickOverlay() {
     void invoke('reveal_quick_overlay', { revision }).catch(error => logError('Failed to reveal quick overlay', error))
   }, [revision])
 
-  const view = useMemo(() => (session ? buildQuickOverlayView(session, platform) : null), [session, platform])
+  const view = useMemo(
+    () => (!session || session.clipboard ? null : buildQuickOverlayView(session, platform)),
+    [session, platform],
+  )
 
-  if (!session || !view) return null
+  if (!session) return null
 
   const dismiss = () => {
     void invoke('dismiss_quick_overlay', { revision: session.revision }).catch(error =>
       logError('Failed to dismiss quick overlay', error),
     )
   }
+
+  const clearClipboard = () => {
+    void invoke('clear_clipboard_history').catch(error => logError('Failed to clear clipboard history', error))
+  }
+
+  const selectClipboardItem = (index: number) => {
+    void invoke('select_clipboard_overlay_item', {
+      revision: session.revision,
+      index,
+    }).catch(error => logError('Failed to select clipboard overlay item', error))
+  }
+
+  if (session.clipboard) {
+    return (
+      <ClipboardHud
+        key={session.revision}
+        preview={session.preview}
+        clipboard={session.clipboard}
+        onDismiss={dismiss}
+        onSelect={selectClipboardItem}
+        onClear={clearClipboard}
+      />
+    )
+  }
+
+  if (!view) return null
 
   const triggerInput = (inputId: string) => {
     void invoke('trigger_quick_overlay_input', {
