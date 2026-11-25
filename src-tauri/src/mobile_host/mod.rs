@@ -5,6 +5,8 @@ pub mod protocol;
 pub mod session;
 pub mod tls;
 pub mod transport;
+#[cfg(target_os = "windows")]
+pub mod windows_vhid;
 
 use crate::input_service::mobile::{
     MobileInputBackend, MobileInputController, SystemMobileBackend,
@@ -98,6 +100,7 @@ impl MobileHostHandle<SystemMobileBackend> {
 }
 
 impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
+    #[cfg(test)]
     pub fn start_with_backend(
         app_data_dir: PathBuf,
         input: Arc<MobileInputController<B>>,
@@ -331,6 +334,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
         *self.preset_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
     }
 
+    #[cfg(test)]
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -417,11 +421,36 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
                 guard.is_voice_active(),
             )
         };
+        #[cfg(target_os = "windows")]
+        let any_enabled = snapshot
+            .store
+            .instances
+            .iter()
+            .any(|i| i.kind == "axonkeyMobile" && i.enabled);
+        #[cfg(target_os = "windows")]
+        let (vhid_installed, vhid_connected, standalone_vhid_installed) =
+            windows_vhid::driver_availability(any_enabled);
+
         for instance in &snapshot.store.instances {
             if instance.kind != "axonkeyMobile" {
                 continue;
             }
             let runtime = snapshot.runtime.entry(instance.id.clone()).or_default();
+            #[cfg(target_os = "windows")]
+            {
+                runtime.driver_installed = vhid_installed;
+                runtime.standalone_driver_installed = standalone_vhid_installed;
+                runtime.driver_state = if !vhid_installed {
+                    "missing"
+                } else if vhid_connected {
+                    "connected"
+                } else if instance.enabled {
+                    "connecting"
+                } else {
+                    "installed"
+                }
+                .into();
+            }
             if !instance.enabled {
                 runtime.state = "paused".into();
                 runtime.recording = false;

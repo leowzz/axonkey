@@ -148,18 +148,30 @@ impl DeckStore {
         if !binding.hold_keys.is_empty() {
             return binding.hold_keys.clone();
         }
-        let has_double = binding.double.iter().any(|b| b.enabled());
-        let has_long = binding.long.iter().any(|b| b.enabled());
-        if !has_double && !has_long {
-            let mut enabled_tap = binding.tap.iter().filter(|b| b.enabled());
-            if let (Some(only), None) = (enabled_tap.next(), enabled_tap.next()) {
-                return match only {
+        // `mobile.voice` exclusively drives `voice.begin` -> `voice.end` hold-to-talk;
+        // never let a residual `double` or `long` slot silence `tap`, and fall back to
+        // `long` if the user placed their hold-to-talk key only under `长按`.
+        for seq in [&binding.tap, &binding.long] {
+            let mut extracted = Vec::new();
+            for item in seq.iter().filter(|b| b.enabled()) {
+                match item {
                     NativeBehavior::Key { key, .. } if !key.trim().is_empty() => {
-                        vec![key.clone()]
+                        if !extracted.contains(key) {
+                            extracted.push(key.clone());
+                        }
                     }
-                    NativeBehavior::Shortcut { keys, .. } if !keys.is_empty() => keys.clone(),
-                    _ => Vec::new(),
-                };
+                    NativeBehavior::Shortcut { keys, .. } if !keys.is_empty() => {
+                        for k in keys {
+                            if !k.trim().is_empty() && !extracted.contains(k) {
+                                extracted.push(k.clone());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !extracted.is_empty() {
+                return extracted;
             }
         }
         Vec::new()
@@ -2402,6 +2414,42 @@ mod tests {
         let reloaded = DeckStore::load(path).unwrap();
         assert!(reloaded.bindings().is_empty());
         assert_eq!(reloaded.snapshot().voice_binding_summary, None);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn voice_hold_keys_ignores_residual_long_slot_and_falls_back_to_long_when_tap_empty() {
+        let dir = std::env::temp_dir().join(format!("axonkey-voice-hold-{}", Uuid::new_v4()));
+        let mut store = DeckStore::load(dir.join("mobile-deck.json")).unwrap();
+
+        // Case 1: User configured `单击: RAlt` AND also left an item in `长按` -> must still hold `RAlt`!
+        store
+            .set_tile_binding(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: vec![key("RAlt")],
+                    double: Vec::new(),
+                    long: vec![key("Alt")],
+                    hold_keys: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(store.resolve_voice_hold_keys(), vec!["RAlt".to_owned()]);
+
+        // Case 2: User put `RAlt` only under `长按` (`单击` empty) -> falls back to `长按`!
+        store
+            .set_tile_binding(
+                VOICE_KEY_ID.into(),
+                TileActionBindings {
+                    tap: Vec::new(),
+                    double: Vec::new(),
+                    long: vec![key("RAlt")],
+                    hold_keys: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(store.resolve_voice_hold_keys(), vec!["RAlt".to_owned()]);
 
         let _ = fs::remove_dir_all(&dir);
     }

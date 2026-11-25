@@ -213,6 +213,8 @@ pub struct RuntimeStatus {
     pub effective_profile_id: Option<String>,
     #[serde(default)]
     pub driver_installed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standalone_driver_installed: bool,
     #[serde(default)]
     pub driver_state: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

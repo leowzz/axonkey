@@ -806,7 +806,11 @@ Section Uninstall
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   ; Restore Quarbor bindings before deleting the bundled installer and driver files.
-  ; Wait for completion, but never block app removal on failure or cancelled UAC.
+  ; Remove any standalone Axonkey Mobile virtual output node first so --uninstall-all
+  ; never sees an unassociated ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT node and can purge
+  ; the Driver Store package cleanly. Exits immediately without UAC when absent.
+  ClearErrors
+  ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-mobile-vhid-if-present' $0
   ClearErrors
   ExecWait '"$INSTDIR\vendor\QuarborUniversalKeyboardDriverInstaller\QuarborUniversalKeyboardDriverInstaller.exe" --uninstall-all' $0
   ClearErrors

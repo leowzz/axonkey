@@ -939,6 +939,8 @@ fn worker_loop(shared: Arc<Shared>) {
 fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     #[cfg(not(test))]
     let started = Instant::now();
+    #[cfg(not(test))]
+    let mut shared_mobile = super::mobile_quarbor::register_shared_channel();
     let mut ble_monitor = BleLinkMonitor::start(&target, Arc::clone(&shared.driver_gate));
     context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
@@ -952,9 +954,14 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             break;
         }
         quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS, &ble_monitor, || {
+            #[cfg(not(test))]
+            let mobile_pending = shared_mobile.has_pending();
+            #[cfg(test)]
+            let mobile_pending = false;
             shared.stop.load(Ordering::Relaxed)
                 || shared.driver_gate.load(Ordering::Acquire)
                 || ble_monitor.has_disconnect()
+                || mobile_pending
         });
         if ble_monitor.take_disconnect() {
             quarbor_handle_ble_disconnect(context);
@@ -975,6 +982,8 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             }
         }
         quarbor_publish_events(context, shared);
+        #[cfg(not(test))]
+        shared_mobile.pump(&mut context.reader);
         process_remote_actions(
             context,
             shared,
@@ -983,6 +992,8 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             Instant::now(),
         );
     }
+    #[cfg(not(test))]
+    shared_mobile.unregister(&mut context.reader);
     quarbor_shutdown_context(context, shared, &mut actions);
 }
 

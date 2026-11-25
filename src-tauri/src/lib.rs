@@ -971,6 +971,20 @@ async fn install_device_driver(
     {
         use tauri::Manager;
 
+        if is_axonkey_mobile_instance(&_app, Some(&instance_id)) {
+            let resource_dir = _app
+                .path()
+                .resource_dir()
+                .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+            let app_for_task = _app.clone();
+            return tauri::async_runtime::spawn_blocking(move || {
+                let log_path = driver_log_path(&app_for_task, "input", "mobile-vhid-install")?;
+                mobile_host::windows_vhid::run_admin_action("install", &resource_dir, &log_path)
+            })
+            .await
+            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
+        }
+
         let target = resolve_quarbor_target(&_app, &instance_id)?;
         let resource_dir = _app
             .path()
@@ -1003,7 +1017,35 @@ async fn unbind_device_instance(
     {
         use tauri::Manager;
 
-        if let Some(target) = resolve_installed_quarbor_target(&app, &instance_id)? {
+        if is_axonkey_mobile_instance(&app, Some(&instance_id)) {
+            let remaining_other_mobile = app
+                .state::<DeviceManager>()
+                .snapshot()
+                .store
+                .instances
+                .iter()
+                .any(|inst| inst.kind == "axonkeyMobile" && inst.id != instance_id);
+            if !remaining_other_mobile
+                && mobile_host::windows_vhid::probe_standalone_vhid_exists().unwrap_or(false)
+            {
+                let resource_dir = app
+                    .path()
+                    .resource_dir()
+                    .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+                let app_for_task = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let log_path =
+                        driver_log_path(&app_for_task, "input", "mobile-vhid-uninstall")?;
+                    mobile_host::windows_vhid::run_admin_action(
+                        "uninstall",
+                        &resource_dir,
+                        &log_path,
+                    )
+                })
+                .await
+                .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+            }
+        } else if let Some(target) = resolve_installed_quarbor_target(&app, &instance_id)? {
             let resource_dir = app
                 .path()
                 .resource_dir()
@@ -1043,14 +1085,20 @@ async fn uninstall_bound_device_drivers(
     {
         use tauri::Manager;
 
-        let instance_ids = app
+        let mobile_vhid_exists =
+            mobile_host::windows_vhid::probe_standalone_vhid_exists().unwrap_or(false);
+        let targets = app
             .state::<DeviceManager>()
             .snapshot()
             .store
             .instances
             .iter()
-            .filter(|instance| supports_quarbor(&instance.kind) && instance.binding.is_some())
-            .map(|instance| instance.id.clone())
+            .filter(|instance| {
+                supports_quarbor(&instance.kind)
+                    && (instance.binding.is_some()
+                        || (instance.kind == "axonkeyMobile" && mobile_vhid_exists))
+            })
+            .map(|instance| (instance.id.clone(), instance.binding.is_some()))
             .collect::<Vec<_>>();
         let resource_dir = app
             .path()
@@ -1064,20 +1112,38 @@ async fn uninstall_bound_device_drivers(
             reboot_required: false,
             failures: Vec::new(),
         };
-        result.device_count = instance_ids.len();
-        if instance_ids.is_empty() {
+        result.device_count = targets.len();
+        if targets.is_empty() && !mobile_vhid_exists {
             return Ok(result);
         }
 
-        // The global action must release every per-device pipe before the
-        // installer removes all bindings in one transaction.
+        // The global action must release every per-device pipe and remove any
+        // standalone Axonkey Mobile virtual output node BEFORE `--uninstall-all`
+        // so the installer never rejects an unassociated output node and can purge
+        // the Driver Store package cleanly.
+        input_service::mobile_quarbor::pause();
         manager.pause_for_driver_migration();
         let app_for_task = app.clone();
         let action_result = tauri::async_runtime::spawn_blocking(move || {
-            run_uninstall_all_driver_action(&app_for_task, &resource_dir)
+            let mut mobile_reboot = false;
+            if mobile_vhid_exists {
+                let vhid_log =
+                    driver_log_path(&app_for_task, "input", "mobile-vhid-uninstall-all")?;
+                let vhid_res = mobile_host::windows_vhid::run_admin_action(
+                    "uninstall",
+                    &resource_dir,
+                    &vhid_log,
+                )?;
+                mobile_reboot = vhid_res.reboot_required;
+            }
+            let mut action = run_uninstall_all_driver_action(&app_for_task, &resource_dir)?;
+            action.reboot_required |= mobile_reboot;
+            Ok::<DriverActionResult, String>(action)
         })
         .await;
+        mobile_host::windows_vhid::invalidate_probe_cache();
         manager.resume_after_driver_migration();
+        input_service::mobile_quarbor::resume();
         let action =
             action_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
 
@@ -1085,7 +1151,10 @@ async fn uninstall_bound_device_drivers(
             Ok(action) => {
                 result.uninstalled_count = result.device_count;
                 result.reboot_required = action.reboot_required;
-                for instance_id in instance_ids {
+                for (instance_id, has_physical_binding) in targets {
+                    if !has_physical_binding {
+                        continue;
+                    }
                     match manager.unbind(&instance_id) {
                         Ok(_) => result.unbound_count += 1,
                         Err(error) => result
@@ -1095,9 +1164,9 @@ async fn uninstall_bound_device_drivers(
                 }
             }
             Err(error) => {
-                result.failures = instance_ids
+                result.failures = targets
                     .into_iter()
-                    .map(|instance_id| ManagedDriverUninstallFailure {
+                    .map(|(instance_id, _)| ManagedDriverUninstallFailure {
                         instance_id,
                         error: error.clone(),
                     })
@@ -1760,6 +1829,8 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
     if let Some(mobile_host) = app.try_state::<mobile_host::MobileHostHandle>() {
         mobile_host.shutdown();
     }
+    #[cfg(windows)]
+    input_service::mobile_quarbor::pause();
     if let Some(service) = app.try_state::<DeviceManager>() {
         service.shutdown();
     }
@@ -1775,6 +1846,7 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
 fn pause_managed_pipes_for_capture(app: &tauri::AppHandle) {
     #[cfg(target_os = "windows")]
     {
+        input_service::mobile_quarbor::pause();
         if let Some(input) = app.try_state::<InputService>() {
             let _ = input.pause_for_driver_migration();
         }
@@ -1789,6 +1861,7 @@ fn pause_managed_pipes_for_capture(app: &tauri::AppHandle) {
 fn resume_managed_pipes_after_capture(app: &tauri::AppHandle) {
     #[cfg(target_os = "windows")]
     if !device_capture::is_workbench_active() && !device_capture::session_status().active {
+        input_service::mobile_quarbor::resume();
         if let Some(input) = app.try_state::<InputService>() {
             input.resume_after_driver_migration();
         }
@@ -2308,6 +2381,11 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if let Some(exit_code) = mobile_host::windows_vhid::maybe_run_from_cli_args() {
+        std::process::exit(exit_code);
+    }
+
     #[cfg(target_os = "windows")]
     ensure_interactive_windows_desktop();
 

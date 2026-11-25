@@ -13,6 +13,7 @@ use uuid::Uuid;
 pub struct HostTlsIdentity {
     pub host_id: String,
     pub host_name: String,
+    #[cfg(test)]
     pub ca_cert_der: Vec<u8>,
     pub ca_cert_der_b64: String,
     pub server_config: Arc<rustls::ServerConfig>,
@@ -128,7 +129,7 @@ pub fn load_or_create_identity(dir: &Path) -> Result<HostTlsIdentity, String> {
             .trim()
             .to_owned()
     } else {
-        let id = UdpOrUuid::new_v4();
+        let id = Uuid::new_v4().to_string();
         fs::write(&host_id_path, &id).map_err(|e| format!("Failed to write host-id: {e}"))?;
         id
     };
@@ -156,7 +157,6 @@ pub fn load_or_create_identity(dir: &Path) -> Result<HostTlsIdentity, String> {
             .map_err(|e| format!("Failed to persist CA cert: {e}"))?;
         (key_pair, ca_cert)
     };
-    let ca_cert_der_actual = ca_cert.der().to_vec();
 
     // Sign leaf cert for `<host_id>.axonkey.local`, `localhost`, `127.0.0.1`, and LAN IPv4s.
     let leaf_key = KeyPair::generate().map_err(|e| format!("Leaf keygen failed: {e}"))?;
@@ -208,11 +208,11 @@ pub fn load_or_create_identity(dir: &Path) -> Result<HostTlsIdentity, String> {
     server_config.max_early_data_size = 0;
 
     let ca_b64 = base64::engine::general_purpose::STANDARD.encode(ca_cert.der().as_ref());
-    let _ = ca_cert_der_actual;
 
     Ok(HostTlsIdentity {
         host_id,
         host_name: host_display_name(),
+        #[cfg(test)]
         ca_cert_der: ca_cert.der().to_vec(),
         ca_cert_der_b64: ca_b64,
         server_config: Arc::new(server_config),
@@ -231,13 +231,6 @@ fn build_ca_params(host_id: &str) -> Result<CertificateParams, String> {
         KeyUsagePurpose::DigitalSignature,
     ];
     Ok(params)
-}
-
-struct UdpOrUuid;
-impl UdpOrUuid {
-    fn new_v4() -> String {
-        Uuid::new_v4().to_string()
-    }
 }
 
 #[cfg(test)]
