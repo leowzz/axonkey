@@ -2,7 +2,7 @@
   "name": "axonkey-ui",
   "private": true,
   "license": "GPL-3.0-only",
-  "version": "1.9.21",
+  "version": "1.9.22",
   "type": "module",
   "engines": {
     "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
