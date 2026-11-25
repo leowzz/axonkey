@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 pub const MOBILE_SUBPROTOCOL: &str = "axonkey.mobile/1";
+pub const HOST_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const MOBILE_PROTOCOL_API: u32 = 2;
+pub const MIN_REQUIRED_CLIENT_API: u32 = 1;
+pub const MIN_RECOMMENDED_CLIENT_VERSION: &str = "0.2.0";
 pub const DEFAULT_TICK_INTERVAL_MS: u64 = 250;
 pub const DEFAULT_LEASE_TTL_MS: u64 = 750;
 pub const DEFAULT_IDLE_DISCONNECT_MS: u64 = 4_500;
@@ -40,6 +44,14 @@ pub struct HostCapabilities {
     #[serde(default)]
     pub udp_discovery_port: u16,
     pub platform: String,
+    #[serde(default)]
+    pub host_version: String,
+    #[serde(default)]
+    pub protocol_api: u32,
+    #[serde(default)]
+    pub min_required_client_api: u32,
+    #[serde(default)]
+    pub min_recommended_client_version: String,
 }
 
 impl HostCapabilities {
@@ -62,8 +74,239 @@ impl HostCapabilities {
             audio_pcm16: cfg!(windows),
             udp_discovery_port: UDP_DISCOVERY_PORT,
             platform: platform.into(),
+            host_version: HOST_APP_VERSION.into(),
+            protocol_api: MOBILE_PROTOCOL_API,
+            min_required_client_api: MIN_REQUIRED_CLIENT_API,
+            min_recommended_client_version: MIN_RECOMMENDED_CLIENT_VERSION.into(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VersionCompatSeverity {
+    Soft,
+    Hard,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VersionCompatTarget {
+    Mobile,
+    Desktop,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientVersionHandshake {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_api: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_required_host_api: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_recommended_host_version: Option<String>,
+}
+
+impl ClientVersionHandshake {
+    pub fn current_compatible_default() -> Self {
+        Self {
+            client_version: Some(MIN_RECOMMENDED_CLIENT_VERSION.into()),
+            protocol_api: Some(MOBILE_PROTOCOL_API),
+            min_required_host_api: Some(MIN_REQUIRED_CLIENT_API),
+            min_recommended_host_version: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionCompatibilityNotice {
+    pub key: String,
+    #[serde(default)]
+    pub occurrence_id: u64,
+    pub severity: VersionCompatSeverity,
+    pub target: VersionCompatTarget,
+    pub device_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_version: Option<String>,
+    pub expected_version: String,
+    pub title: String,
+    pub message: String,
+}
+
+pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parse(raw: &str) -> ([u32; 3], Option<&str>) {
+        let trimmed = raw.trim().trim_start_matches(['v', 'V']);
+        let without_build = trimmed.split('+').next().unwrap_or("");
+        let (core_str, pre) = match without_build.split_once('-') {
+            Some((c, p)) if !p.is_empty() => (c, Some(p)),
+            _ => (without_build, None),
+        };
+        let mut nums = [0u32; 3];
+        for (idx, seg) in core_str.split('.').take(3).enumerate() {
+            nums[idx] = seg.parse::<u32>().unwrap_or(0);
+        }
+        (nums, pre)
+    }
+
+    let (a_nums, a_pre) = parse(a);
+    let (b_nums, b_pre) = parse(b);
+    match a_nums.cmp(&b_nums) {
+        std::cmp::Ordering::Equal => match (a_pre, b_pre) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (Some(ap), Some(bp)) => ap.cmp(bp),
+        },
+        ord => ord,
+    }
+}
+
+pub fn evaluate_client_handshake_with_policy(
+    device_name: &str,
+    handshake: &ClientVersionHandshake,
+    host_version: &str,
+    host_api: u32,
+    min_required_client_api: u32,
+    min_recommended_client_version: &str,
+    occurrence_id: u64,
+) -> Option<VersionCompatibilityNotice> {
+    let clean_device = if device_name.trim().is_empty() {
+        "手机客户端"
+    } else {
+        device_name.trim()
+    };
+
+    // 1. Hard incompatibility: client requires a newer host protocol API than this desktop supports.
+    if let Some(req_host_api) = handshake.min_required_host_api {
+        if req_host_api > host_api {
+            let expected = handshake
+                .min_recommended_host_version
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .map(|v| format!("v{}", v.trim().trim_start_matches(['v', 'V'])))
+                .unwrap_or_else(|| format!("协议 v{req_host_api}"));
+            return Some(VersionCompatibilityNotice {
+                key: format!("hard:desktop:{occurrence_id}:{expected}"),
+                occurrence_id,
+                severity: VersionCompatSeverity::Hard,
+                target: VersionCompatTarget::Desktop,
+                device_name: clean_device.to_owned(),
+                current_version: Some(host_version.to_owned()),
+                expected_version: expected.clone(),
+                title: "需要更新电脑端 Axonkey".into(),
+                message: format!(
+                    "「{clean_device}」要求更高版本的通信协议（{expected}），当前电脑端（v{host_version}）无法建立控制连接。请先更新电脑端 Axonkey 后重新连接。"
+                ),
+            });
+        }
+    }
+
+    // 2. Hard incompatibility: client protocol API is older than this desktop's minimum required API.
+    let effective_client_api = handshake.protocol_api.unwrap_or(1);
+    if effective_client_api < min_required_client_api {
+        let cur_ver = handshake
+            .client_version
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().trim_start_matches(['v', 'V']).to_owned());
+        let ver_badge = cur_ver
+            .as_deref()
+            .map(|v| format!("（v{v}）"))
+            .unwrap_or_default();
+        let expected = format!("v{min_recommended_client_version}+");
+        return Some(VersionCompatibilityNotice {
+            key: format!("hard:mobile:{occurrence_id}:{expected}"),
+            occurrence_id,
+            severity: VersionCompatSeverity::Hard,
+            target: VersionCompatTarget::Mobile,
+            device_name: clean_device.to_owned(),
+            current_version: cur_ver,
+            expected_version: expected,
+            title: "需要更新手机端客户端".into(),
+            message: format!(
+                "「{clean_device}」客户端版本过旧{ver_badge}，与当前电脑端通信协议不兼容，无法建立连接。请将手机端 Axonkey Mobile 更新至 v{min_recommended_client_version} 或更高版本。"
+            ),
+        });
+    }
+
+    // 3. Soft drift: mobile client version is older than desktop's recommended floor (or legacy pre-0.2.0 without version).
+    let cur_client_ver = handshake
+        .client_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_start_matches(['v', 'V']).to_owned());
+
+    let client_below_recommended = match cur_client_ver.as_deref() {
+        Some(ver) => compare_semver(ver, min_recommended_client_version).is_lt(),
+        None => true,
+    };
+    if client_below_recommended {
+        let cur_tag = cur_client_ver.as_deref().unwrap_or("legacy");
+        let ver_desc = cur_client_ver
+            .as_deref()
+            .map(|v| format!("（v{v}）"))
+            .unwrap_or_else(|| "（旧版）".into());
+        return Some(VersionCompatibilityNotice {
+            key: format!("soft:mobile:{cur_tag}->{min_recommended_client_version}"),
+            occurrence_id: 0,
+            severity: VersionCompatSeverity::Soft,
+            target: VersionCompatTarget::Mobile,
+            device_name: clean_device.to_owned(),
+            current_version: cur_client_ver,
+            expected_version: format!("v{min_recommended_client_version}+"),
+            title: "建议更新手机端客户端".into(),
+            message: format!(
+                "「{clean_device}」当前版本{ver_desc}低于电脑端推荐版本（v{min_recommended_client_version}+）。基础遥控与语音仍可使用，但部分新组件、手势或同步体验可能受影响。"
+            ),
+        });
+    }
+
+    // 4. Soft drift: desktop version is older than mobile client's recommended host version.
+    if let Some(rec_host) = handshake
+        .min_recommended_host_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let clean_rec = rec_host.trim_start_matches(['v', 'V']);
+        if compare_semver(host_version, clean_rec).is_lt() {
+            return Some(VersionCompatibilityNotice {
+                key: format!("soft:desktop:{host_version}->{clean_rec}"),
+                occurrence_id: 0,
+                severity: VersionCompatSeverity::Soft,
+                target: VersionCompatTarget::Desktop,
+                device_name: clean_device.to_owned(),
+                current_version: Some(host_version.to_owned()),
+                expected_version: format!("v{clean_rec}+"),
+                title: "建议更新电脑端 Axonkey".into(),
+                message: format!(
+                    "当前电脑端版本（v{host_version}）低于「{clean_device}」期望版本（v{clean_rec}+）。基础操控仍可使用，但部分新功能或低延迟同步体验可能受影响。"
+                ),
+            });
+        }
+    }
+
+    None
+}
+
+pub fn evaluate_current_client_handshake(
+    device_name: &str,
+    handshake: &ClientVersionHandshake,
+    occurrence_id: u64,
+) -> Option<VersionCompatibilityNotice> {
+    evaluate_client_handshake_with_policy(
+        device_name,
+        handshake,
+        HOST_APP_VERSION,
+        MOBILE_PROTOCOL_API,
+        MIN_REQUIRED_CLIENT_API,
+        MIN_RECOMMENDED_CLIENT_VERSION,
+        occurrence_id,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -416,12 +659,28 @@ pub enum ClientMessage {
     PairRequest {
         pair_token: String,
         device_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol_api: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_required_host_api: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_recommended_host_version: Option<String>,
     },
     #[serde(rename = "client.auth", rename_all = "camelCase")]
     ClientAuth {
         peer_id: String,
         peer_token: String,
         device_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol_api: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_required_host_api: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_recommended_host_version: Option<String>,
     },
     #[serde(rename = "client.alive", rename_all = "camelCase")]
     ClientAlive { session_id: String, lease_id: u64 },
@@ -583,6 +842,8 @@ pub enum ServerMessage {
         peer_token: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version_notice: Option<VersionCompatibilityNotice>,
     },
     #[serde(rename = "server.ready", rename_all = "camelCase")]
     ServerReady {
@@ -647,5 +908,105 @@ pub enum ServerMessage {
     #[serde(rename = "session.revoked", rename_all = "camelCase")]
     SessionRevoked { session_id: String, reason: String },
     #[serde(rename = "error", rename_all = "camelCase")]
-    Error { code: String, message: String },
+    Error {
+        code: String,
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version_notice: Option<VersionCompatibilityNotice>,
+    },
+}
+
+#[cfg(test)]
+mod version_compat_tests {
+    use super::*;
+
+    #[test]
+    fn compatible_versions_produce_no_notice() {
+        let hs = ClientVersionHandshake {
+            client_version: Some("0.2.0".into()),
+            protocol_api: Some(2),
+            min_required_host_api: Some(1),
+            min_recommended_host_version: Some("1.9.0".into()),
+        };
+        let res = evaluate_client_handshake_with_policy("K30S", &hs, "1.9.19", 2, 1, "0.2.0", 1);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn distinguishes_soft_vs_hard_and_mobile_vs_desktop_targets() {
+        // Hard desktop upgrade required
+        let hs_future_mobile = ClientVersionHandshake {
+            client_version: Some("2.0.0".into()),
+            protocol_api: Some(3),
+            min_required_host_api: Some(3),
+            min_recommended_host_version: Some("2.4.0".into()),
+        };
+        let hard_desktop = evaluate_client_handshake_with_policy(
+            "K30S",
+            &hs_future_mobile,
+            "1.9.19",
+            2,
+            1,
+            "0.2.0",
+            7,
+        )
+        .expect("hard desktop notice");
+        assert_eq!(hard_desktop.severity, VersionCompatSeverity::Hard);
+        assert_eq!(hard_desktop.target, VersionCompatTarget::Desktop);
+        assert_eq!(hard_desktop.occurrence_id, 7);
+
+        // Hard mobile upgrade required
+        let hs_old_mobile = ClientVersionHandshake {
+            client_version: Some("0.1.0".into()),
+            protocol_api: Some(1),
+            min_required_host_api: Some(1),
+            min_recommended_host_version: None,
+        };
+        let hard_mobile = evaluate_client_handshake_with_policy(
+            "K30S",
+            &hs_old_mobile,
+            "2.0.0",
+            2,
+            2,
+            "0.2.0",
+            9,
+        )
+        .expect("hard mobile notice");
+        assert_eq!(hard_mobile.severity, VersionCompatSeverity::Hard);
+        assert_eq!(hard_mobile.target, VersionCompatTarget::Mobile);
+
+        // Soft mobile recommendation
+        let soft_mobile = evaluate_client_handshake_with_policy(
+            "K30S",
+            &hs_old_mobile,
+            "1.9.19",
+            2,
+            1,
+            "0.2.0",
+            0,
+        )
+        .expect("soft mobile notice");
+        assert_eq!(soft_mobile.severity, VersionCompatSeverity::Soft);
+        assert_eq!(soft_mobile.target, VersionCompatTarget::Mobile);
+
+        // Soft desktop recommendation
+        let hs_newer_mobile = ClientVersionHandshake {
+            client_version: Some("0.3.0".into()),
+            protocol_api: Some(2),
+            min_required_host_api: Some(2),
+            min_recommended_host_version: Some("1.12.0".into()),
+        };
+        let soft_desktop = evaluate_client_handshake_with_policy(
+            "K30S",
+            &hs_newer_mobile,
+            "1.9.19",
+            2,
+            1,
+            "0.2.0",
+            0,
+        )
+        .expect("soft desktop notice");
+        assert_eq!(soft_desktop.severity, VersionCompatSeverity::Soft);
+        assert_eq!(soft_desktop.target, VersionCompatTarget::Desktop);
+    }
 }

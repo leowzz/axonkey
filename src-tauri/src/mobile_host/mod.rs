@@ -12,8 +12,8 @@ use crate::input_service::mobile::{
 use deck::{DeckStore, DeckUpdateError};
 use pairing::{PairedPeerSummary, PairingStore};
 use protocol::{
-    DeckLayoutPatch, DeckSnapshot, PairingOfferQr, StarterPresetId, VoicePresetKind,
-    UDP_DISCOVERY_PORT,
+    DeckLayoutPatch, DeckSnapshot, PairingOfferQr, StarterPresetId, VersionCompatibilityNotice,
+    VoicePresetKind, UDP_DISCOVERY_PORT,
 };
 use serde::Serialize;
 use session::{ActiveSessionInfo, MobileCoordinator};
@@ -35,6 +35,8 @@ pub struct MobileHostStatus {
     pub addrs: Vec<String>,
     pub paired_count: usize,
     pub active_session: Option<ActiveSessionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_notice: Option<VersionCompatibilityNotice>,
     pub voice_active: bool,
 }
 
@@ -347,6 +349,7 @@ impl<B: MobileInputBackend + 'static> MobileHostHandle<B> {
             addrs: self.lan_addrs(),
             paired_count: guard.paired_count(),
             active_session: guard.active_session_info(),
+            version_notice: guard.version_notice(),
             voice_active: guard.is_voice_active(),
         }
     }
@@ -855,6 +858,10 @@ mod tests {
             let pair_msg = serde_json::to_string(&ClientMessage::PairRequest {
                 pair_token: offer_resp.offer.pair_token.clone(),
                 device_name: "Test Phone".into(),
+                client_version: Some("0.2.0".into()),
+                protocol_api: Some(2),
+                min_required_host_api: Some(1),
+                min_recommended_host_version: Some("1.9.0".into()),
             })
             .unwrap();
             ws.send(Message::Text(pair_msg.into())).await.unwrap();
@@ -882,6 +889,10 @@ mod tests {
                 peer_id,
                 peer_token,
                 device_name: "Test Phone".into(),
+                client_version: Some("0.2.0".into()),
+                protocol_api: Some(2),
+                min_required_host_api: Some(1),
+                min_recommended_host_version: Some("1.9.0".into()),
             })
             .unwrap();
             ws.send(Message::Text(auth_msg.into())).await.unwrap();
@@ -1125,6 +1136,10 @@ mod tests {
                 serde_json::to_string(&ClientMessage::PairRequest {
                     pair_token: offer_resp.offer.pair_token.clone(),
                     device_name: "Phone V3".into(),
+                    client_version: Some("0.2.0".into()),
+                    protocol_api: Some(2),
+                    min_required_host_api: Some(1),
+                    min_recommended_host_version: None,
                 })
                 .unwrap()
                 .into(),
@@ -1155,6 +1170,10 @@ mod tests {
                     peer_id,
                     peer_token,
                     device_name: "Phone V3".into(),
+                    client_version: Some("0.2.0".into()),
+                    protocol_api: Some(2),
+                    min_required_host_api: Some(1),
+                    min_recommended_host_version: None,
                 })
                 .unwrap()
                 .into(),

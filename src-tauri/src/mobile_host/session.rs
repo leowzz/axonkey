@@ -3,10 +3,12 @@ use super::deck::{
 };
 use super::pairing::{PairedPeerSummary, PairingStore};
 use super::protocol::{
-    Aka1AudioFrame, Akp1PointerFrame, Akp1PointerKind, ClientMessage, DeckLayoutPatch,
-    DeckSnapshot, ForegroundContext, HostCapabilities, PointerButtonName, PointerButtonPhase,
-    ServerMessage, StarterPresetId, SystemTouchpadGesture, TextCommitMode, VoicePresetKind,
-    DEFAULT_LEASE_TTL_MS, DEFAULT_TICK_INTERVAL_MS, MAX_AUDIO_PCM_BYTES,
+    evaluate_current_client_handshake, Aka1AudioFrame, Akp1PointerFrame, Akp1PointerKind,
+    ClientMessage, ClientVersionHandshake, DeckLayoutPatch, DeckSnapshot, ForegroundContext,
+    HostCapabilities, PointerButtonName, PointerButtonPhase, ServerMessage, StarterPresetId,
+    SystemTouchpadGesture, TextCommitMode, VersionCompatSeverity, VersionCompatTarget,
+    VersionCompatibilityNotice, VoicePresetKind, DEFAULT_LEASE_TTL_MS, DEFAULT_TICK_INTERVAL_MS,
+    MAX_AUDIO_PCM_BYTES,
 };
 use crate::input_service::mobile::{MobileInputBackend, MobileInputController};
 use crate::input_service::{MouseButton, NativeBehavior};
@@ -44,6 +46,7 @@ struct ActiveSession {
     leases: VecDeque<IssuedLease>,
     next_lease_id: u64,
     last_alive_at: Instant,
+    version_notice: Option<VersionCompatibilityNotice>,
     tx: mpsc::Sender<ServerMessage>,
 }
 
@@ -140,6 +143,8 @@ pub struct MobileCoordinator<B: MobileInputBackend> {
     received_audio_packets: bool,
     ui_presses: BTreeMap<String, String>,
     next_flash_id: u64,
+    rejected_version_notice: Option<VersionCompatibilityNotice>,
+    rejection_seq: u64,
     ui_tx: Option<mpsc::UnboundedSender<Vec<String>>>,
     deck_event_tx: Option<mpsc::UnboundedSender<super::MobileDeckResponse>>,
     preset_event_tx: Option<mpsc::UnboundedSender<super::MobilePresetAppliedPayload>>,
@@ -183,6 +188,8 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             received_audio_packets: false,
             ui_presses: BTreeMap::new(),
             next_flash_id: 0,
+            rejected_version_notice: None,
+            rejection_seq: 0,
             ui_tx: None,
             deck_event_tx: None,
             preset_event_tx: None,
@@ -519,6 +526,13 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         })
     }
 
+    pub fn version_notice(&self) -> Option<VersionCompatibilityNotice> {
+        if let Some(session) = &self.active {
+            return session.version_notice.clone();
+        }
+        self.rejected_version_notice.clone()
+    }
+
     pub fn revoke_peer(&mut self, peer_id: &str) -> Result<bool, String> {
         let removed = self.pairing.revoke(peer_id)?;
         if self.active.as_ref().is_some_and(|s| s.peer_id == peer_id) {
@@ -575,18 +589,47 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
     }
 
     pub fn handle_pair_request(&mut self, pair_token: &str, device_name: &str) -> ServerMessage {
+        self.handle_pair_request_with_handshake(
+            pair_token,
+            device_name,
+            &ClientVersionHandshake::current_compatible_default(),
+        )
+    }
+
+    pub fn handle_pair_request_with_handshake(
+        &mut self,
+        pair_token: &str,
+        device_name: &str,
+        handshake: &ClientVersionHandshake,
+    ) -> ServerMessage {
+        let next_occ = self.rejection_seq + 1;
+        if let Some(notice) = evaluate_current_client_handshake(device_name, handshake, next_occ) {
+            if notice.severity == VersionCompatSeverity::Hard {
+                self.rejection_seq = next_occ;
+                self.rejected_version_notice = Some(notice.clone());
+                return ServerMessage::PairResult {
+                    ok: false,
+                    peer_id: None,
+                    peer_token: None,
+                    error: Some(notice.message.clone()),
+                    version_notice: Some(notice),
+                };
+            }
+        }
         match self.pairing.consume_offer(pair_token, device_name) {
             Ok((peer_id, peer_token)) => ServerMessage::PairResult {
                 ok: true,
                 peer_id: Some(peer_id),
                 peer_token: Some(peer_token),
                 error: None,
+                version_notice: None,
             },
             Err(err) => ServerMessage::PairResult {
                 ok: false,
                 peer_id: None,
                 peer_token: None,
                 error: Some(err),
+                version_notice: None,
             },
         }
     }
@@ -600,13 +643,54 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
         tx: mpsc::Sender<ServerMessage>,
         now: Instant,
     ) -> Result<(String, ServerMessage), ServerMessage> {
+        self.claim_control_with_handshake(
+            peer_id,
+            peer_token,
+            device_name,
+            &ClientVersionHandshake::current_compatible_default(),
+            tx,
+            now,
+        )
+    }
+
+    pub fn claim_control_with_handshake(
+        &mut self,
+        peer_id: &str,
+        peer_token: &str,
+        device_name: &str,
+        handshake: &ClientVersionHandshake,
+        tx: mpsc::Sender<ServerMessage>,
+        now: Instant,
+    ) -> Result<(String, ServerMessage), ServerMessage> {
         let peer = self
             .pairing
             .authenticate(peer_id, peer_token, device_name)
             .map_err(|msg| ServerMessage::Error {
                 code: "auth_failed".into(),
                 message: msg,
+                version_notice: None,
             })?;
+
+        let next_occ = self.rejection_seq + 1;
+        let maybe_notice =
+            evaluate_current_client_handshake(&peer.device_name, handshake, next_occ);
+        if let Some(notice) = maybe_notice.as_ref() {
+            if notice.severity == VersionCompatSeverity::Hard {
+                self.rejection_seq = next_occ;
+                self.rejected_version_notice = Some(notice.clone());
+                let code = match notice.target {
+                    VersionCompatTarget::Mobile => "client_upgrade_required",
+                    VersionCompatTarget::Desktop => "host_upgrade_required",
+                };
+                return Err(ServerMessage::Error {
+                    code: code.into(),
+                    message: notice.message.clone(),
+                    version_notice: Some(notice.clone()),
+                });
+            }
+        }
+
+        self.rejected_version_notice = None;
 
         // Serial revoke barrier before activating the replacement session.
         if self.active.is_some() {
@@ -629,6 +713,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
             leases: VecDeque::new(),
             next_lease_id: 1,
             last_alive_at: now,
+            version_notice: maybe_notice,
             tx,
         };
         let lease_id = session.issue_lease(now);
@@ -1583,6 +1668,7 @@ impl<B: MobileInputBackend> MobileCoordinator<B> {
                 Some(ServerMessage::Error {
                     code: "already_authenticated".into(),
                     message: "会话已认证，无需重复握手".into(),
+                    version_notice: None,
                 })
             }
         };

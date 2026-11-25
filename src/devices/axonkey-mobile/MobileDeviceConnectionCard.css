@@ -368,3 +368,91 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.mobile-compat-backdrop {
+  z-index: 65;
+}
+
+.behavior-dialog.mobile-compat-dialog {
+  width: min(392px, calc(100vw - 32px));
+}
+
+.behavior-dialog-body.mobile-compat-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 18px 18px;
+}
+
+.mobile-compat-icon.is-hard {
+  color: #e11d48;
+  flex-shrink: 0;
+}
+
+.mobile-compat-icon.is-soft {
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+.mobile-compat-badge {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mobile-compat-badge.is-hard {
+  background: rgb(225 29 72 / 10%);
+  color: #e11d48;
+}
+
+.mobile-compat-badge.is-soft {
+  background: rgb(217 119 6 / 12%);
+  color: #b45309;
+}
+
+.mobile-compat-desc {
+  margin: 0;
+  font-size: 12.8px;
+  line-height: 1.55;
+  color: var(--ink-secondary, #475569);
+}
+
+.mobile-compat-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--surface-subtle, rgb(148 163 184 / 10%));
+  border: 1px solid var(--line, rgb(148 163 184 / 20%));
+  font-size: 12px;
+}
+
+.mobile-compat-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted, #64748b);
+}
+
+.mobile-compat-meta-row strong {
+  color: var(--ink, #0f172a);
+  font-weight: 600;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.mobile-compat-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mobile-compat-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

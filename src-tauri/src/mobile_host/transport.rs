@@ -1,6 +1,7 @@
 use super::protocol::{
-    parse_aka1_frame, parse_akp1_frame, ClientMessage, ServerMessage, AKA1_MAGIC, AKP1_MAGIC,
-    DEFAULT_IDLE_DISCONNECT_MS, DEFAULT_TICK_INTERVAL_MS, MAX_WS_FRAME_BYTES, MOBILE_SUBPROTOCOL,
+    parse_aka1_frame, parse_akp1_frame, ClientMessage, ClientVersionHandshake, ServerMessage,
+    AKA1_MAGIC, AKP1_MAGIC, DEFAULT_IDLE_DISCONNECT_MS, DEFAULT_TICK_INTERVAL_MS,
+    MAX_WS_FRAME_BYTES, MOBILE_SUBPROTOCOL,
 };
 use super::session::{drain_voice_stream, MobileCoordinator};
 use crate::input_service::mobile::MobileInputBackend;
@@ -257,6 +258,7 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
                 let _ = out_tx.try_send(ServerMessage::Error {
                     code: "invalid_message".into(),
                     message: format!("消息格式无效: {err}"),
+                    version_notice: None,
                 });
                 continue;
             }
@@ -268,22 +270,49 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
                 ClientMessage::PairRequest {
                     pair_token,
                     device_name,
+                    client_version,
+                    protocol_api,
+                    min_required_host_api,
+                    min_recommended_host_version,
                 } => {
+                    let hs = ClientVersionHandshake {
+                        client_version,
+                        protocol_api,
+                        min_required_host_api,
+                        min_recommended_host_version,
+                    };
                     let reply = coordinator
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .handle_pair_request(&pair_token, &device_name);
+                        .handle_pair_request_with_handshake(&pair_token, &device_name, &hs);
                     let _ = out_tx.send(reply).await;
                 }
                 ClientMessage::ClientAuth {
                     peer_id,
                     peer_token,
                     device_name,
+                    client_version,
+                    protocol_api,
+                    min_required_host_api,
+                    min_recommended_host_version,
                 } => {
+                    let hs = ClientVersionHandshake {
+                        client_version,
+                        protocol_api,
+                        min_required_host_api,
+                        min_recommended_host_version,
+                    };
                     let result = coordinator
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .claim_control(&peer_id, &peer_token, &device_name, out_tx.clone(), now);
+                        .claim_control_with_handshake(
+                            &peer_id,
+                            &peer_token,
+                            &device_name,
+                            &hs,
+                            out_tx.clone(),
+                            now,
+                        );
                     match result {
                         Ok((sid, ready)) => {
                             authenticated_session = Some(sid);
@@ -300,6 +329,7 @@ async fn handle_connection<B: MobileInputBackend + 'static>(
                         .send(ServerMessage::Error {
                             code: "unauthenticated".into(),
                             message: "请先完成配对或设备鉴权".into(),
+                            version_notice: None,
                         })
                         .await;
                     break;

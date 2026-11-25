@@ -2,9 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Check, Copy, Pencil, QrCode, Radio, RefreshCw, Smartphone, Trash2, Wifi, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  ExternalLink,
+  Pencil,
+  QrCode,
+  Radio,
+  RefreshCw,
+  ShieldAlert,
+  Smartphone,
+  Trash2,
+  Wifi,
+  X,
+} from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { SettingsHelp } from '../../components/SettingsHelp'
+import { openExternalUrl } from '../../openExternalUrl'
 import { setDynamicSupportPackageOverride } from '../integration/model'
 import type { DeviceController } from '../integration/useDeviceInstances'
 import { buildDynamicMobileSupportPackage, type DeckSnapshot } from './dynamicSvg'
@@ -12,6 +27,42 @@ import { applyPresetPayloadToDeviceController, type MobilePresetAppliedPayload }
 import './MobileDeviceConnectionCard.css'
 
 const UDP_DISCOVERY_PORT = 49671
+const DESKTOP_RELEASES_URL = 'https://github.com/leowzz/axonkey/releases'
+const MOBILE_RELEASES_URL = 'https://github.com/timeStarry/axonkey-mobile/releases'
+const DISMISSED_COMPAT_STORAGE_KEY = 'axonkey.mobile.dismissedVersionNotices.v1'
+
+type VersionCompatibilityNotice = {
+  key: string
+  occurrenceId?: number
+  severity: 'soft' | 'hard'
+  target: 'mobile' | 'desktop'
+  deviceName: string
+  currentVersion?: string | null
+  expectedVersion: string
+  title: string
+  message: string
+}
+
+function loadDismissedSoftKeys(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_COMPAT_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistDismissedSoftKeys(keys: string[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(DISMISSED_COMPAT_STORAGE_KEY, JSON.stringify(keys.slice(-32)))
+  } catch {
+    /* ignore storage quota errors */
+  }
+}
 
 type ActiveSessionInfo = {
   sessionId: string
@@ -28,6 +79,7 @@ type MobileHostStatus = {
   addrs: string[]
   pairedCount: number
   activeSession: ActiveSessionInfo | null
+  versionNotice?: VersionCompatibilityNotice | null
 }
 
 type PairingOfferResponse = {
@@ -67,6 +119,8 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
   const [editingPeerId, setEditingPeerId] = useState<string | null>(null)
   const [remarkDraft, setRemarkDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [dismissedSoftKeys, setDismissedSoftKeys] = useState<string[]>(loadDismissedSoftKeys)
+  const [dismissedHardKey, setDismissedHardKey] = useState<string | null>(null)
 
   const applyDeckPayload = useCallback((payload: MobileDeckResponse | null | undefined, forceActivePage = false) => {
     if (!payload?.snapshot) return
@@ -234,6 +288,36 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
   const activeSession = status?.activeSession ?? null
   const connectedName = activeSession?.deviceName
   const pairedTotal = Math.max(status?.pairedCount ?? 0, peers.length)
+  const rawNotice = status?.versionNotice ?? null
+  const activeVersionNotice =
+    rawNotice &&
+    (rawNotice.severity === 'hard' ? rawNotice.key !== dismissedHardKey : !dismissedSoftKeys.includes(rawNotice.key))
+      ? rawNotice
+      : null
+
+  const dismissVersionNotice = useCallback((notice: VersionCompatibilityNotice) => {
+    if (notice.severity === 'hard') {
+      setDismissedHardKey(notice.key)
+      return
+    }
+    setDismissedSoftKeys(prev => {
+      if (prev.includes(notice.key)) return prev
+      const next = [...prev, notice.key]
+      persistDismissedSoftKeys(next)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!activeVersionNotice) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        dismissVersionNotice(activeVersionNotice)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activeVersionNotice, dismissVersionNotice])
   const barText = !native
     ? '预览模式'
     : connectedName
@@ -468,6 +552,95 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
                     </div>
                   </div>
                 )}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
+
+      {activeVersionNotice &&
+        createPortal(
+          <div
+            className="behavior-dialog-backdrop mobile-compat-backdrop"
+            role="presentation"
+            onClick={() => dismissVersionNotice(activeVersionNotice)}
+          >
+            <section
+              className="behavior-dialog mobile-compat-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="mobile-compat-dialog-title"
+              onClick={event => event.stopPropagation()}
+            >
+              <header className="behavior-dialog-head mobile-pair-dialog-head">
+                <div className="mobile-pair-title-group">
+                  {activeVersionNotice.severity === 'hard' ? (
+                    <ShieldAlert size={18} className="mobile-compat-icon is-hard" aria-hidden="true" />
+                  ) : (
+                    <AlertTriangle size={18} className="mobile-compat-icon is-soft" aria-hidden="true" />
+                  )}
+                  <h2 id="mobile-compat-dialog-title">{activeVersionNotice.title}</h2>
+                </div>
+                <button
+                  type="button"
+                  className="dialog-close"
+                  aria-label="关闭版本提示窗口"
+                  onClick={() => dismissVersionNotice(activeVersionNotice)}
+                >
+                  <X size={17} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="behavior-dialog-body mobile-compat-dialog-body">
+                <div className={`mobile-compat-badge is-${activeVersionNotice.severity}`}>
+                  {activeVersionNotice.severity === 'hard'
+                    ? '协议不兼容 · 需更新后连接'
+                    : '版本跨度较大 · 可能影响体验'}
+                </div>
+
+                <p className="mobile-compat-desc">{activeVersionNotice.message}</p>
+
+                <div className="mobile-compat-meta">
+                  <div className="mobile-compat-meta-row">
+                    <span>需更新客户端</span>
+                    <strong>
+                      {activeVersionNotice.target === 'desktop' ? '电脑端 Axonkey' : '手机端 Axonkey Mobile'}
+                    </strong>
+                  </div>
+                  <div className="mobile-compat-meta-row">
+                    <span>版本要求</span>
+                    <strong>
+                      {activeVersionNotice.currentVersion
+                        ? `v${activeVersionNotice.currentVersion.replace(/^v/i, '')} → `
+                        : ''}
+                      {activeVersionNotice.expectedVersion}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="mobile-compat-actions">
+                  <button
+                    type="button"
+                    className="dialog-secondary"
+                    onClick={() => dismissVersionNotice(activeVersionNotice)}
+                  >
+                    {activeVersionNotice.severity === 'hard' ? '知道了' : '继续使用（本版本不再提示）'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dialog-primary mobile-compat-primary-btn"
+                    onClick={() => {
+                      const url = activeVersionNotice.target === 'desktop' ? DESKTOP_RELEASES_URL : MOBILE_RELEASES_URL
+                      void openExternalUrl(url, { native })
+                      if (activeVersionNotice.severity === 'soft') {
+                        dismissVersionNotice(activeVersionNotice)
+                      }
+                    }}
+                  >
+                    <span>{activeVersionNotice.target === 'desktop' ? '前往下载电脑端新版' : '查看手机端更新包'}</span>
+                    <ExternalLink size={13} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             </section>
           </div>,
