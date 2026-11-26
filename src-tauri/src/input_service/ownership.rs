@@ -1,6 +1,8 @@
 use super::MouseButton;
 use std::collections::{HashMap, HashSet};
 
+pub const MAX_LEASES_PER_OWNER: usize = 64;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum HeldOutput {
     MouseButton(MouseButton),
@@ -71,7 +73,10 @@ impl OwnershipLedger {
         released
     }
 
-    #[cfg(test)]
+    pub fn contains(&self, owner: &str, press_id: &str) -> bool {
+        self.leases.keys().any(|(o, p)| o == owner && p == press_id)
+    }
+
     pub fn held_count(&self, owner: &str) -> usize {
         self.leases.keys().filter(|(o, _)| o == owner).count()
     }

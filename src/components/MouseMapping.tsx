@@ -204,6 +204,7 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
       className="mouse-trigger-selector"
       ref={node => {
         if (node) rowRefs.current[activeId] = node
+        else delete rowRefs.current[activeId]
       }}
       aria-label={`${control.label}触发条件`}
     >

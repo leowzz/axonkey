@@ -25,43 +25,63 @@ int main(void) {
         [hostContent addSubview:childWebView];
         sourceWindow.contentView = hostContent;
 
-        axonkey_configure_quick_overlay_window((__bridge void *)sourceWindow, onQuickEscape);
-        assert(quickOverlayPanel != nil);
-        assert([quickOverlayPanel isKindOfClass:NSPanel.class]);
-        assert(quickOverlayPanel.contentView == hostContent);
-        assert(sourceWindow.contentView != hostContent);
-        assert(sourceWindow.ignoresMouseEvents);
+        __weak AxonkeyQuickOverlayPanel *weakFirstPanel = nil;
+        @autoreleasepool {
+            axonkey_configure_quick_overlay_window((__bridge void *)sourceWindow, onQuickEscape);
+            assert(quickOverlayPanel != nil);
+            assert([quickOverlayPanel isKindOfClass:NSPanel.class]);
+            assert(quickOverlayPanel.contentView == hostContent);
+            assert(sourceWindow.contentView != hostContent);
+            assert(sourceWindow.ignoresMouseEvents);
 
-        unsigned int status = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, true);
-        assert((status & 1u) != 0); // visible
-        assert((status & 2u) != 0); // active_space
-        assert(NSApp.active == wasActive);
-        assert(quickOverlayPanel.styleMask & NSWindowStyleMaskNonactivatingPanel);
-        assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorMoveToActiveSpace);
-        assert(!(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces));
-        assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary);
-        assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllApplications);
-        assert(!quickOverlayPanel.canBecomeKeyWindow);
-        assert(!quickOverlayPanel.canBecomeMainWindow);
-        assert(quickOverlayPanel.level == NSScreenSaverWindowLevel);
-        assert(NSEqualSizes(hostContent.frame.size, quickOverlayPanel.frame.size));
-        assert(NSEqualSizes(childWebView.frame.size, hostContent.bounds.size));
+            unsigned int status = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, true);
+            assert((status & 1u) != 0); // visible
+            assert((status & 2u) != 0); // active_space
+            assert(NSApp.active == wasActive);
+            assert(quickOverlayPanel.styleMask & NSWindowStyleMaskNonactivatingPanel);
+            assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorMoveToActiveSpace);
+            assert(!(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces));
+            assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary);
+            assert(quickOverlayPanel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllApplications);
+            assert(!quickOverlayPanel.canBecomeKeyWindow);
+            assert(!quickOverlayPanel.canBecomeMainWindow);
+            assert(quickOverlayPanel.level == NSScreenSaverWindowLevel);
+            assert(NSEqualSizes(hostContent.frame.size, quickOverlayPanel.frame.size));
+            assert(NSEqualSizes(childWebView.frame.size, hostContent.bounds.size));
 
-        // Non-forced reveal keeps the same panel without flickering or losing active Space.
-        AxonkeyQuickOverlayPanel *firstPanel = quickOverlayPanel;
-        unsigned int revealStatus = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, false);
-        assert((revealStatus & 3u) == 3u);
-        assert(quickOverlayPanel == firstPanel);
+            // Non-forced reveal keeps the same panel without flickering or losing active Space.
+            AxonkeyQuickOverlayPanel *firstPanel = quickOverlayPanel;
+            weakFirstPanel = firstPanel;
+            unsigned int revealStatus = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, false);
+            assert((revealStatus & 3u) == 3u);
+            assert(quickOverlayPanel == firstPanel);
 
-        // Hide and re-show reuses the panel cleanly and lands on the active Space.
-        axonkey_hide_quick_overlay_window((__bridge void *)sourceWindow);
-        assert(!quickOverlayPanel.visible);
-        assert(!sourceWindow.visible);
+            // Hide and re-show reuses the panel cleanly and lands on the active Space.
+            axonkey_hide_quick_overlay_window((__bridge void *)sourceWindow);
+            assert(!quickOverlayPanel.visible);
+            assert(!sourceWindow.visible);
 
-        unsigned int reopenStatus = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, true);
-        assert((reopenStatus & 3u) == 3u);
-        assert(quickOverlayPanel == firstPanel);
-        assert(NSApp.active == wasActive);
+            unsigned int reopenStatus = axonkey_show_quick_overlay_window((__bridge void *)sourceWindow, 880.0, 660.0, true);
+            assert((reopenStatus & 3u) == 3u);
+            assert(quickOverlayPanel == firstPanel);
+            assert(NSApp.active == wasActive);
+
+            // Rebuilding replaces quickOverlayPanel and closes the previous panel out of NSApp.windows.
+            AxonkeyQuickOverlayPanel *rebuilt = rebuildQuickOverlayPanel(firstPanel.frame, NO);
+            assert(rebuilt != nil);
+            assert(rebuilt != firstPanel);
+            assert(quickOverlayPanel == rebuilt);
+            assert(rebuilt.contentView == hostContent);
+        }
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        assert(weakFirstPanel == nil);
+        NSUInteger overlayPanelCount = 0;
+        for (NSWindow *window in NSApp.windows) {
+            if ([window isKindOfClass:AxonkeyQuickOverlayPanel.class]) {
+                overlayPanelCount += 1;
+            }
+        }
+        assert(overlayPanelCount == 1);
 
         axonkey_hide_quick_overlay_window((__bridge void *)sourceWindow);
         assert(escapeCount == 0);

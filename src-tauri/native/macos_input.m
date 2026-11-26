@@ -1131,130 +1131,134 @@ int axonkey_macos_input_run(
         return kIOReturnBadArgument;
     }
 
-    IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-    if (manager == NULL) {
-        return kIOReturnNoMemory;
-    }
-    CFMutableSetRef devices = CFSetCreateMutable(kCFAllocatorDefault, 0, &kCFTypeSetCallBacks);
-    CFMutableSetRef seized_devices = CFSetCreateMutable(
-        kCFAllocatorDefault,
-        0,
-        &kCFTypeSetCallBacks
-    );
-    CFMutableSetRef monitored_devices = CFSetCreateMutable(
-        kCFAllocatorDefault,
-        0,
-        &kCFTypeSetCallBacks
-    );
-    if (devices == NULL || seized_devices == NULL || monitored_devices == NULL) {
-        if (devices != NULL) CFRelease(devices);
-        if (seized_devices != NULL) CFRelease(seized_devices);
-        if (monitored_devices != NULL) CFRelease(monitored_devices);
-        CFRelease(manager);
-        return kIOReturnNoMemory;
-    }
-
-    AxonkeyInputState state = {
-        .callbacks = callbacks,
-        .capture = capture,
-        .vendor_id = vendor_id,
-        .product_id = product_id,
-        .sources = sources,
-        .source_count = source_count,
-        .devices = devices,
-        .seized_devices = seized_devices,
-        .monitored_devices = monitored_devices,
-        .modifier_mappings = capture ? modifier_mappings : NULL,
-        .modifier_mapping_count = capture ? modifier_mapping_count : 0,
-        .cleanup_modifier_mapping_sources = cleanup_modifier_mapping_sources,
-        .cleanup_modifier_mapping_source_count = cleanup_modifier_mapping_source_count,
-    };
-
-    int vendor_value = vendor_id;
-    int product_value = product_id;
-    CFNumberRef vendor = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendor_value);
-    CFNumberRef product = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &product_value);
-    if (vendor == NULL || product == NULL) {
-        if (vendor != NULL) CFRelease(vendor);
-        if (product != NULL) CFRelease(product);
-        CFRelease(monitored_devices);
-        CFRelease(seized_devices);
-        CFRelease(devices);
-        CFRelease(manager);
-        return kIOReturnNoMemory;
-    }
-    // Scope both report capture and hardware remapping to this physical remote.
-    state.target_serial = target_serial == NULL ? NULL : CFStringCreateWithCString(
-        kCFAllocatorDefault, target_serial, kCFStringEncodingUTF8);
-    const void *keys[] = {CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey), CFSTR(kIOHIDSerialNumberKey)};
-    const void *values[] = {vendor, product, state.target_serial};
-    CFDictionaryRef matching = CFDictionaryCreate(
-        kCFAllocatorDefault,
-        keys,
-        values,
-        state.target_serial == NULL ? 2 : 3,
-        &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks
-    );
-    if (vendor != NULL) CFRelease(vendor);
-    if (product != NULL) CFRelease(product);
-    if (matching == NULL) {
-        if (state.target_serial != NULL) CFRelease(state.target_serial);
-        CFRelease(monitored_devices);
-        CFRelease(seized_devices);
-        CFRelease(devices);
-        CFRelease(manager);
-        return kIOReturnNoMemory;
-    }
-
-    state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
-    if (state.modifier_mapping_count > 0) {
-        state.original_modifier_mappings = CFDictionaryCreateMutable(
+    @autoreleasepool {
+        IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+        if (manager == NULL) {
+            return kIOReturnNoMemory;
+        }
+        CFMutableSetRef devices = CFSetCreateMutable(kCFAllocatorDefault, 0, &kCFTypeSetCallBacks);
+        CFMutableSetRef seized_devices = CFSetCreateMutable(
             kCFAllocatorDefault,
             0,
+            &kCFTypeSetCallBacks
+        );
+        CFMutableSetRef monitored_devices = CFSetCreateMutable(
+            kCFAllocatorDefault,
+            0,
+            &kCFTypeSetCallBacks
+        );
+        if (devices == NULL || seized_devices == NULL || monitored_devices == NULL) {
+            if (devices != NULL) CFRelease(devices);
+            if (seized_devices != NULL) CFRelease(seized_devices);
+            if (monitored_devices != NULL) CFRelease(monitored_devices);
+            CFRelease(manager);
+            return kIOReturnNoMemory;
+        }
+
+        AxonkeyInputState state = {
+            .callbacks = callbacks,
+            .capture = capture,
+            .vendor_id = vendor_id,
+            .product_id = product_id,
+            .sources = sources,
+            .source_count = source_count,
+            .devices = devices,
+            .seized_devices = seized_devices,
+            .monitored_devices = monitored_devices,
+            .modifier_mappings = capture ? modifier_mappings : NULL,
+            .modifier_mapping_count = capture ? modifier_mapping_count : 0,
+            .cleanup_modifier_mapping_sources = cleanup_modifier_mapping_sources,
+            .cleanup_modifier_mapping_source_count = cleanup_modifier_mapping_source_count,
+        };
+
+        int vendor_value = vendor_id;
+        int product_value = product_id;
+        CFNumberRef vendor = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendor_value);
+        CFNumberRef product = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &product_value);
+        if (vendor == NULL || product == NULL) {
+            if (vendor != NULL) CFRelease(vendor);
+            if (product != NULL) CFRelease(product);
+            CFRelease(monitored_devices);
+            CFRelease(seized_devices);
+            CFRelease(devices);
+            CFRelease(manager);
+            return kIOReturnNoMemory;
+        }
+        // Scope both report capture and hardware remapping to this physical remote.
+        state.target_serial = target_serial == NULL ? NULL : CFStringCreateWithCString(
+            kCFAllocatorDefault, target_serial, kCFStringEncodingUTF8);
+        const void *keys[] = {CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey), CFSTR(kIOHIDSerialNumberKey)};
+        const void *values[] = {vendor, product, state.target_serial};
+        CFDictionaryRef matching = CFDictionaryCreate(
+            kCFAllocatorDefault,
+            keys,
+            values,
+            state.target_serial == NULL ? 2 : 3,
             &kCFTypeDictionaryKeyCallBacks,
             &kCFTypeDictionaryValueCallBacks
         );
-    }
-
-    IOHIDManagerSetDeviceMatching(manager, matching);
-    CFRelease(matching);
-    IOHIDManagerRegisterDeviceMatchingCallback(manager, axonkey_device_matched, &state);
-    IOHIDManagerRegisterDeviceRemovalCallback(manager, axonkey_device_removed, &state);
-    IOHIDManagerRegisterInputReportCallback(manager, axonkey_input_report, &state);
-    CFRunLoopRef run_loop = CFRunLoopGetCurrent();
-    IOHIDManagerScheduleWithRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
-    if (capture) {
-        axonkey_start_event_filter(&state, run_loop);
-    }
-
-    IOReturn result = IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone);
-    if (result == kIOReturnSuccess) {
-        axonkey_remove_unconfigured_modifier_mappings(&state);
-        axonkey_emit(&state, AXONKEY_EVENT_BACKEND_READY, 0, NULL, 0, 0);
-        while (!callbacks->should_stop(callbacks->context)) {
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.025, true);
-            axonkey_retry_modifier_mappings(&state, CFAbsoluteTimeGetCurrent());
-            axonkey_emit(&state, AXONKEY_EVENT_TICK, 0, NULL, 0, 0);
+        if (vendor != NULL) CFRelease(vendor);
+        if (product != NULL) CFRelease(product);
+        if (matching == NULL) {
+            if (state.target_serial != NULL) CFRelease(state.target_serial);
+            CFRelease(monitored_devices);
+            CFRelease(seized_devices);
+            CFRelease(devices);
+            CFRelease(manager);
+            return kIOReturnNoMemory;
         }
-    }
 
-    CFSetApplyFunction(seized_devices, axonkey_close_seized_device, NULL);
-    CFSetRemoveAllValues(seized_devices);
-    CFSetApplyFunction(monitored_devices, axonkey_close_seized_device, NULL);
-    CFSetRemoveAllValues(monitored_devices);
-    axonkey_restore_modifier_mappings(&state, true);
-    axonkey_stop_event_filter(&state, run_loop);
-    IOHIDManagerUnscheduleFromRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
-    IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
-    CFRelease(monitored_devices);
-    CFRelease(seized_devices);
-    CFRelease(devices);
-    if (state.original_modifier_mappings != NULL) CFRelease(state.original_modifier_mappings);
-    if (state.event_system_client != NULL) CFRelease(state.event_system_client);
-    if (state.target_serial != NULL) CFRelease(state.target_serial);
-    CFRelease(manager);
-    return result;
+        state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
+        if (state.modifier_mapping_count > 0) {
+            state.original_modifier_mappings = CFDictionaryCreateMutable(
+                kCFAllocatorDefault,
+                0,
+                &kCFTypeDictionaryKeyCallBacks,
+                &kCFTypeDictionaryValueCallBacks
+            );
+        }
+
+        IOHIDManagerSetDeviceMatching(manager, matching);
+        CFRelease(matching);
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, axonkey_device_matched, &state);
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, axonkey_device_removed, &state);
+        IOHIDManagerRegisterInputReportCallback(manager, axonkey_input_report, &state);
+        CFRunLoopRef run_loop = CFRunLoopGetCurrent();
+        IOHIDManagerScheduleWithRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
+        if (capture) {
+            axonkey_start_event_filter(&state, run_loop);
+        }
+
+        IOReturn result = IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone);
+        if (result == kIOReturnSuccess) {
+            axonkey_remove_unconfigured_modifier_mappings(&state);
+            axonkey_emit(&state, AXONKEY_EVENT_BACKEND_READY, 0, NULL, 0, 0);
+            while (!callbacks->should_stop(callbacks->context)) {
+                @autoreleasepool {
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.025, true);
+                    axonkey_retry_modifier_mappings(&state, CFAbsoluteTimeGetCurrent());
+                    axonkey_emit(&state, AXONKEY_EVENT_TICK, 0, NULL, 0, 0);
+                }
+            }
+        }
+
+        CFSetApplyFunction(seized_devices, axonkey_close_seized_device, NULL);
+        CFSetRemoveAllValues(seized_devices);
+        CFSetApplyFunction(monitored_devices, axonkey_close_seized_device, NULL);
+        CFSetRemoveAllValues(monitored_devices);
+        axonkey_restore_modifier_mappings(&state, true);
+        axonkey_stop_event_filter(&state, run_loop);
+        IOHIDManagerUnscheduleFromRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
+        IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
+        CFRelease(monitored_devices);
+        CFRelease(seized_devices);
+        CFRelease(devices);
+        if (state.original_modifier_mappings != NULL) CFRelease(state.original_modifier_mappings);
+        if (state.event_system_client != NULL) CFRelease(state.event_system_client);
+        if (state.target_serial != NULL) CFRelease(state.target_serial);
+        CFRelease(manager);
+        return result;
+    }
 }
 
 bool axonkey_macos_input_monitoring_granted(void) {
@@ -1584,7 +1588,9 @@ bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*
         CGEventTapEnable(capture.tap, true);
         on_ready(context, true);
         while (!should_stop(context)) {
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.02, false);
+            @autoreleasepool {
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.02, false);
+            }
         }
         on_ready(context, false);
         CGEventTapEnable(capture.tap, false);

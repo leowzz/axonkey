@@ -158,6 +158,11 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
     }
   }, [applyDeckPayload, native])
 
+  const controllerRef = useRef(controller)
+  controllerRef.current = controller
+  const instanceIdRef = useRef(instanceId)
+  instanceIdRef.current = instanceId
+
   useEffect(() => {
     if (!native) return
     let alive = true
@@ -174,17 +179,17 @@ export function MobileDeviceConnectionCard({ native, instanceId, controller }: M
     const unlistenPresetPromise = listen<MobilePresetAppliedPayload>('axonkey-mobile-preset-applied', event => {
       if (!alive || !event.payload?.snapshot) return
       applyDeckPayload({ revision: event.payload.revision, snapshot: event.payload.snapshot }, true)
-      if (controller) {
-        void applyPresetPayloadToDeviceController(controller, event.payload, instanceId)
+      if (controllerRef.current) {
+        void applyPresetPayloadToDeviceController(controllerRef.current, event.payload, instanceIdRef.current)
       }
     })
 
     return () => {
       alive = false
-      void unlistenDeckPromise.then(unlisten => unlisten())
-      void unlistenPresetPromise.then(unlisten => unlisten())
+      void unlistenDeckPromise.then(unlisten => unlisten()).catch(() => {})
+      void unlistenPresetPromise.then(unlisten => unlisten()).catch(() => {})
     }
-  }, [applyDeckPayload, controller, instanceId, native])
+  }, [applyDeckPayload, native])
 
   const effectivePageId =
     (selectedPageId && deckSnapshot?.pages.some(page => page.id === selectedPageId)

@@ -75,7 +75,11 @@ static dispatch_queue_t AKAudioQueue(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        queue = dispatch_queue_create("com.axonkey.macos-audio", DISPATCH_QUEUE_SERIAL);
+        dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_autorelease_frequency(
+            DISPATCH_QUEUE_SERIAL,
+            DISPATCH_AUTORELEASE_FREQUENCY_WORK_ITEM
+        );
+        queue = dispatch_queue_create("com.axonkey.macos-audio", attr);
         dispatch_queue_set_specific(queue, AKAudioQueueKey, (void *)AKAudioQueueKey, NULL);
     });
     return queue;
@@ -83,9 +87,15 @@ static dispatch_queue_t AKAudioQueue(void) {
 
 static void AKOnAudioQueueSync(dispatch_block_t block) {
     if (dispatch_get_specific(AKAudioQueueKey) != NULL) {
-        block();
+        @autoreleasepool {
+            block();
+        }
     } else {
-        dispatch_sync(AKAudioQueue(), block);
+        dispatch_sync(AKAudioQueue(), ^{
+            @autoreleasepool {
+                block();
+            }
+        });
     }
 }
 
@@ -261,6 +271,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 - (void)refresh;
 - (BOOL)restart;
 - (void)stop;
+- (void)invalidateCallbacks;
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count;
 - (int)currentState;
 - (BOOL)isBluetoothConnected;
@@ -565,6 +576,10 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     } else if (_central.state == CBManagerStatePoweredOn && _peripheral == nil) {
         [self discoverOrScan];
     }
+}
+
+- (void)invalidateCallbacks {
+    _callbacks = (AKAudioCallbacks){0};
 }
 
 - (void)stop {
@@ -1534,191 +1549,237 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 
 void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externalInput,
                                const char *targetAddress) {
-    __block AKMacAudioBridge *bridge = nil;
-    AKOnAudioQueueSync(^{
-        bridge = [[AKMacAudioBridge alloc] initWithCallbacks:callbacks];
-        bridge.externalInput = externalInput;
-        [bridge configureTargetAddress:targetAddress == NULL ? nil :
-            ([NSString stringWithUTF8String:targetAddress] ?: @"")];
-    });
-    return (__bridge_retained void *)bridge;
+    @autoreleasepool {
+        __block AKMacAudioBridge *bridge = nil;
+        AKOnAudioQueueSync(^{
+            bridge = [[AKMacAudioBridge alloc] initWithCallbacks:callbacks];
+            bridge.externalInput = externalInput;
+            [bridge configureTargetAddress:targetAddress == NULL ? nil :
+                ([NSString stringWithUTF8String:targetAddress] ?: @"")];
+        });
+        return (__bridge_retained void *)bridge;
+    }
 }
 
 void axonkey_macos_audio_set_recording(void *rawBridge, bool recording) {
     if (rawBridge == NULL) return;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge setExternalRecording:recording]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge setExternalRecording:recording]; });
+    }
 }
 
 void axonkey_macos_audio_set_rc902_mode(void *rawBridge, bool rc902Mode) {
     if (rawBridge == NULL) return;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ bridge.rc902Mode = rc902Mode; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ bridge.rc902Mode = rc902Mode; });
+    }
 }
 
 bool axonkey_macos_audio_send_command(void *rawBridge, const uint8_t *bytes, size_t length) {
     if (rawBridge == NULL || bytes == NULL || length == 0) return false;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    NSData *payload = [NSData dataWithBytes:bytes length:length];
-    __block BOOL sent = NO;
-    AKOnAudioQueueSync(^{ sent = [bridge sendCommandData:payload]; });
-    return sent;
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        NSData *payload = [NSData dataWithBytes:bytes length:length];
+        __block BOOL sent = NO;
+        AKOnAudioQueueSync(^{ sent = [bridge sendCommandData:payload]; });
+        return sent;
+    }
 }
 
 void axonkey_macos_audio_rc902_ready(void *rawBridge) {
     if (rawBridge == NULL) return;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge markRc902Ready]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge markRc902Ready]; });
+    }
 }
 
 void axonkey_macos_audio_rc902_session_state(void *rawBridge, bool active, uint8_t sessionID) {
     if (rawBridge == NULL) return;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge setRc902SessionActive:active sessionID:sessionID]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge setRc902SessionActive:active sessionID:sessionID]; });
+    }
 }
 
 void axonkey_macos_audio_rc902_error(void *rawBridge, const char *message) {
     if (rawBridge == NULL) return;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    NSString *text = message == NULL ? nil : [NSString stringWithUTF8String:message];
-    AKOnAudioQueueSync(^{ [bridge setRc902Error:text]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        NSString *text = message == NULL ? nil : [NSString stringWithUTF8String:message];
+        AKOnAudioQueueSync(^{ [bridge setRc902Error:text]; });
+    }
 }
 
 void axonkey_macos_audio_start(void *rawBridge) {
     if (rawBridge == NULL) {
         return;
     }
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge start]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge start]; });
+    }
 }
 
 void axonkey_macos_audio_refresh(void *rawBridge) {
     if (rawBridge == NULL) {
         return;
     }
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge refresh]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge refresh]; });
+    }
 }
 
 bool axonkey_macos_audio_restart(void *rawBridge) {
     if (rawBridge == NULL) return false;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    __block BOOL restarted = NO;
-    AKOnAudioQueueSync(^{ restarted = [bridge restart]; });
-    return restarted;
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        __block BOOL restarted = NO;
+        AKOnAudioQueueSync(^{ restarted = [bridge restart]; });
+        return restarted;
+    }
 }
 
 void axonkey_macos_audio_stop(void *rawBridge) {
     if (rawBridge == NULL) {
         return;
     }
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge stop]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge stop]; });
+    }
 }
 
 void axonkey_macos_audio_destroy(void *rawBridge) {
     if (rawBridge == NULL) {
         return;
     }
-    AKOnAudioQueueSync(^{
-        AKMacAudioBridge *bridge = (__bridge_transfer AKMacAudioBridge *)rawBridge;
-        [bridge stop];
-    });
+    @autoreleasepool {
+        AKOnAudioQueueSync(^{
+            AKMacAudioBridge *bridge = (__bridge_transfer AKMacAudioBridge *)rawBridge;
+            [bridge stop];
+            // Prevent post-stop async tasks (e.g. packet trace completion) from calling freed Rust context.
+            [bridge invalidateCallbacks];
+        });
+    }
 }
 
 bool axonkey_macos_audio_driver_installed(void) {
-    return AKFindDriverDevice() != kAudioObjectUnknown;
+    @autoreleasepool {
+        return AKFindDriverDevice() != kAudioObjectUnknown;
+    }
 }
 
 int axonkey_macos_audio_state(void *rawBridge) {
     if (rawBridge == NULL) {
         return AKAudioStateError;
     }
-    __block int state = AKAudioStateError;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ state = [bridge currentState]; });
-    return state;
+    @autoreleasepool {
+        __block int state = AKAudioStateError;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ state = [bridge currentState]; });
+        return state;
+    }
 }
 
 bool axonkey_macos_audio_bluetooth_connected(void *rawBridge) {
     if (rawBridge == NULL) {
         return false;
     }
-    __block BOOL connected = NO;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ connected = [bridge isBluetoothConnected]; });
-    return connected;
+    @autoreleasepool {
+        __block BOOL connected = NO;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ connected = [bridge isBluetoothConnected]; });
+        return connected;
+    }
 }
 
 bool axonkey_macos_audio_request_rssi(void *rawBridge) {
     if (rawBridge == NULL) return false;
-    __block BOOL connected = NO;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ connected = [bridge requestRSSI]; });
-    return connected;
+    @autoreleasepool {
+        __block BOOL connected = NO;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ connected = [bridge requestRSSI]; });
+        return connected;
+    }
 }
 
 bool axonkey_macos_audio_forwarding(void *rawBridge) {
     if (rawBridge == NULL) {
         return false;
     }
-    __block BOOL forwarding = NO;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ forwarding = [bridge isForwarding]; });
-    return forwarding;
+    @autoreleasepool {
+        __block BOOL forwarding = NO;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ forwarding = [bridge isForwarding]; });
+        return forwarding;
+    }
 }
 
 size_t axonkey_macos_audio_copy_error(void *rawBridge, char *buffer, size_t capacity) {
     if (rawBridge == NULL || buffer == NULL || capacity == 0) {
         return 0;
     }
-    __block NSString *error = nil;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ error = [bridge currentError]; });
-    NSData *data = [error dataUsingEncoding:NSUTF8StringEncoding];
-    if (data.length == 0) {
-        buffer[0] = '\0';
-        return 0;
+    @autoreleasepool {
+        __block NSString *error = nil;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ error = [bridge currentError]; });
+        NSData *data = [error dataUsingEncoding:NSUTF8StringEncoding];
+        if (data.length == 0) {
+            buffer[0] = '\0';
+            return 0;
+        }
+        size_t length = MIN(data.length, capacity - 1);
+        memcpy(buffer, data.bytes, length);
+        buffer[length] = '\0';
+        return length;
     }
-    size_t length = MIN(data.length, capacity - 1);
-    memcpy(buffer, data.bytes, length);
-    buffer[length] = '\0';
-    return length;
 }
 
 bool axonkey_macos_audio_enqueue(void *rawBridge, const int16_t *samples, size_t count) {
     if (rawBridge == NULL) {
         return false;
     }
-    __block BOOL accepted = NO;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ accepted = [bridge enqueueSamples:samples count:count]; });
-    return accepted;
+    @autoreleasepool {
+        __block BOOL accepted = NO;
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ accepted = [bridge enqueueSamples:samples count:count]; });
+        return accepted;
+    }
 }
 
 void axonkey_macos_audio_set_gain_db(void *rawBridge, float gain_db) {
     if (rawBridge == NULL) {
         return;
     }
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnAudioQueueSync(^{ [bridge setGainDecibels:gain_db]; });
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        AKOnAudioQueueSync(^{ [bridge setGainDecibels:gain_db]; });
+    }
 }
 
 bool axonkey_macos_audio_set_stretch_compensation(void *rawBridge, bool enabled) {
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    if (bridge == nil) return false;
-    __block BOOL accepted = NO;
-    AKOnAudioQueueSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
-    return accepted;
+    if (rawBridge == NULL) return false;
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        __block BOOL accepted = NO;
+        AKOnAudioQueueSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
+        return accepted;
+    }
 }
 
 bool axonkey_macos_audio_monitor(void *rawBridge, AKMonitorSnapshot *snapshot) {
     if (rawBridge == NULL || snapshot == NULL) return false;
-    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    __block BOOL connected = NO;
-    AKOnAudioQueueSync(^{
-        connected = [bridge requestRSSI];
-        [bridge readMonitor:snapshot];
-    });
-    return connected;
+    @autoreleasepool {
+        AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+        __block BOOL connected = NO;
+        AKOnAudioQueueSync(^{
+            connected = [bridge requestRSSI];
+            [bridge readMonitor:snapshot];
+        });
+        return connected;
+    }
 }

@@ -1,9 +1,11 @@
 use super::{
-    ownership::{HeldOutput, OwnershipLedger},
+    ownership::{HeldOutput, OwnershipLedger, MAX_LEASES_PER_OWNER},
     MouseButton, NativeBehavior,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+const MAX_PRESS_ID_BYTES: usize = 128;
 
 #[derive(Default, Debug)]
 struct SessionAccumulators {
@@ -231,18 +233,12 @@ impl<B: MobileInputBackend> MobileInputController<B> {
         button: MouseButton,
         down: bool,
     ) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let targets = if down {
-            state
-                .ledger
-                .acquire(session_id, press_id, vec![HeldOutput::MouseButton(button)])
+        let outputs = if down {
+            vec![HeldOutput::MouseButton(button)]
         } else {
-            state.ledger.release(session_id, press_id)
+            Vec::new()
         };
-        for out in targets {
-            self.apply_held_output(&out, down)?;
-        }
-        Ok(())
+        self.apply_hold_transition(session_id, press_id, outputs, down)
     }
 
     pub fn hold_keys(
@@ -252,17 +248,61 @@ impl<B: MobileInputBackend> MobileInputController<B> {
         keys: Vec<String>,
         down: bool,
     ) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let targets = if down {
-            let outputs = keys.into_iter().map(HeldOutput::Key).collect();
-            state.ledger.acquire(session_id, press_id, outputs)
+        let outputs = if down {
+            keys.into_iter().map(HeldOutput::Key).collect()
         } else {
-            state.ledger.release(session_id, press_id)
+            Vec::new()
         };
-        for out in targets {
-            self.apply_held_output(&out, down)?;
+        self.apply_hold_transition(session_id, press_id, outputs, down)
+    }
+
+    fn apply_hold_transition(
+        &self,
+        session_id: &str,
+        press_id: &str,
+        outputs: Vec<HeldOutput>,
+        down: bool,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if down {
+            if press_id.is_empty() || press_id.len() > MAX_PRESS_ID_BYTES {
+                return Err("按键标识无效或过长".into());
+            }
+            if !state.ledger.contains(session_id, press_id)
+                && state.ledger.held_count(session_id) >= MAX_LEASES_PER_OWNER
+            {
+                return Err("同时按住的按键数量过多".into());
+            }
+            let targets = state.ledger.acquire(session_id, press_id, outputs);
+            let mut applied = Vec::with_capacity(targets.len());
+            for out in targets {
+                if let Err(err) = self.apply_held_output(&out, true) {
+                    let rolled_back = state.ledger.release(session_id, press_id);
+                    for prev in applied.into_iter().rev() {
+                        if rolled_back.contains(&prev) {
+                            let _ = self.apply_held_output(&prev, false);
+                        }
+                    }
+                    return Err(err);
+                }
+                applied.push(out);
+            }
+            Ok(())
+        } else {
+            let targets = state.ledger.release(session_id, press_id);
+            let mut first_err: Option<String> = None;
+            for out in targets {
+                if let Err(err) = self.apply_held_output(&out, false) {
+                    if first_err.is_none() {
+                        first_err = Some(err);
+                    }
+                }
+            }
+            match first_err {
+                Some(err) => Err(err),
+                None => Ok(()),
+            }
         }
-        Ok(())
     }
 
     pub fn text_commit(&self, text: &str, paste_mode: bool, submit: bool) -> Result<(), String> {
@@ -320,5 +360,96 @@ impl<B: MobileInputBackend> MobileInputController<B> {
             HeldOutput::MouseButton(btn) => self.backend.inject_mouse_button(*btn, down),
             HeldOutput::Key(key) => self.backend.inject_key_edge(key, down),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct MockBackend {
+        fail_key: Mutex<Option<String>>,
+        events: Mutex<Vec<(String, bool)>>,
+    }
+
+    impl MobileInputBackend for MockBackend {
+        fn execute_behaviors(&self, _behaviors: &[NativeBehavior]) -> Result<(), String> {
+            Ok(())
+        }
+        fn inject_relative_motion(&self, _dx: i32, _dy: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn inject_absolute_pointer(&self, _u: f64, _v: f64) -> Result<(), String> {
+            Ok(())
+        }
+        fn inject_wheel(&self, _delta: i32, _horizontal: bool) -> Result<(), String> {
+            Ok(())
+        }
+        fn inject_mouse_button(&self, button: MouseButton, down: bool) -> Result<(), String> {
+            self.events
+                .lock()
+                .unwrap()
+                .push((format!("mouse:{button:?}"), down));
+            Ok(())
+        }
+        fn inject_key_edge(&self, key: &str, down: bool) -> Result<(), String> {
+            if down && self.fail_key.lock().unwrap().as_deref() == Some(key) {
+                return Err(format!("inject failed for {key}"));
+            }
+            self.events.lock().unwrap().push((key.to_owned(), down));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failed_hold_rolls_back_lease_and_partial_presses() {
+        let backend = MockBackend {
+            fail_key: Mutex::new(Some("A".into())),
+            events: Mutex::new(Vec::new()),
+        };
+        let controller = MobileInputController::new(backend);
+
+        let err = controller
+            .hold_keys("s1", "voice:1", vec!["Ctrl".into(), "A".into()], true)
+            .unwrap_err();
+        assert!(err.contains("A"));
+        assert_eq!(controller.state.lock().unwrap().ledger.held_count("s1"), 0);
+        assert_eq!(
+            *controller.backend.events.lock().unwrap(),
+            vec![("Ctrl".into(), true), ("Ctrl".into(), false)]
+        );
+
+        *controller.backend.fail_key.lock().unwrap() = None;
+        controller
+            .hold_keys("s1", "voice:1", vec!["Ctrl".into(), "A".into()], true)
+            .unwrap();
+        assert_eq!(controller.state.lock().unwrap().ledger.held_count("s1"), 1);
+    }
+
+    #[test]
+    fn rejects_invalid_press_id_and_excess_leases_per_owner() {
+        let controller = MobileInputController::new(MockBackend::default());
+
+        assert!(controller
+            .hold_keys("s1", "", vec!["A".into()], true)
+            .is_err());
+        let long_id = "p".repeat(MAX_PRESS_ID_BYTES + 1);
+        assert!(controller
+            .hold_keys("s1", &long_id, vec!["A".into()], true)
+            .is_err());
+
+        for i in 0..MAX_LEASES_PER_OWNER {
+            controller
+                .pointer_button("s1", &format!("btn:{i}"), MouseButton::Left, true)
+                .unwrap();
+        }
+        assert!(controller
+            .pointer_button("s1", "btn:overflow", MouseButton::Left, true)
+            .is_err());
+        assert_eq!(
+            controller.state.lock().unwrap().ledger.held_count("s1"),
+            MAX_LEASES_PER_OWNER
+        );
     }
 }

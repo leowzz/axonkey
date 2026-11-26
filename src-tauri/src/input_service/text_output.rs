@@ -23,8 +23,35 @@ pub(super) fn copy_text(text: &str) {
     }
 }
 
+#[cfg(all(not(test), target_os = "macos"))]
+struct AutoreleasePool(*mut std::ffi::c_void);
+
+#[cfg(all(not(test), target_os = "macos"))]
+impl AutoreleasePool {
+    fn push() -> Self {
+        #[link(name = "objc")]
+        extern "C" {
+            fn objc_autoreleasePoolPush() -> *mut std::ffi::c_void;
+        }
+        Self(unsafe { objc_autoreleasePoolPush() })
+    }
+}
+
+#[cfg(all(not(test), target_os = "macos"))]
+impl Drop for AutoreleasePool {
+    fn drop(&mut self) {
+        #[link(name = "objc")]
+        extern "C" {
+            fn objc_autoreleasePoolPop(pool: *mut std::ffi::c_void);
+        }
+        unsafe { objc_autoreleasePoolPop(self.0) };
+    }
+}
+
 #[cfg(not(test))]
 fn write_clipboard(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let _pool = AutoreleasePool::push();
     APP.get()
         .ok_or("Clipboard service is not ready")?
         .clipboard()

@@ -1533,3 +1533,61 @@ test('Step 4 放入本机并测试 writes to local custom-devices, registers des
     realModel.resetRuntimeSupportPackages()
   }
 })
+
+test('accumulateProbeFrame and accumulatePairedHidEvent preserve references on ignored frames and enforce maxItems', () => {
+  const { captureModel } = createCaptureHarness({ native: false })
+  const { accumulateProbeFrame, accumulatePairedHidEvent, createHidPairTrackerState } = captureModel
+
+  const neutralByReport = new Map()
+  const seed = accumulateProbeFrame([], neutralByReport, {
+    sequence: 1,
+    reportId: 0x01,
+    hex: '01 00 00 EF',
+    isStreamingNoise: false,
+  })
+  assert.equal(seed.length, 1)
+
+  const afterNoise = accumulateProbeFrame(seed, neutralByReport, {
+    sequence: 2,
+    reportId: 0x6f,
+    hex: '6F AA BB',
+    isStreamingNoise: true,
+  })
+  assert.equal(afterNoise, seed)
+
+  const afterNeutral = accumulateProbeFrame(seed, neutralByReport, {
+    sequence: 3,
+    reportId: 0x01,
+    hex: '01 00 00 00',
+    isStreamingNoise: false,
+  })
+  assert.equal(afterNeutral, seed)
+
+  const capped = accumulateProbeFrame(
+    seed,
+    neutralByReport,
+    {
+      sequence: 4,
+      reportId: 0x01,
+      hex: '01 00 00 F0',
+      isStreamingNoise: false,
+    },
+    1,
+  )
+  assert.equal(capped, seed)
+
+  const tracker = createHidPairTrackerState()
+  const paired = accumulatePairedHidEvent([], tracker, {
+    sequence: 1,
+    reportId: 0x01,
+    hex: '01 00 00 EF',
+    isStreamingNoise: false,
+  })
+  const pairedAfterNoise = accumulatePairedHidEvent(paired, tracker, {
+    sequence: 2,
+    reportId: 0x6f,
+    hex: '6F AA BB',
+    isStreamingNoise: true,
+  })
+  assert.equal(pairedAfterNoise, paired)
+})

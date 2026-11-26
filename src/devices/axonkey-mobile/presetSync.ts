@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { createBehavior, normalizeBehavior, type Behavior, type TriggerBehaviors } from '../../behaviorModel.ts'
 import { replaceInstanceProfileBehaviors, type InstanceProfileBehaviors } from '../integration/instanceProfiles.ts'
@@ -164,16 +164,19 @@ export async function applyPresetPayloadToDeviceController(
 }
 
 export function useAxonkeyMobilePresetSync(native: boolean, controller: DeviceController) {
+  const controllerRef = useRef(controller)
+  controllerRef.current = controller
+
   useEffect(() => {
     if (!native) return
     let alive = true
     const unlistenPromise = listen<MobilePresetAppliedPayload>('axonkey-mobile-preset-applied', event => {
       if (!alive) return
-      void applyPresetPayloadToDeviceController(controller, event.payload)
+      void applyPresetPayloadToDeviceController(controllerRef.current, event.payload)
     })
     return () => {
       alive = false
-      void unlistenPromise.then(unlisten => unlisten())
+      void unlistenPromise.then(unlisten => unlisten()).catch(() => {})
     }
-  }, [controller, native])
+  }, [native])
 }

@@ -762,20 +762,21 @@ export function accumulateProbeFrame(
   existing: readonly DiscoveredProbeButton[],
   neutralByReport: Map<number, string>,
   frame: { sequence: number; reportId: number; hex: string; isStreamingNoise: boolean },
+  maxItems = 256,
 ): DiscoveredProbeButton[] {
-  if (frame.isStreamingNoise) return [...existing]
+  if (frame.isStreamingNoise) return existing as DiscoveredProbeButton[]
   const norm = normalizeHexBytes(frame.hex)
-  if (!norm || norm.bytes.length === 0) return [...existing]
+  if (!norm || norm.bytes.length === 0) return existing as DiscoveredProbeButton[]
 
   const allZeroAfterId = norm.bytes.slice(1).every(byte => byte === 0)
   if (allZeroAfterId) {
     if (!neutralByReport.has(frame.reportId)) {
       neutralByReport.set(frame.reportId, norm.hex)
     }
-    return [...existing]
+    return existing as DiscoveredProbeButton[]
   }
   const neutral = neutralByReport.get(frame.reportId)
-  if (neutral === norm.hex) return [...existing]
+  if (neutral === norm.hex) return existing as DiscoveredProbeButton[]
 
   const key = `${frame.reportId}:${norm.hex}`
   const index = existing.findIndex(item => item.key === key)
@@ -796,6 +797,8 @@ export function accumulateProbeFrame(
     }
     return next
   }
+
+  if (existing.length >= maxItems) return existing as DiscoveredProbeButton[]
 
   return [
     ...existing,
@@ -837,9 +840,9 @@ export function accumulatePairedHidEvent(
   source: PairedHidEventSource = EMPTY_HID_SOURCE,
   maxItems = 60,
 ): PairedHidEventItem[] {
-  if (frame.isStreamingNoise) return [...existing]
+  if (frame.isStreamingNoise) return existing as PairedHidEventItem[]
   const norm = normalizeHexBytes(frame.hex)
-  if (!norm || norm.bytes.length === 0) return [...existing]
+  if (!norm || norm.bytes.length === 0) return existing as PairedHidEventItem[]
 
   const sourceKey = source.targetId || source.instanceId || 'default'
   const reportKey = `${sourceKey}:${frame.reportId}`
@@ -865,10 +868,10 @@ export function accumulatePairedHidEvent(
 
   if (isReleaseFrame) {
     const activeEventId = tracker.activeEventIdByReportKey.get(reportKey)
-    if (!activeEventId) return [...existing]
+    if (!activeEventId) return existing as PairedHidEventItem[]
     tracker.activeEventIdByReportKey.delete(reportKey)
     const idx = existing.findIndex(item => item.id === activeEventId)
-    if (idx < 0) return [...existing]
+    if (idx < 0) return existing as PairedHidEventItem[]
     const next = [...existing]
     next[idx] = {
       ...next[idx],

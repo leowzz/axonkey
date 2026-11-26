@@ -1238,10 +1238,18 @@ fn open_system_settings(page: String) -> Result<(), String> {
             }
             _ => return Err("Unsupported settings page".into()),
         };
-        std::process::Command::new("open")
+        let output = std::process::Command::new("/usr/bin/open")
             .arg(uri)
-            .spawn()
+            .output()
             .map_err(|error| format!("Cannot open macOS System Settings: {error}"))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "Cannot open macOS System Settings ({}): {}",
+                output.status,
+                detail.trim(),
+            ));
+        }
         Ok(())
     }
 
@@ -1282,11 +1290,19 @@ fn reveal_current_app() -> Result<(), String> {
         let executable = std::env::current_exe()
             .map_err(|error| format!("Cannot locate the current executable: {error}"))?;
         let target = reveal_target_for_executable(&executable);
-        std::process::Command::new("open")
+        let output = std::process::Command::new("/usr/bin/open")
             .arg("-R")
             .arg(target)
-            .spawn()
+            .output()
             .map_err(|error| format!("Cannot reveal Axonkey in Finder: {error}"))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "Cannot reveal Axonkey in Finder ({}): {}",
+                output.status,
+                detail.trim(),
+            ));
+        }
         Ok(())
     }
 

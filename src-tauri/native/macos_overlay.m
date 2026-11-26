@@ -207,10 +207,13 @@ static void attachContentViewToQuickOverlayPanel(AxonkeyQuickOverlayPanel *panel
 }
 
 static AxonkeyQuickOverlayPanel *rebuildQuickOverlayPanel(NSRect frame, BOOL joinAllSpaces) {
-    NSView *webContent = quickOverlayPanel ? quickOverlayPanel.contentView : nil;
-    if (quickOverlayPanel) {
-        quickOverlayPanel.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
-        [quickOverlayPanel orderOut:nil];
+    AxonkeyQuickOverlayPanel *oldPanel = quickOverlayPanel;
+    NSView *webContent = oldPanel ? oldPanel.contentView : nil;
+    if (oldPanel) {
+        oldPanel.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
+        [oldPanel orderOut:nil];
+        quickOverlayPanel = nil;
+        [oldPanel close];
     }
     quickOverlayPanel = createQuickOverlayPanelWithFrame(frame, joinAllSpaces);
     if (webContent) {

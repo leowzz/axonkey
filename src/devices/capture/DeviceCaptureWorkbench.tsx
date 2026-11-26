@@ -117,6 +117,7 @@ type RepoSvgPreset = {
 
 const MAX_RAW_FRAMES = 80
 const MAX_PAIRED_EVENTS = 60
+const MAX_PROBE_BUTTONS = 256
 const MAX_LIVE_HITS = 12
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 const CLI_GENERATE_CMD = 'npm run generate:devices'
@@ -398,7 +399,9 @@ export function DeviceCaptureWorkbench({
           current ? { ...current, frameCount: Math.max(current.frameCount, payload.sequence) } : current,
         )
         setRawFrames(prev => [payload, ...prev].slice(0, MAX_RAW_FRAMES))
-        setDiscoveredProbeButtons(prev => accumulateProbeFrame(prev, neutralByReportRef.current, payload))
+        setDiscoveredProbeButtons(prev =>
+          accumulateProbeFrame(prev, neutralByReportRef.current, payload, MAX_PROBE_BUTTONS),
+        )
         const source = candidateToEventSource(activeSessionCandidateRef.current)
         setPairedHidEvents(prev =>
           accumulatePairedHidEvent(prev, pairTrackerRef.current, payload, source, MAX_PAIRED_EVENTS),
@@ -530,6 +533,10 @@ export function DeviceCaptureWorkbench({
           },
           nativeRuntime,
         )
+        if (activeSessionCandidateRef.current?.targetId !== candidate.targetId) {
+          neutralByReportRef.current = new Map()
+          setDiscoveredProbeButtons([])
+        }
         activeSessionCandidateRef.current = candidate
         setSessionStatus(status)
         setStreamingReportIds(status.streamingReportIds)

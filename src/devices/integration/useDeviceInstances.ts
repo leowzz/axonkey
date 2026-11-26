@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { emptySnapshot } from './model'
@@ -221,7 +221,22 @@ export function useDeviceInstances(native: boolean) {
       }),
     [native, transact],
   )
-  return { snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove, reorder }
+  return useMemo(
+    () => ({
+      snapshot,
+      error,
+      busy,
+      loaded,
+      refresh,
+      refreshInformation,
+      toggleRecording,
+      put,
+      update,
+      remove,
+      reorder,
+    }),
+    [snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove, reorder],
+  )
 }
 export type DeviceController = ReturnType<typeof useDeviceInstances>
 

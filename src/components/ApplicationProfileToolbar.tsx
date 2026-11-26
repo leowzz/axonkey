@@ -18,18 +18,52 @@ export type ApplicationSelectOption = {
   detail?: string
 }
 
+const MAX_APPLICATION_ICON_CACHE = 256
+const MAX_RESOLVED_ICON_KEYS = 512
 const applicationIconCache = new Map<string, string>()
 const inFlightApplicationIconKeys = new Set<string>()
 const resolvedApplicationIconKeys = new Set<string>()
 const applicationIconListeners = new Set<() => void>()
+
+function rememberResolvedIconKey(key: string) {
+  resolvedApplicationIconKeys.delete(key)
+  resolvedApplicationIconKeys.add(key)
+  while (resolvedApplicationIconKeys.size > MAX_RESOLVED_ICON_KEYS) {
+    const oldest = resolvedApplicationIconKeys.values().next().value
+    if (oldest === undefined) break
+    resolvedApplicationIconKeys.delete(oldest)
+  }
+}
+
+function rememberApplicationIcon(id: string, dataUrl: string) {
+  applicationIconCache.delete(id)
+  applicationIconCache.set(id, dataUrl)
+  while (applicationIconCache.size > MAX_APPLICATION_ICON_CACHE) {
+    const oldestId = applicationIconCache.keys().next().value
+    if (oldestId === undefined) break
+    applicationIconCache.delete(oldestId)
+    for (const key of resolvedApplicationIconKeys) {
+      if (key.startsWith(`${oldestId}\0`)) {
+        resolvedApplicationIconKeys.delete(key)
+      }
+    }
+  }
+}
 
 function requestApplicationIcons(items: readonly ApplicationSelectOption[]) {
   const seenIds = new Set<string>()
   const missing: { id: string; path: string }[] = []
   const batchKeys: string[] = []
   for (const item of items) {
-    if (!item.id || seenIds.has(item.id) || applicationIconCache.has(item.id)) continue
+    if (!item.id || seenIds.has(item.id)) continue
     seenIds.add(item.id)
+    const cached = applicationIconCache.get(item.id)
+    if (cached !== undefined) {
+      // Refresh LRU order so active apps stay cached longer than transient background windows.
+      applicationIconCache.delete(item.id)
+      applicationIconCache.set(item.id, cached)
+      continue
+    }
     const path = item.path ?? ''
     const requestKey = `${item.id}\0${path}`
     if (resolvedApplicationIconKeys.has(requestKey) || inFlightApplicationIconKeys.has(requestKey)) continue
@@ -42,7 +76,7 @@ function requestApplicationIcons(items: readonly ApplicationSelectOption[]) {
     .then(loaded => {
       for (const key of batchKeys) {
         inFlightApplicationIconKeys.delete(key)
-        resolvedApplicationIconKeys.add(key)
+        rememberResolvedIconKey(key)
       }
       if (!loaded || typeof loaded !== 'object') return
       let updated = false
@@ -52,7 +86,7 @@ function requestApplicationIcons(items: readonly ApplicationSelectOption[]) {
           dataUrl.startsWith('data:image/') &&
           applicationIconCache.get(id) !== dataUrl
         ) {
-          applicationIconCache.set(id, dataUrl)
+          rememberApplicationIcon(id, dataUrl)
           updated = true
         }
       }
