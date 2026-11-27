@@ -2021,6 +2021,21 @@ fn merge_driver_devices(
     }
 }
 
+/// Sleep until the next piece of work, never longer than a short cap so
+/// shutdown and settings changes stay responsive.
+fn next_wait(
+    now: Instant,
+    next_scan: Instant,
+    next_usage: Instant,
+    next_event: Instant,
+) -> Duration {
+    next_scan
+        .min(next_usage)
+        .min(next_event)
+        .saturating_duration_since(now)
+        .clamp(Duration::from_millis(1), Duration::from_millis(50))
+}
+
 fn run(shared: Arc<Shared>) {
     let _session = HidSession::acquire();
     let mut api = match HidApi::new() {
@@ -2444,7 +2459,7 @@ fn run(shared: Arc<Shared>) {
                 && (direct_hid || instance.kind != "rc003")
                 && !readers.contains_key(&instance.id)
             {
-                // Retry an open error on the next scan, not on every 8 ms tick.
+                // Retry an open error on the next scan, not on every tick.
                 let retry = scanning
                     || !failures
                         .get(&instance.id)
@@ -2760,7 +2775,10 @@ fn run(shared: Arc<Shared>) {
                 }
             }
         }
-        thread::sleep(Duration::from_millis(8));
+        // Wake on the nearest deadline instead of a fixed 8 ms tick. Readers are
+        // polled every 40 ms, so no work here needs a shorter interval; a fixed
+        // tick only kept the thread waking 125 times per second while idle.
+        thread::sleep(next_wait(Instant::now(), next_scan, next_usage, next_event));
     }
     drop(readers);
     #[cfg(windows)]
@@ -3042,6 +3060,30 @@ fn save_profile_switch_for_app(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_wait_follows_the_nearest_deadline() {
+        let now = Instant::now();
+        let usage = now + Duration::from_millis(40);
+        assert_eq!(
+            next_wait(now, now + Duration::from_secs(2), usage, usage),
+            Duration::from_millis(40)
+        );
+        assert_eq!(
+            next_wait(
+                now,
+                now + Duration::from_secs(2),
+                usage,
+                now + Duration::from_millis(10)
+            ),
+            Duration::from_millis(10)
+        );
+        // A due deadline must not spin the loop; a far one must not delay
+        // shutdown or settings changes beyond the cap.
+        assert_eq!(next_wait(now, now, usage, usage), Duration::from_millis(1));
+        let far = now + Duration::from_secs(5);
+        assert_eq!(next_wait(now, far, far, far), Duration::from_millis(50));
+    }
     #[test]
     fn legacy_output_selection_is_ignored_and_removed_on_save() {
         let original = instance("remote", "physical-remote");
