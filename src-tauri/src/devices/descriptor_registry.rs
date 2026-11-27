@@ -1296,10 +1296,10 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                ("g17.touch.num".to_string(), true),
                 ("g17.touch.enter".to_string(), true),
-                ("g17.touch.t2".to_string(), true),
+                ("g17.touch.num".to_string(), true),
                 ("g17.touch.swipeUp".to_string(), true),
+                ("g17.touch.t2".to_string(), true),
             ]
         );
 
@@ -1310,10 +1310,10 @@ mod tests {
         assert_eq!(
             release,
             vec![
-                ("g17.touch.num".to_string(), false),
                 ("g17.touch.enter".to_string(), false),
-                ("g17.touch.t2".to_string(), false),
+                ("g17.touch.num".to_string(), false),
                 ("g17.touch.swipeUp".to_string(), false),
+                ("g17.touch.t2".to_string(), false),
             ]
         );
     }
