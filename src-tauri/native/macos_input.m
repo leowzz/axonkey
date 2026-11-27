@@ -1569,6 +1569,17 @@ static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type
     return consumed && type == kCGEventScrollWheel ? NULL : event;
 }
 
+// Only events whose own location the handlers read are tapped. Pointer moves
+// carry no scroll delta, and each handler recomputes the edge from the event it
+// is processing, so tapping kCGEventMouseMoved would only route the whole
+// pointer stream through the session tap.
+static CGEventMask AxonkeyMouseEventMask(void) {
+    return CGEventMaskBit(kCGEventScrollWheel)
+        | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+        | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
+        | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp);
+}
+
 bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*on_ready)(void *, bool),
     bool (*on_scroll)(void *, double, double, double, double, double, double, double, double),
     bool (*on_button)(void *, int32_t, bool, double, double, double, double, double, double)) {
@@ -1576,10 +1587,7 @@ bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*
         if (!AXIsProcessTrusted() || !CGPreflightListenEventAccess()) return false;
         AxonkeyMouseCapture capture = { context, should_stop, on_ready, on_scroll, on_button, NULL };
         capture.tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
-            CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved)
-            | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
-            | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
-            | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp), axonkey_mouse_callback, &capture);
+            AxonkeyMouseEventMask(), axonkey_mouse_callback, &capture);
         if (capture.tap == NULL) return false;
         CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, capture.tap, 0);
         if (source == NULL) { CFRelease(capture.tap); return false; }
