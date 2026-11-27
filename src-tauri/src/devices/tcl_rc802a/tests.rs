@@ -111,7 +111,7 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
                 .first()
                 .and_then(|voice| voice.attributes.get("trigger-modes"))
                 .map(String::as_str),
-            Some("hold click")
+            Some("hold")
         );
     }
 }

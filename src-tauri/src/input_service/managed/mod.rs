@@ -1590,6 +1590,18 @@ impl InputReader {
             Self::Test => Ok(0),
         }
     }
+
+    fn needs_fast_poll(&self) -> bool {
+        match self {
+            Self::Hid(_) => true,
+            #[cfg(target_os = "macos")]
+            Self::A15(_) => true,
+            #[cfg(target_os = "macos")]
+            Self::Remote(_) => false,
+            #[cfg(test)]
+            Self::Test => false,
+        }
+    }
 }
 fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
     instance
@@ -2021,19 +2033,23 @@ fn merge_driver_devices(
     }
 }
 
-/// Sleep until the next piece of work, never longer than a short cap so
-/// shutdown and settings changes stay responsive.
+/// Sleep until the next piece of work, keeping an 8 ms cap while any
+/// direct-HID or HID-voice reader is polled by this loop.
 fn next_wait(
     now: Instant,
     next_scan: Instant,
-    next_usage: Instant,
-    next_event: Instant,
+    next_periodic: Instant,
+    fast_poll: bool,
 ) -> Duration {
+    let cap = if fast_poll {
+        Duration::from_millis(8)
+    } else {
+        Duration::from_millis(50)
+    };
     next_scan
-        .min(next_usage)
-        .min(next_event)
+        .min(next_periodic)
         .saturating_duration_since(now)
-        .clamp(Duration::from_millis(1), Duration::from_millis(50))
+        .clamp(Duration::from_millis(1), cap)
 }
 
 fn run(shared: Arc<Shared>) {
@@ -2058,8 +2074,7 @@ fn run(shared: Arc<Shared>) {
     let mut sessions: HashMap<String, String> = HashMap::new();
     let start = Instant::now();
     let mut next_scan = Instant::now();
-    let mut next_event = Instant::now();
-    let mut next_usage = Instant::now();
+    let mut next_periodic = Instant::now();
     let mut voice_sessions = HashMap::<String, String>::new();
     // OS Bluetooth inventory queries can be slow. Keep them off the HID read loop.
     let (pair_tx, pair_rx) = sync_channel(1);
@@ -2689,8 +2704,9 @@ fn run(shared: Arc<Shared>) {
                 let _ = reply.send(Err("当前平台不支持手动控制录音".into()));
             }
         }
-        if Instant::now() >= next_usage {
-            next_usage = Instant::now() + Duration::from_millis(40);
+        let periodic_due = Instant::now() >= next_periodic;
+        if periodic_due {
+            next_periodic = Instant::now() + Duration::from_millis(40);
             let mut recording = HashMap::new();
             for instance in &configs {
                 let mut active = statuses
@@ -2749,8 +2765,7 @@ fn run(shared: Arc<Shared>) {
             }
             snapshot.runtime = statuses;
         }
-        if Instant::now() >= next_event {
-            next_event = Instant::now() + Duration::from_millis(40);
+        if periodic_due {
             for (id, reader) in &mut readers {
                 if let Some((values, down)) = reader.engine.take_update() {
                     let key = |id: String| {
@@ -2775,10 +2790,17 @@ fn run(shared: Arc<Shared>) {
                 }
             }
         }
-        // Wake on the nearest deadline instead of a fixed 8 ms tick. Readers are
-        // polled every 40 ms, so no work here needs a shorter interval; a fixed
-        // tick only kept the thread waking 125 times per second while idle.
-        thread::sleep(next_wait(Instant::now(), next_scan, next_usage, next_event));
+        // Keep an 8 ms poll cadence while any direct-HID or HID-voice reader is
+        // active; otherwise wake on the nearest 40 ms periodic / scan deadline.
+        let fast_poll = readers
+            .values()
+            .any(|reader| reader.device.needs_fast_poll());
+        thread::sleep(next_wait(
+            Instant::now(),
+            next_scan,
+            next_periodic,
+            fast_poll,
+        ));
     }
     drop(readers);
     #[cfg(windows)]
@@ -3064,25 +3086,37 @@ mod tests {
     #[test]
     fn idle_wait_follows_the_nearest_deadline() {
         let now = Instant::now();
-        let usage = now + Duration::from_millis(40);
+        let periodic = now + Duration::from_millis(40);
         assert_eq!(
-            next_wait(now, now + Duration::from_secs(2), usage, usage),
+            next_wait(now, now + Duration::from_secs(2), periodic, false),
             Duration::from_millis(40)
         );
         assert_eq!(
-            next_wait(
-                now,
-                now + Duration::from_secs(2),
-                usage,
-                now + Duration::from_millis(10)
-            ),
+            next_wait(now, now + Duration::from_millis(10), periodic, false),
             Duration::from_millis(10)
         );
         // A due deadline must not spin the loop; a far one must not delay
         // shutdown or settings changes beyond the cap.
-        assert_eq!(next_wait(now, now, usage, usage), Duration::from_millis(1));
+        assert_eq!(
+            next_wait(now, now, periodic, false),
+            Duration::from_millis(1)
+        );
         let far = now + Duration::from_secs(5);
-        assert_eq!(next_wait(now, far, far, far), Duration::from_millis(50));
+        assert_eq!(next_wait(now, far, far, false), Duration::from_millis(50));
+
+        // Direct-HID and HID-voice readers retain an 8 ms poll cadence.
+        assert_eq!(
+            next_wait(now, now + Duration::from_secs(2), periodic, true),
+            Duration::from_millis(8)
+        );
+        assert_eq!(
+            next_wait(now, now + Duration::from_millis(4), periodic, true),
+            Duration::from_millis(4)
+        );
+        assert_eq!(
+            next_wait(now, now, periodic, true),
+            Duration::from_millis(1)
+        );
     }
     #[test]
     fn legacy_output_selection_is_ignored_and_removed_on_save() {

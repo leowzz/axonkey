@@ -93,6 +93,7 @@ unsafe extern "C" fn button(
         let capture = &mut *(context as *mut Capture);
         let width = edge_width(&capture.shared);
         let edge = screen_edge(x, y, left, top, right, bottom, width);
+        capture.scroll.enter(edge);
         let button = canonical_button(index);
         let active = capture.shared.active.load(Ordering::Acquire);
         let log_level = if edge.is_some() {
