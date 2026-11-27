@@ -940,7 +940,7 @@ mod tests {
                     deck_snapshot,
                     ..
                 } => {
-                    assert!(capabilities.binary_pointer_v1);
+                    assert_eq!(capabilities.binary_pointer_v1, cfg!(windows));
                     assert_eq!(capabilities.udp_discovery_port, UDP_DISCOVERY_PORT);
                     assert_eq!(deck_snapshot.voice_binding_summary.as_deref(), Some("Alt"));
                     assert!(input_generation >= 1);

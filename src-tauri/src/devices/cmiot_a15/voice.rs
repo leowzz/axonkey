@@ -380,7 +380,8 @@ mod tests {
             .map(|s| i32::from(*s).abs())
             .max()
             .unwrap();
-        assert_eq!(peak, 1957);
+        // Floating-point libsiren output differs by a few LSB across x86_64 and ARM64.
+        assert!((1950..=1970).contains(&peak), "captured frame peak: {peak}");
     }
 
     #[test]

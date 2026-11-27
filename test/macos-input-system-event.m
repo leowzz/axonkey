@@ -599,8 +599,52 @@ static int CheckMouseScrollAmounts(void) {
     return 0;
 }
 
+typedef struct {
+    int calls;
+    double x, y, vertical;
+} MouseScrollFixture;
+
+static bool CaptureMouseScroll(void *context, double x, double y, double left, double top,
+    double right, double bottom, double vertical, double horizontal) {
+    (void)left; (void)top; (void)right; (void)bottom; (void)horizontal;
+    MouseScrollFixture *fixture = context;
+    fixture->calls++;
+    fixture->x = x;
+    fixture->y = y;
+    fixture->vertical = vertical;
+    return false;
+}
+
+// The session tap does not receive pointer moves, so a wheel event on its own
+// must still hand the edge logic that event's location and delta.
+static int CheckMouseScrollWithoutMove(void) {
+    CGEventMask expectedMask = CGEventMaskBit(kCGEventScrollWheel)
+        | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+        | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
+        | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp);
+    CGEventMask actualMask = AxonkeyMouseEventMask();
+    if ((actualMask & CGEventMaskBit(kCGEventMouseMoved)) != 0 || actualMask != expectedMask) {
+        fprintf(stderr, "unexpected mouse tap mask: actual=0x%llx expected=0x%llx\n",
+            (unsigned long long)actualMask, (unsigned long long)expectedMask);
+        return 1;
+    }
+    MouseScrollFixture fixture = {0};
+    AxonkeyMouseCapture capture = {&fixture, NULL, NULL, CaptureMouseScroll, NULL, NULL};
+    CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 1, 2);
+    CGEventSetLocation(event, CGPointMake(42.0, 7.0));
+    axonkey_mouse_callback(NULL, kCGEventScrollWheel, event, &capture);
+    CFRelease(event);
+    if (fixture.calls != 1 || fixture.vertical != 2.0 || fixture.x != 42.0 || fixture.y != 7.0) {
+        fprintf(stderr, "scroll without move: calls=%d vertical=%.1f at=(%.1f,%.1f)\n",
+            fixture.calls, fixture.vertical, fixture.x, fixture.y);
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
     if (CheckMouseScrollAmounts()) return 1;
+    if (CheckMouseScrollWithoutMove()) return 1;
     @autoreleasepool {
         Method method = class_getClassMethod([NSEvent class], @selector(eventWithCGEvent:));
         IMP original = method_setImplementation(method, (IMP)RejectEventWithCGEvent);
