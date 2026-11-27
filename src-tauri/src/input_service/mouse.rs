@@ -465,11 +465,14 @@ fn screen_edge(
     }
 }
 
+const SCROLL_REMAINDER_TIMEOUT: Duration = Duration::from_millis(500);
+
 #[derive(Default)]
 struct ScrollAccumulator {
     edge: Option<Edge>,
     key: Option<(&'static str, u64)>,
     remainder: f64,
+    last_scroll: Option<Instant>,
     // Shared by opposite directions; retained when moving between screen edges.
     last_trigger: [Option<(u64, Instant)>; 2],
 }
@@ -485,6 +488,18 @@ impl ScrollAccumulator {
     fn reset(&mut self) {
         self.key = None;
         self.remainder = 0.0;
+        self.last_scroll = None;
+    }
+
+    fn prepare_remainder(&mut self, key: (&'static str, u64), now: Instant) {
+        let expired = self
+            .last_scroll
+            .is_some_and(|last| now.saturating_duration_since(last) >= SCROLL_REMAINDER_TIMEOUT);
+        if self.key != Some(key) || expired {
+            self.remainder = 0.0;
+            self.key = Some(key);
+        }
+        self.last_scroll = Some(now);
     }
 
     /// True only when an enabled mapping owns this input. Disabled actions count
@@ -506,8 +521,7 @@ impl ScrollAccumulator {
         }
         // Wheel mapping is edge-only. Ignore leftover global wheel rules.
         let Some(edge) = self.edge else {
-            self.key = None;
-            self.remainder = 0.0;
+            self.reset();
             return false;
         };
         let id = WHEEL_INPUTS[edge.scope()][direction];
@@ -523,11 +537,7 @@ impl ScrollAccumulator {
         let revision = config.revision;
         if let Ok(mut guard) = shared.quick_mode.try_lock() {
             if guard.1.is_active() {
-                let key = (id, revision);
-                if self.key != Some(key) {
-                    self.remainder = 0.0;
-                    self.key = Some(key);
-                }
+                self.prepare_remainder((id, revision), now);
                 let total = self.remainder + scaled_amount * f64::from(sensitivity) / 100.0;
                 if total.floor() as usize == 0 {
                     self.remainder = total;
@@ -545,15 +555,10 @@ impl ScrollAccumulator {
         }
         let actions = config.settings.behaviors.get(id).map(|item| &item.click);
         let Some(actions) = actions.filter(|a| has_actions(a)) else {
-            self.key = None;
-            self.remainder = 0.0;
+            self.reset();
             return false;
         };
-        let key = (id, config.revision);
-        if self.key != Some(key) {
-            self.remainder = 0.0;
-            self.key = Some(key);
-        }
+        self.prepare_remainder((id, config.revision), now);
         let axis = direction / 2;
         let interval_ms = if axis == 0 {
             config.settings.mouse_vertical_scroll_interval_ms
@@ -568,6 +573,7 @@ impl ScrollAccumulator {
             })
         {
             self.remainder = 0.0;
+            self.last_scroll = None;
             return true;
         }
         // Event normalization removes magnitude-based acceleration, not momentum
@@ -591,6 +597,7 @@ impl ScrollAccumulator {
                 .unwrap_or_default();
             self.last_trigger[axis] = Some((config.revision, now));
             self.remainder = 0.0;
+            self.last_scroll = None;
             drop(config);
             if !sources.is_empty() {
                 crate::library_usage::record_trigger(id, &sources);
@@ -633,6 +640,9 @@ impl ScrollAccumulator {
         if shared.sender.try_send(job).is_ok() {
             self.last_trigger[axis] = Some((config.revision, now));
             self.remainder = if interval_ms > 0 { 0.0 } else { total.fract() };
+            if self.remainder == 0.0 {
+                self.last_scroll = None;
+            }
             true
         } else {
             self.reset();
@@ -2027,5 +2037,26 @@ mod tests {
         );
 
         crate::clipboard_history::clear();
+    }
+
+    #[test]
+    fn stale_scroll_remainder_resets_after_idle_gap_without_edge_leave() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.top.up": {"click":[{"type":"key","key":"A"}]}
+        }));
+        let mut scroll = ScrollAccumulator::default();
+        scroll.enter(Some(Edge::Top));
+        let start = Instant::now();
+        assert!(scroll.scroll_at(&shared, 0, 0.6, start));
+        assert!(receiver.try_recv().is_err());
+        assert!(scroll.scroll_at(&shared, 0, 0.5, start + SCROLL_REMAINDER_TIMEOUT));
+        assert!(receiver.try_recv().is_err());
+        assert!(scroll.scroll_at(
+            &shared,
+            0,
+            0.5,
+            start + SCROLL_REMAINDER_TIMEOUT + Duration::from_millis(50)
+        ));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
     }
 }

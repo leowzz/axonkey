@@ -618,6 +618,16 @@ static bool CaptureMouseScroll(void *context, double x, double y, double left, d
 // The session tap does not receive pointer moves, so a wheel event on its own
 // must still hand the edge logic that event's location and delta.
 static int CheckMouseScrollWithoutMove(void) {
+    CGEventMask expectedMask = CGEventMaskBit(kCGEventScrollWheel)
+        | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+        | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
+        | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp);
+    CGEventMask actualMask = AxonkeyMouseEventMask();
+    if ((actualMask & CGEventMaskBit(kCGEventMouseMoved)) != 0 || actualMask != expectedMask) {
+        fprintf(stderr, "unexpected mouse tap mask: actual=0x%llx expected=0x%llx\n",
+            (unsigned long long)actualMask, (unsigned long long)expectedMask);
+        return 1;
+    }
     MouseScrollFixture fixture = {0};
     AxonkeyMouseCapture capture = {&fixture, NULL, NULL, CaptureMouseScroll, NULL, NULL};
     CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 1, 2);
